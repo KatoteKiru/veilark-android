@@ -43,6 +43,15 @@ val veilarkAbis = providers.gradleProperty("veilarkAbis")
   ?.ifEmpty { null }
   ?: listOf("arm64-v8a", "armeabi-v7a")
 
+val veilarkCoreCanaryRequested = providers.gradleProperty("veilarkCoreCanary")
+  .map { value ->
+    require(value == "true" || value == "false") {
+      "veilarkCoreCanary must be exactly 'true' or 'false'"
+    }
+    value.toBooleanStrict()
+  }
+  .orElse(false)
+
 val embeddedTrustSources = listOf(
   rootProject.layout.projectDirectory.file("../secrets/generated/new-nl-trusttunnel.json"),
   rootProject.layout.projectDirectory.file("../secrets/generated/frankfurt-trusttunnel.json"),
@@ -64,6 +73,7 @@ android {
         targetSdk = 36
         versionCode = 34
         versionName = "0.8.0-rc7"
+        buildConfigField("boolean", "VEILARK_CORE_ENABLED", "false")
         ndk {
             abiFilters += veilarkAbis
         }
@@ -77,6 +87,14 @@ android {
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+        }
+        create("veilarkCoreCanary") {
+            initWith(getByName("debug"))
+            isDebuggable = true
+            applicationIdSuffix = ".veilarkcorecanary"
+            versionNameSuffix = "-veilark-core-canary"
+            matchingFallbacks += listOf("debug")
+            buildConfigField("boolean", "VEILARK_CORE_ENABLED", "true")
         }
     }
     compileOptions {
@@ -96,6 +114,19 @@ android {
       }
     }
     sourceSets.getByName("main").assets.srcDir(generatedTrustAssets)
+}
+
+androidComponents {
+  beforeVariants(selector().withBuildType("veilarkCoreCanary")) { variantBuilder ->
+    val enabled = veilarkCoreCanaryRequested.get()
+    variantBuilder.enable = enabled
+    (variantBuilder as com.android.build.api.variant.HasUnitTestBuilder).enableUnitTest = enabled
+  }
+  beforeVariants(selector().withBuildType("release")) { variantBuilder ->
+    if (veilarkCoreCanaryRequested.get()) {
+      variantBuilder.enable = false
+    }
+  }
 }
 
 tasks.configureEach {
