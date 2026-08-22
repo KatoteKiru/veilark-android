@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "component": "sing-box libbox for Android",
+  "status": "production",
+  "source": {
+    "repository": "https://github.com/SagerNet/sing-box.git",
+    "tag": "v1.13.14",
+    "commit": "25a600db24f7680ad9806ce5427bd0ab8afe1114",
+    "commit_date": "2026-06-25T16:36:07+08:00",
+    "license": "GPL-3.0-or-later"
+  },
+  "build": {
+    "recipe": "../../scripts/build-libbox-multiabi.ps1",
+    "platforms": ["android/arm", "android/arm64"],
+    "go": "1.25.12",
+    "gomobile": "v0.1.12",
+    "android_ndk": "28.0.13004108"
+  },
+  "artifact": {
+    "path": "../../app/libs/libbox.aar",
+    "bytes": 44689239,
+    "sha256": "BBCA15C5B05D0380F8DDFB4151CB0529B382DA1C9D0745480488C7D9FB370B4E",
+    "abis": ["arm64-v8a", "armeabi-v7a"]
+  }
+}

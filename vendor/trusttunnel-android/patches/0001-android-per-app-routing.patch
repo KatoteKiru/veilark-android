@@ -1,0 +1,342 @@
+From 6f0f47c642a55af82d80b2053f99c978171ecbb1 Mon Sep 17 00:00:00 2001
+From: Veilark Build <build@veilark.local>
+Date: Tue, 11 Aug 2026 12:00:00 +0300
+Subject: [PATCH] android: preserve lifecycle fixes and add per-app routing
+
+Preserve Veilark's Android 14+ SPECIAL_USE foreground-service contract and its
+early-failure service cleanup from the verified baseline AAR. Keep application
+routing at the Android VpnService.Builder boundary so it also applies to the
+TrustTunnel transport. Never mix allowed and disallowed application rules,
+ignore packages removed since preference capture, and fail closed when ONLY
+mode has no installed selected application.
+---
+ platform/android/lib/build.gradle.kts          |   4 +
+ .../adguard/trusttunnel/ApplicationRouting.kt  |  76 ++++++++++++
+ .../com/adguard/trusttunnel/VpnService.kt      |  58 +++++++--
+ .../trusttunnel/ApplicationRoutingTest.kt      | 115 ++++++++++++++++++
+ 4 files changed, 248 insertions(+), 5 deletions(-)
+ create mode 100644 platform/android/lib/src/main/java/com/adguard/trusttunnel/ApplicationRouting.kt
+ create mode 100644 platform/android/lib/src/test/java/com/adguard/trusttunnel/ApplicationRoutingTest.kt
+
+diff --git a/platform/android/lib/build.gradle.kts b/platform/android/lib/build.gradle.kts
+index 24dc5c6..a71b7f4 100644
+--- a/platform/android/lib/build.gradle.kts
++++ b/platform/android/lib/build.gradle.kts
+@@ -15,6 +15,10 @@ android {
+     defaultConfig {
+         minSdk = 26
+
++        ndk {
++            abiFilters += setOf("arm64-v8a", "armeabi-v7a")
++        }
++
+         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+         consumerProguardFiles("proguard-rules.pro")
+         externalNativeBuild {
+diff --git a/platform/android/lib/src/main/java/com/adguard/trusttunnel/ApplicationRouting.kt b/platform/android/lib/src/main/java/com/adguard/trusttunnel/ApplicationRouting.kt
+new file mode 100644
+index 0000000..e008866
+--- /dev/null
++++ b/platform/android/lib/src/main/java/com/adguard/trusttunnel/ApplicationRouting.kt
+@@ -0,0 +1,76 @@
++package com.adguard.trusttunnel
++
++internal enum class ApplicationRoutingMode(val preferenceValue: String) {
++    ALL("all"),
++    ONLY("only"),
++    BYPASS("bypass");
++
++    companion object {
++        fun fromPreference(value: String?): ApplicationRoutingMode =
++            entries.firstOrNull { it.preferenceValue == value } ?: ALL
++    }
++}
++
++internal data class ApplicationRoutingPlan(
++    val mode: ApplicationRoutingMode,
++    val packages: List<String>,
++)
++
++internal object ApplicationRoutingPolicy {
++    const val PREFERENCES_NAME = "profile_meta"
++    const val MODE_KEY = "application_mode"
++    const val PACKAGES_KEY = "selected_applications"
++
++    fun create(
++        modePreference: String?,
++        selectedPackages: Set<String>,
++        ownPackage: String,
++    ): ApplicationRoutingPlan {
++        val mode = ApplicationRoutingMode.fromPreference(modePreference)
++        val normalizedPackages = selectedPackages
++            .asSequence()
++            .map(String::trim)
++            .filter(String::isNotEmpty)
++            .distinct()
++            .sorted()
++            .toList()
++
++        val packages = when (mode) {
++            ApplicationRoutingMode.ALL -> listOf(ownPackage)
++            ApplicationRoutingMode.ONLY -> normalizedPackages.filterNot { it == ownPackage }
++            ApplicationRoutingMode.BYPASS -> (normalizedPackages + ownPackage).distinct().sorted()
++        }
++        return ApplicationRoutingPlan(mode, packages)
++    }
++}
++
++internal interface ApplicationRuleSink {
++    /** Returns false when the package is no longer installed. */
++    fun allow(packageName: String): Boolean
++
++    /** Returns false when the package is no longer installed. */
++    fun disallow(packageName: String): Boolean
++}
++
++internal fun applyApplicationRoutingPlan(
++    plan: ApplicationRoutingPlan,
++    sink: ApplicationRuleSink,
++): Int {
++    var appliedRules = 0
++    plan.packages.forEach { packageName ->
++        val applied = when (plan.mode) {
++            ApplicationRoutingMode.ONLY -> sink.allow(packageName)
++            ApplicationRoutingMode.ALL,
++            ApplicationRoutingMode.BYPASS,
++            -> sink.disallow(packageName)
++        }
++        if (applied) {
++            appliedRules += 1
++        }
++    }
++
++    check(plan.mode != ApplicationRoutingMode.ONLY || appliedRules > 0) {
++        "No selected applications are installed; refusing to create an unrestricted VPN"
++    }
++    return appliedRules
++}
+diff --git a/platform/android/lib/src/main/java/com/adguard/trusttunnel/VpnService.kt b/platform/android/lib/src/main/java/com/adguard/trusttunnel/VpnService.kt
+index 5cebd0b..3d44c14 100644
+--- a/platform/android/lib/src/main/java/com/adguard/trusttunnel/VpnService.kt
++++ b/platform/android/lib/src/main/java/com/adguard/trusttunnel/VpnService.kt
+@@ -5,6 +5,7 @@ import android.app.NotificationChannel
+ import android.app.NotificationManager
+ import android.content.Context
+ import android.content.Intent
++import android.content.pm.PackageManager
+ import android.content.pm.ServiceInfo
+ import android.net.ConnectivityManager
+ import android.net.NetworkCapabilities
+@@ -139,8 +140,8 @@ class VpnService : android.net.VpnService(), VpnClientListener {
+
+         // Foreground service must spawn its notification in the first 5 seconds of the service lifetime
+         val notification = createNotification(this.applicationContext)
+-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+-            startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_SYSTEM_EXEMPTED)
++        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
++            startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
+         } else {
+             startForeground(NOTIFICATION_ID, notification)
+         }
+@@ -242,7 +243,7 @@ class VpnService : android.net.VpnService(), VpnClientListener {
+                 .setMtu(tunConfig.mtuSize.toInt())
+                 .addAddress("172.20.2.13", 32)
+                 .addAddress("fdfd:29::2", 64)
+-                .addDisallowedApplication(applicationContext.packageName)
++            applyApplicationRouting(builder)
+             val dnsServers = if (config.endpoint.dnsUpstreams.isEmpty()) {
+                 ADGUARD_DNS_SERVERS
+             } else {
+@@ -271,6 +272,45 @@ class VpnService : android.net.VpnService(), VpnClientListener {
+         }
+     }
+
++    private fun applyApplicationRouting(builder: Builder) {
++        val preferences = applicationContext.getSharedPreferences(
++            ApplicationRoutingPolicy.PREFERENCES_NAME,
++            Context.MODE_PRIVATE,
++        )
++        val modePreference = preferences.getString(ApplicationRoutingPolicy.MODE_KEY, null)
++        val selectedPackages = preferences
++            .getStringSet(ApplicationRoutingPolicy.PACKAGES_KEY, emptySet())
++            ?.toSet()
++            .orEmpty()
++        val plan = ApplicationRoutingPolicy.create(
++            modePreference = modePreference,
++            selectedPackages = selectedPackages,
++            ownPackage = applicationContext.packageName,
++        )
++        val appliedRules = applyApplicationRoutingPlan(plan, BuilderApplicationRuleSink(builder))
++        LOG.info("Applied application routing mode=${plan.mode.preferenceValue}, rules=$appliedRules")
++    }
++
++    private inner class BuilderApplicationRuleSink(
++        private val builder: Builder,
++    ) : ApplicationRuleSink {
++        override fun allow(packageName: String): Boolean = applyPackageRule(packageName) {
++            builder.addAllowedApplication(packageName)
++        }
++
++        override fun disallow(packageName: String): Boolean = applyPackageRule(packageName) {
++            builder.addDisallowedApplication(packageName)
++        }
++
++        private fun applyPackageRule(packageName: String, rule: () -> Unit): Boolean = try {
++            rule()
++            true
++        } catch (_: PackageManager.NameNotFoundException) {
++            LOG.warn("Ignoring application routing rule for an uninstalled package: $packageName")
++            false
++        }
++    }
++
+     /**
+      * Closes the VPN TUN interface and stops itself only if the called is the only one who
+      * tries to stop the service.
+@@ -293,7 +333,15 @@ class VpnService : android.net.VpnService(), VpnClientListener {
+      *         false if something is wrong with closing or the service has already been closed
+      */
+     private fun close(startId: Int? = null): Boolean = synchronized(SYNC) {
+-        if (state != State.Started) return false.also { LOG.info("VPN service is not running, do nothing") }
++        if (state != State.Started) {
++            LOG.info("VPN service is not running, stopping the foreground service")
++            if (startId != null) {
++                stopSelf(startId)
++            } else {
++                stopSelf()
++            }
++            return false
++        }
+
+         LOG.info("Closing VPN service")
+
+@@ -373,4 +421,4 @@ class VpnService : android.net.VpnService(), VpnClientListener {
+             // This is a key characteristic of foreground service notifications.
+             .build()
+     }
+-}
+\ No newline at end of file
++}
+diff --git a/platform/android/lib/src/test/java/com/adguard/trusttunnel/ApplicationRoutingTest.kt b/platform/android/lib/src/test/java/com/adguard/trusttunnel/ApplicationRoutingTest.kt
+new file mode 100644
+index 0000000..7df1e9e
+--- /dev/null
++++ b/platform/android/lib/src/test/java/com/adguard/trusttunnel/ApplicationRoutingTest.kt
+@@ -0,0 +1,115 @@
++package com.adguard.trusttunnel
++
++import org.junit.Assert.assertEquals
++import org.junit.Assert.assertFalse
++import org.junit.Assert.assertThrows
++import org.junit.Assert.assertTrue
++import org.junit.Test
++
++class ApplicationRoutingTest {
++    @Test
++    fun allDisallowsOnlyOwnPackage() {
++        val plan = ApplicationRoutingPolicy.create("all", setOf("app.one"), OWN_PACKAGE)
++
++        assertEquals(ApplicationRoutingMode.ALL, plan.mode)
++        assertEquals(listOf(OWN_PACKAGE), plan.packages)
++        assertUsesOnlyDisallowedRules(plan)
++    }
++
++    @Test
++    fun bypassDisallowsSelectedPackagesAndOwnPackage() {
++        val plan = ApplicationRoutingPolicy.create(
++            "bypass",
++            setOf("app.two", OWN_PACKAGE, "app.one"),
++            OWN_PACKAGE,
++        )
++
++        assertEquals(ApplicationRoutingMode.BYPASS, plan.mode)
++        assertEquals(listOf("app.one", "app.two", OWN_PACKAGE).sorted(), plan.packages)
++        assertUsesOnlyDisallowedRules(plan)
++    }
++
++    @Test
++    fun onlyAllowsSelectedPackagesWithoutOwnPackage() {
++        val plan = ApplicationRoutingPolicy.create(
++            "only",
++            setOf("app.two", OWN_PACKAGE, "app.one"),
++            OWN_PACKAGE,
++        )
++
++        assertEquals(ApplicationRoutingMode.ONLY, plan.mode)
++        assertEquals(listOf("app.one", "app.two"), plan.packages)
++        val sink = RecordingSink()
++        applyApplicationRoutingPlan(plan, sink)
++        assertEquals(plan.packages, sink.allowed)
++        assertTrue(sink.disallowed.isEmpty())
++    }
++
++    @Test
++    fun unknownModeFallsBackToSafeAllMode() {
++        val plan = ApplicationRoutingPolicy.create("unexpected", setOf("app.one"), OWN_PACKAGE)
++
++        assertEquals(ApplicationRoutingMode.ALL, plan.mode)
++        assertEquals(listOf(OWN_PACKAGE), plan.packages)
++    }
++
++    @Test
++    fun stalePackagesAreIgnoredInBypassMode() {
++        val plan = ApplicationRoutingPolicy.create(
++            "bypass",
++            setOf("app.installed", "app.removed"),
++            OWN_PACKAGE,
++        )
++        val sink = RecordingSink(stalePackages = setOf("app.removed"))
++
++        val applied = applyApplicationRoutingPlan(plan, sink)
++
++        assertEquals(2, applied)
++        assertFalse("app.removed" in sink.disallowed)
++        assertTrue("app.installed" in sink.disallowed)
++        assertTrue(OWN_PACKAGE in sink.disallowed)
++        assertTrue(sink.allowed.isEmpty())
++    }
++
++    @Test
++    fun onlyModeFailsClosedWhenEverySelectedPackageIsStale() {
++        val plan = ApplicationRoutingPolicy.create("only", setOf("app.removed"), OWN_PACKAGE)
++        val sink = RecordingSink(stalePackages = setOf("app.removed"))
++
++        assertThrows(IllegalStateException::class.java) {
++            applyApplicationRoutingPlan(plan, sink)
++        }
++        assertTrue(sink.allowed.isEmpty())
++        assertTrue(sink.disallowed.isEmpty())
++    }
++
++    private fun assertUsesOnlyDisallowedRules(plan: ApplicationRoutingPlan) {
++        val sink = RecordingSink()
++        applyApplicationRoutingPlan(plan, sink)
++        assertEquals(plan.packages, sink.disallowed)
++        assertTrue(sink.allowed.isEmpty())
++    }
++
++    private class RecordingSink(
++        private val stalePackages: Set<String> = emptySet(),
++    ) : ApplicationRuleSink {
++        val allowed = mutableListOf<String>()
++        val disallowed = mutableListOf<String>()
++
++        override fun allow(packageName: String): Boolean {
++            if (packageName in stalePackages) return false
++            allowed += packageName
++            return true
++        }
++
++        override fun disallow(packageName: String): Boolean {
++            if (packageName in stalePackages) return false
++            disallowed += packageName
++            return true
++        }
++    }
++
++    companion object {
++        private const val OWN_PACKAGE = "app.veilark.test"
++    }
++}
+--
+2.52.0.windows.1

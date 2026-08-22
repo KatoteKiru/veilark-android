@@ -1,0 +1,43 @@
+{
+  "schema": 1,
+  "upstream": {
+    "repository": "https://github.com/TrustTunnel/TrustTunnelClient.git",
+    "tag": "v1.0.49",
+    "commit": "be6596652d9722c3109164f505be8e7975a2daa5"
+  },
+  "patch": "patches/0001-android-per-app-routing.patch",
+  "patch_sha256": "e4ad8cc0c731ae71682dba8de33dc13be7802758feef7dff09eca82fac8daecc",
+  "packaging": {
+    "method": "adapter-only-classes-jar-replacement",
+    "fixed_zip_timestamp_utc": "2026-04-09T09:55:00Z",
+    "native_rebuilt": false,
+    "preserved_veilark_adapter_fixes": [
+      "android-34-special-use-foreground-service",
+      "stop-foreground-service-after-early-start-failure"
+    ]
+  },
+  "toolchain": {
+    "jdk": "Eclipse Temurin 17.0.19+10",
+    "gradle": "8.11.1",
+    "android_gradle_plugin": "8.9.1",
+    "kotlin": "2.0.21",
+    "compile_sdk": 35,
+    "min_sdk": 26,
+    "ndk_declared_by_upstream": "28.1.13356709",
+    "cmake_available_on_build_host": "3.31.6",
+    "native_toolchain_used_for_final_artifact": false
+  },
+  "sha256": {
+    "veilark_baseline_aar": "8de1d62df1d2242b527c99ab28d172886326bbdeddcc931caa3d23251d6393b1",
+    "veilark_baseline_classes_jar": "89c744cc589c8547bb8796769c630ee06e2cdd0bde6a7ecafce9d9fab82b6386",
+    "patched_classes_jar": "760c80213cc7c6074b9a124ec2cd730fbbf4960b5c03a0210fea56e8bb85c2c6",
+    "patched_aar": "3257274bb06fa2ef7b13d91d40b0bbd81434e9a5b8d1ee2cda4a347ae6428d82",
+    "android_manifest_xml": "e2b8620b22bf37d9860165bba5df9b1b4fff41cbdfdd240d7038628a077941ba",
+    "r_txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "proguard_txt": "59a5016dc2777c4a21b3c88d1d2ba7bdf36999eff08cecb301e00e2ead478510",
+    "assets_logback_xml": "7ac50f5a58e5fb5dfa8648cb459e4fb8b45df3d6c50aeec4dc1afa64321d77c4",
+    "aar_metadata_properties": "9cc8517bbdf06d879f57a2cfd6f8c6914e48800d443421cd850971945f98e7b2",
+    "jni_arm64_v8a": "26adfbb9780c11a51e2e10e561310be07977a1fa68d44e202598f01378dd4a73",
+    "jni_armeabi_v7a": "16416cb7e567dbe90e9d52a2211e5d8ae27118197d83a209d5b9d7df7169813c"
+  }
+}

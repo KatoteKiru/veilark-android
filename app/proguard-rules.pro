@@ -1,0 +1,3 @@
+-keep class io.nekohasekai.libbox.** { *; }
+-keep class com.adguard.trusttunnel.** { *; }
+-dontwarn org.slf4j.**

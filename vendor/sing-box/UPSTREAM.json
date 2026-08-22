@@ -1,0 +1,83 @@
+{
+  "schema_version": 1,
+  "component": "sing-box experimental/libbox for Android",
+  "status": "canary-not-integrated",
+  "source": {
+    "repository": "https://github.com/SagerNet/sing-box.git",
+    "release": "https://github.com/SagerNet/sing-box/releases/tag/v1.13.19",
+    "tag": "v1.13.19",
+    "commit": "b5ebaa1fc0f2b94256180b95468e73ef53caa27d",
+    "commit_date": "2026-08-17T17:07:24+08:00",
+    "license": "GPL-3.0-or-later"
+  },
+  "build": {
+    "builder": "go run ./cmd/internal/build_libbox -target android -platform android/arm,android/arm64",
+    "go": {
+      "version": "1.25.12",
+      "distribution": "go1.25.12.windows-amd64.zip",
+      "distribution_sha256": "D5DC82DA351B00E5EEDD04F41356817D674CC4308131F0F638A5B14C5C3AF4CB"
+    },
+    "gomobile": {
+      "version": "v0.1.12",
+      "module_sum": "h1:XwzjZaclFF96deLqwAgK8gU3w0M2A8qxgDmhV+A0wjg="
+    },
+    "java": "Eclipse Temurin 17.0.19+10",
+    "android_ndk": "28.0.13004108",
+    "android_api": 23,
+    "tags": [
+      "with_gvisor",
+      "with_quic",
+      "with_wireguard",
+      "with_utls",
+      "with_naive_outbound",
+      "with_clash_api",
+      "badlinkname",
+      "tfogo_checklinkname0",
+      "with_tailscale",
+      "ts_omit_logtail",
+      "ts_omit_ssh",
+      "ts_omit_drive",
+      "ts_omit_taildrop",
+      "ts_omit_webclient",
+      "ts_omit_doctor",
+      "ts_omit_capture",
+      "ts_omit_kube",
+      "ts_omit_aws",
+      "ts_omit_synology",
+      "ts_omit_bird"
+    ]
+  },
+  "artifact": {
+    "path": "artifacts/libbox-1.13.19-android-arm-arm64.aar",
+    "bytes": 44757399,
+    "sha256": "703729EB73C1CB41A84F11D4603C8C4471487035061D676B058AB76C3D1328BB",
+    "classes_jar_sha256": "95A1A5B422E89F4943A47C86A6AE3BAEA0C07A909771E7E3E8307F1E4A04CC82",
+    "native": {
+      "arm64-v8a": {
+        "bytes": 63106200,
+        "sha256": "8250A48E73B48C3FE61B762FB5094A5DAF673C4CC16E7E141467E668D98E3E2D",
+        "load_alignment": "0x4000"
+      },
+      "armeabi-v7a": {
+        "bytes": 56036400,
+        "sha256": "93EDD0DF2AED2BD871B3DE7709B213067B84562EEB87FDD3FF8F86EC7BFA9B0F",
+        "load_alignment": "0x1000"
+      }
+    }
+  },
+  "legacy_artifact_not_retained": {
+    "bytes": 35433566,
+    "sha256": "C05ABBA37552B70FA2C6831BB068C393B705AA01C433801D2CB0F5234494BF15",
+    "android_api": 21
+  },
+  "verification": {
+    "production_aar_unchanged_sha256": "BBCA15C5B05D0380F8DDFB4151CB0529B382DA1C9D0745480488C7D9FB370B4E",
+    "public_java_api_diff_lines": 0,
+    "class_name_diff_count": 0,
+    "jni_symbol_diff_count": 0,
+    "isolated_compile_release_kotlin": "passed",
+    "isolated_merge_release_native_libs": "passed",
+    "physical_device_canary": "not-run",
+    "independent_second_byte_rebuild": "not-run"
+  }
+}

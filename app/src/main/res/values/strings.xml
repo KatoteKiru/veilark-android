@@ -1,0 +1,33 @@
+<resources>
+    <string name="app_name">Veilark</string>
+    <string name="subscriptions_and_servers">Подписки и серверы</string>
+    <string name="profiles_and_servers">Профили и серверы</string>
+    <string name="subscriptions">Подписки</string>
+    <string name="servers">Серверы</string>
+    <string name="connection_picker_title">Подключения</string>
+    <string name="automatic">Автоматически</string>
+    <string name="automatic_node_description">Самый быстрый доступный узел</string>
+    <string name="subscription_add">Добавить подписку по ссылке или из файла</string>
+    <string name="subscription_paste">Вставить ссылку подписки из буфера обмена</string>
+    <string name="subscription_scan_qr">Добавить подписку по QR-коду</string>
+    <string name="subscription_refresh">Обновить выбранную подписку</string>
+    <string name="subscription_refreshing">Подписка обновляется</string>
+    <string name="subscription_refresh_unavailable">У выбранной подписки нет ссылки для обновления</string>
+    <string name="latency_check">Проверить задержку до серверов</string>
+    <string name="latency_checking">Проверяется задержка до серверов</string>
+    <string name="subscription_delete">Удалить подписку %1$s</string>
+    <string name="subscription_delete_title">Удалить подписку?</string>
+    <string name="subscription_delete_message">«%1$s» и сохранённые в ней серверы будут удалены с этого устройства.</string>
+    <string name="delete">Удалить</string>
+    <string name="cancel">Отмена</string>
+    <string name="subscription_source_remote">обновляется по ссылке</string>
+    <string name="subscription_source_local">локальный файл</string>
+    <string name="profiles_empty_title">Профилей пока нет</string>
+    <string name="profiles_empty_message">Добавьте ссылку, вставьте её из буфера или отсканируйте QR-код.</string>
+    <plurals name="server_count">
+        <item quantity="one">%1$d сервер</item>
+        <item quantity="few">%1$d сервера</item>
+        <item quantity="many">%1$d серверов</item>
+        <item quantity="other">%1$d серверов</item>
+    </plurals>
+</resources>
