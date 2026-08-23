@@ -34,7 +34,7 @@ jobs:
           printf '%s' "$KEYSTORE_B64" | base64 --decode > "$RUNNER_TEMP/veilark-oss-release.jks"
           echo "VEILARK_OSS_KEYSTORE=$RUNNER_TEMP/veilark-oss-release.jks" >> "$GITHUB_ENV"
       - name: Test and build signed OSS release
-        run: ./gradlew testOssDebugUnitTest lintOssRelease assembleOssRelease --no-daemon
+        run: ./gradlew testOssDebugUnitTest lintOssRelease assembleOssRelease --no-daemon --no-configuration-cache
       - name: Validate release tag
         env:
           RELEASE_TAG: ${{ inputs.tag }}
