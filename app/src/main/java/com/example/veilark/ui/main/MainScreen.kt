@@ -33,6 +33,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.toggleable
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -48,6 +49,7 @@ import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.FileDownload
+import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.QrCodeScanner
 import androidx.compose.material.icons.rounded.Speed
@@ -95,6 +97,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
@@ -108,6 +111,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.example.veilark.theme.VeilarkTheme
+import com.example.veilark.BuildConfig
 import com.example.veilark.R
 import com.example.veilark.diagnostics.TechnicalLogEntry
 import com.example.veilark.profile.ConnectionNode
@@ -131,6 +135,15 @@ data class SubscriptionUiItem(
   val refreshable: Boolean,
   val deletable: Boolean,
 )
+
+private enum class LegalDocument(
+  val titleRes: Int,
+  val contentRes: Int,
+) {
+  Veilark(R.string.veilark_license_title, R.raw.gpl_3_0),
+  TrustTunnel(R.string.trust_license_title, R.raw.apache_2_0),
+  ThirdParty(R.string.third_party_notices_title, R.raw.third_party_notices),
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -168,7 +181,7 @@ fun MainScreen(
   subscriptionRefreshAvailable: Boolean = false,
   refreshingSubscription: Boolean = false,
   selfUpdateEnabled: Boolean = true,
-  updateStatus: String = "Проверка обновлений…",
+  updateStatus: String = "",
   updateNotes: String = "",
   updateAvailable: Boolean = false,
   updating: Boolean = false,
@@ -197,6 +210,8 @@ fun MainScreen(
   var showNodes by remember { mutableStateOf(false) }
   var showRouting by remember { mutableStateOf(false) }
   var showTechnicalLogs by remember { mutableStateOf(false) }
+  var showAbout by remember { mutableStateOf(false) }
+  var legalDocument by remember { mutableStateOf<LegalDocument?>(null) }
   var subscriptionUrl by remember { mutableStateOf("") }
   var importSubmitted by remember { mutableStateOf(false) }
   var observedImporting by remember { mutableStateOf(false) }
@@ -241,6 +256,22 @@ fun MainScreen(
       onClear = onClearTechnicalLogs,
       onRunDiagnostics = onRunDiagnostics,
     )
+    return
+  }
+
+  if (showAbout) {
+    val document = legalDocument
+    if (document == null) {
+      AboutScreen(
+        onBack = { showAbout = false },
+        onOpenDocument = { legalDocument = it },
+      )
+    } else {
+      LegalDocumentScreen(
+        document = document,
+        onBack = { legalDocument = null },
+      )
+    }
     return
   }
 
@@ -316,12 +347,17 @@ fun MainScreen(
         actions = {
           CompactIconAction(
             glyph = ActionGlyph.Journal,
-            description = "Открыть технический журнал",
+            description = stringResource(R.string.open_technical_log),
             onClick = { showTechnicalLogs = true },
           )
           CompactIconAction(
+            glyph = ActionGlyph.Info,
+            description = stringResource(R.string.open_about),
+            onClick = { showAbout = true },
+          )
+          CompactIconAction(
             glyph = ActionGlyph.Add,
-            description = "Добавить подписку или профиль",
+            description = stringResource(R.string.add_subscription_or_profile),
             enabled = !importing,
             onClick = { showImport = true },
           )
@@ -469,7 +505,7 @@ fun MainScreen(
       }
       item {
         Text(
-          text = "Сетевое ядро $engineDescription · журнал не содержит ключей доступа",
+          text = stringResource(R.string.core_footer, engineDescription),
           modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
           style = MaterialTheme.typography.bodySmall,
           color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -495,7 +531,7 @@ private fun UpdateCard(
   if (showConfirmation && available && !updating) {
     AlertDialog(
       onDismissRequest = { showConfirmation = false },
-      title = { Text("Обновить Veilark?") },
+      title = { Text(stringResource(R.string.update_confirm_title)) },
       text = {
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
           Text(status, style = MaterialTheme.typography.titleSmall)
@@ -507,13 +543,13 @@ private fun UpdateCard(
             )
           } else {
             Text(
-              text = "Описание изменений для этой версии не указано.",
+              text = stringResource(R.string.update_notes_missing),
               style = MaterialTheme.typography.bodyMedium,
               color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
           }
           Text(
-            text = "Перед установкой Veilark проверит подпись манифеста, SHA-256 и подпись APK. Установку подтвердит Android.",
+            text = stringResource(R.string.update_verification_note),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
           )
@@ -527,13 +563,13 @@ private fun UpdateCard(
           },
         ) {
           Icon(Icons.Rounded.Download, contentDescription = null)
-          Text("Обновить", modifier = Modifier.padding(start = 8.dp))
+          Text(stringResource(R.string.update), modifier = Modifier.padding(start = 8.dp))
         }
       },
       dismissButton = {
         CompactIconAction(
           glyph = ActionGlyph.Close,
-          description = "Отмена",
+          description = stringResource(R.string.cancel),
           onClick = { showConfirmation = false },
         )
       },
@@ -541,7 +577,7 @@ private fun UpdateCard(
   }
   Column {
     Text(
-      text = "Обновления",
+      text = stringResource(R.string.updates),
       modifier = Modifier.padding(start = 16.dp, bottom = 8.dp),
       style = MaterialTheme.typography.titleSmall,
       color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -580,9 +616,9 @@ private fun UpdateCard(
           CompactIconAction(
             glyph = if (available) ActionGlyph.Download else ActionGlyph.Refresh,
             description = when {
-              updating -> "Обновление загружается"
-              available -> "Показать изменения и загрузить обновление"
-              else -> "Проверить обновление приложения"
+              updating -> stringResource(R.string.update_downloading)
+              available -> stringResource(R.string.update_show_and_download)
+              else -> stringResource(R.string.update_check_action)
             },
             onClick = if (available) ({ showConfirmation = true }) else onCheck,
             enabled = !updating,
@@ -681,10 +717,10 @@ private fun ConnectionCard(
       ) { current ->
         Text(
           text = when (current) {
-            ConnectionState.Disconnected -> "VPN выключен"
-            ConnectionState.Connecting -> stage.safeTitle
-            ConnectionState.Connected -> "Соединение защищено"
-            ConnectionState.Failed -> "Не удалось подключиться"
+            ConnectionState.Disconnected -> stringResource(R.string.vpn_off)
+            ConnectionState.Connecting -> stringResource(stage.titleRes)
+            ConnectionState.Connected -> stringResource(R.string.vpn_protected)
+            ConnectionState.Failed -> stringResource(R.string.vpn_connect_failed)
           },
           style = MaterialTheme.typography.headlineSmall,
           fontWeight = FontWeight.SemiBold,
@@ -694,10 +730,10 @@ private fun ConnectionCard(
       Spacer(Modifier.height(6.dp))
       Text(
         text = when {
-          profileName == null -> "Добавьте подписку или профиль"
-          connecting -> "Это может занять несколько секунд"
+          profileName == null -> stringResource(R.string.vpn_add_profile_hint)
+          connecting -> stringResource(R.string.vpn_connecting_hint)
           connected -> profileName
-          else -> "Готово к безопасному подключению"
+          else -> stringResource(R.string.vpn_ready_hint)
         },
         style = MaterialTheme.typography.bodyMedium,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -710,7 +746,7 @@ private fun ConnectionCard(
           color = MaterialTheme.colorScheme.surface.copy(alpha = 0.55f),
         ) {
           Text(
-            text = "$latency мс",
+            text = stringResource(R.string.latency_ms, latency),
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
             style = MaterialTheme.typography.labelLarge,
             color = MaterialTheme.colorScheme.onSurface,
@@ -731,11 +767,11 @@ private fun ConnectionCard(
       ) {
         Text(
           text = when {
-            importing -> "Проверяем профиль…"
-            profileName == null -> "Добавить профиль"
-            connecting -> "Отменить"
-            connected -> "Отключить"
-            else -> "Подключить"
+          importing -> stringResource(R.string.profile_checking)
+          profileName == null -> stringResource(R.string.profile_add)
+          connecting -> stringResource(R.string.connection_cancel)
+          connected -> stringResource(R.string.disconnect)
+          else -> stringResource(R.string.connect)
           },
           style = MaterialTheme.typography.labelLarge,
         )
@@ -758,7 +794,7 @@ private fun EngineSelectorCard(
   val stackModes = LocalDensity.current.fontScale >= 1.3f
   Column {
     Text(
-      text = "Режим подключения",
+      text = stringResource(R.string.connection_mode),
       modifier = Modifier.padding(start = 16.dp, bottom = 8.dp),
       style = MaterialTheme.typography.titleSmall,
       color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -818,13 +854,13 @@ private fun EngineSelectorCard(
           Text(
             when {
               !idle ->
-                "Сначала отключите VPN, чтобы сменить режим"
+                stringResource(R.string.engine_switch_disconnect_first)
               !alternativeAvailable ->
-                "Другой режим станет доступен после добавления профиля"
+                stringResource(R.string.engine_switch_add_profile)
               trustTunnelActive ->
-                "H2/H3 · Anti-DPI · встроенные Frankfurt и Netherlands"
+                stringResource(R.string.engine_trust_summary)
               else ->
-                "VLESS · Trojan · Hysteria · ручная маршрутизация"
+                stringResource(R.string.engine_singbox_summary)
             },
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -884,6 +920,219 @@ private fun EngineModeButton(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
+private fun AboutScreen(
+  onBack: () -> Unit,
+  onOpenDocument: (LegalDocument) -> Unit,
+) {
+  val uriHandler = LocalUriHandler.current
+  val privacyPolicyUrl = stringResource(R.string.privacy_policy_url)
+  Scaffold(
+    containerColor = MaterialTheme.colorScheme.background,
+    topBar = {
+      TopAppBar(
+        title = { Text(stringResource(R.string.about_title)) },
+        navigationIcon = {
+          CompactIconAction(
+            glyph = ActionGlyph.Back,
+            description = stringResource(R.string.back),
+            onClick = onBack,
+          )
+        },
+        colors = TopAppBarDefaults.topAppBarColors(
+          containerColor = MaterialTheme.colorScheme.background,
+        ),
+      )
+    },
+  ) { innerPadding ->
+    LazyColumn(
+      modifier = Modifier.fillMaxSize(),
+      contentPadding = PaddingValues(
+        start = 20.dp,
+        top = innerPadding.calculateTopPadding() + 12.dp,
+        end = 20.dp,
+        bottom = 32.dp,
+      ),
+      verticalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
+      item {
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+          Text(
+            text = stringResource(R.string.about_summary),
+            style = MaterialTheme.typography.titleMedium,
+          )
+          Text(
+            text = stringResource(R.string.about_version, BuildConfig.VERSION_NAME),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+          )
+        }
+      }
+      item {
+        Surface(
+          modifier = Modifier
+            .fillMaxWidth()
+            .clickable {
+              uriHandler.openUri("https://github.com/KatoteKiru/veilark-android")
+            },
+          shape = RoundedCornerShape(16.dp),
+          color = MaterialTheme.colorScheme.surfaceContainer,
+        ) {
+          Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(
+              text = stringResource(R.string.source_code),
+              style = MaterialTheme.typography.titleSmall,
+              fontWeight = FontWeight.SemiBold,
+            )
+            Text(
+              text = stringResource(R.string.source_code_description),
+              style = MaterialTheme.typography.bodySmall,
+              color = MaterialTheme.colorScheme.primary,
+            )
+          }
+        }
+      }
+      item {
+        Surface(
+          modifier = Modifier
+            .fillMaxWidth()
+            .clickable {
+              uriHandler.openUri(privacyPolicyUrl)
+            },
+          shape = RoundedCornerShape(16.dp),
+          color = MaterialTheme.colorScheme.surfaceContainer,
+        ) {
+          Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(
+              text = stringResource(R.string.privacy_policy),
+              style = MaterialTheme.typography.titleSmall,
+              fontWeight = FontWeight.SemiBold,
+            )
+            Text(
+              text = stringResource(R.string.privacy_policy_description),
+              style = MaterialTheme.typography.bodySmall,
+              color = MaterialTheme.colorScheme.primary,
+            )
+          }
+        }
+      }
+      item {
+        Text(
+          text = stringResource(R.string.open_source_licenses),
+          style = MaterialTheme.typography.titleMedium,
+          fontWeight = FontWeight.SemiBold,
+        )
+      }
+      item {
+        Text(
+          text = stringResource(R.string.trust_attribution),
+          style = MaterialTheme.typography.bodyMedium,
+          color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+      }
+      items(LegalDocument.entries, key = LegalDocument::name) { document ->
+        LegalDocumentItem(
+          title = stringResource(document.titleRes),
+          onClick = { onOpenDocument(document) },
+        )
+      }
+      item {
+        Text(
+          text = stringResource(R.string.independent_project_notice),
+          style = MaterialTheme.typography.bodySmall,
+          color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+      }
+    }
+  }
+}
+
+@Composable
+private fun LegalDocumentItem(
+  title: String,
+  onClick: () -> Unit,
+) {
+  Surface(
+    modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
+    shape = RoundedCornerShape(16.dp),
+    color = MaterialTheme.colorScheme.surfaceContainer,
+  ) {
+    Row(
+      modifier = Modifier.padding(horizontal = 16.dp, vertical = 15.dp),
+      verticalAlignment = Alignment.CenterVertically,
+      horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+      Icon(
+        imageVector = Icons.Rounded.Description,
+        contentDescription = null,
+        tint = MaterialTheme.colorScheme.primary,
+      )
+      Text(
+        text = title,
+        modifier = Modifier.weight(1f),
+        style = MaterialTheme.typography.bodyLarge,
+        fontWeight = FontWeight.Medium,
+      )
+    }
+  }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun LegalDocumentScreen(
+  document: LegalDocument,
+  onBack: () -> Unit,
+) {
+  val context = LocalContext.current
+  val content = remember(document) {
+    context.resources.openRawResource(document.contentRes)
+      .bufferedReader(Charsets.UTF_8)
+      .use { it.readText() }
+  }
+  Scaffold(
+    containerColor = MaterialTheme.colorScheme.background,
+    topBar = {
+      TopAppBar(
+        title = {
+          Text(
+            text = stringResource(document.titleRes),
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+          )
+        },
+        navigationIcon = {
+          CompactIconAction(
+            glyph = ActionGlyph.Back,
+            description = stringResource(R.string.legal_document_back),
+            onClick = onBack,
+          )
+        },
+        colors = TopAppBarDefaults.topAppBarColors(
+          containerColor = MaterialTheme.colorScheme.background,
+        ),
+      )
+    },
+  ) { innerPadding ->
+    SelectionContainer {
+      Text(
+        text = content,
+        modifier = Modifier
+          .fillMaxSize()
+          .verticalScroll(rememberScrollState())
+          .padding(
+            start = 20.dp,
+            top = innerPadding.calculateTopPadding() + 12.dp,
+            end = 20.dp,
+            bottom = 32.dp,
+          ),
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+      )
+    }
+  }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
 private fun TechnicalLogScreen(
   entries: List<TechnicalLogEntry>,
   onBack: () -> Unit,
@@ -894,23 +1143,23 @@ private fun TechnicalLogScreen(
     containerColor = MaterialTheme.colorScheme.background,
     topBar = {
       TopAppBar(
-        title = { Text("Технический журнал") },
+        title = { Text(stringResource(R.string.technical_log)) },
         navigationIcon = {
           CompactIconAction(
             glyph = ActionGlyph.Back,
-            description = "Назад",
+            description = stringResource(R.string.back),
             onClick = onBack,
           )
         },
         actions = {
           CompactIconAction(
             glyph = ActionGlyph.Diagnostics,
-            description = "Проверить внешние сервисы",
+            description = stringResource(R.string.run_diagnostics),
             onClick = onRunDiagnostics,
           )
           CompactIconAction(
             glyph = ActionGlyph.Clear,
-            description = "Очистить журнал",
+            description = stringResource(R.string.clear_log),
             enabled = entries.isNotEmpty(),
             onClick = onClear,
           )
@@ -927,7 +1176,7 @@ private fun TechnicalLogScreen(
         contentAlignment = Alignment.Center,
       ) {
         Text(
-          "Ошибок и сетевых событий пока нет",
+          stringResource(R.string.technical_log_empty),
           color = MaterialTheme.colorScheme.onSurfaceVariant,
           textAlign = TextAlign.Center,
         )
@@ -1017,6 +1266,9 @@ private fun ProfileCard(
   val selectedNode = nodes.firstOrNull { it.tag == selectedTag }
   var pendingDeletionId by remember { mutableStateOf<String?>(null) }
   val pendingDeletion = subscriptions.firstOrNull { it.id == pendingDeletionId }
+  val expansionStateDescription = stringResource(
+    if (expanded) R.string.expanded else R.string.collapsed,
+  )
 
   if (pendingDeletion != null) {
     AlertDialog(
@@ -1053,7 +1305,9 @@ private fun ProfileCard(
   }
   Column {
     Text(
-      text = if (trustTunnelActive) "Профиль TrustTunnel" else "Профиль sing-box",
+      text = stringResource(
+        if (trustTunnelActive) R.string.trust_profile else R.string.singbox_profile,
+      ),
       modifier = Modifier.padding(start = 16.dp, bottom = 8.dp),
       style = MaterialTheme.typography.titleSmall,
       color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -1068,23 +1322,27 @@ private fun ProfileCard(
           modifier = Modifier
             .clickable(onClick = onToggleNodes)
             .semantics {
-              stateDescription = if (expanded) "Развёрнуто" else "Свёрнуто"
+              stateDescription = expansionStateDescription
             },
           headlineContent = {
             Text(
-              profileName ?: "Профиль не добавлен",
+              profileName ?: stringResource(R.string.profile_missing),
               fontWeight = FontWeight.Medium,
             )
           },
           supportingContent = {
             Text(
               when {
-                profileName == null -> "Импортировать подписку"
+                profileName == null -> stringResource(R.string.import_subscription)
                 selectedNode != null && !trustTunnelActive ->
                   "${selectedNode.name} · ${selectedNode.protocol}"
                 selectedNode != null -> selectedNode.protocol
-                nodes.isNotEmpty() -> "Автоматический выбор · ${nodes.size} узлов"
-                else -> "Импортированная конфигурация"
+            nodes.isNotEmpty() -> pluralStringResource(
+              R.plurals.automatic_node_summary,
+              nodes.size,
+              nodes.size,
+            )
+            else -> stringResource(R.string.imported_configuration)
               },
             )
           },
@@ -1293,7 +1551,10 @@ private fun ConnectionPickerSheet(
             title = node.name,
             subtitle = buildString {
               append(node.protocol)
-              latencies[node.tag]?.let { append(" · $it мс") }
+              latencies[node.tag]?.let {
+                append(" · ")
+                append(stringResource(R.string.latency_ms, it))
+              }
             },
             selected = selectedTag == node.tag,
             onClick = { onSelectNode(node.tag) },
@@ -1349,6 +1610,7 @@ private enum class ActionGlyph {
   Diagnostics,
   File,
   Import,
+  Info,
   Journal,
   Paste,
   Ping,
@@ -1403,6 +1665,7 @@ private fun ActionGlyph.imageVector(): ImageVector = when (this) {
   ActionGlyph.Diagnostics -> Icons.Rounded.Troubleshoot
   ActionGlyph.File -> Icons.Rounded.Description
   ActionGlyph.Import -> Icons.Rounded.FileDownload
+  ActionGlyph.Info -> Icons.Rounded.Info
   ActionGlyph.Journal -> Icons.AutoMirrored.Rounded.Article
   ActionGlyph.Paste -> Icons.Rounded.ContentPaste
   ActionGlyph.Ping -> Icons.Rounded.Speed
@@ -1515,7 +1778,7 @@ private fun RoutingCard(
 ) {
   Column {
     Text(
-      text = "Маршрутизация",
+      text = stringResource(R.string.routing),
       modifier = Modifier.padding(start = 16.dp, bottom = 8.dp),
       style = MaterialTheme.typography.titleSmall,
       color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -1528,39 +1791,47 @@ private fun RoutingCard(
       Column {
         if (available) {
           InfoRow(
-            "Трафик",
+            stringResource(R.string.traffic),
             if (routingMode == ProfileSelection.ROUTING_MANUAL) {
-              "Свои правила"
+              stringResource(R.string.custom_rules)
             } else {
-              "Весь трафик через VPN"
+              stringResource(R.string.all_traffic_vpn)
             },
           )
           HorizontalDivider(modifier = Modifier.padding(horizontal = 20.dp))
           InfoRow(
-            "Приложения",
+            stringResource(R.string.applications),
             when (applicationMode) {
-              ProfileSelection.APPS_ONLY -> "Только выбранные · $selectedApplicationCount"
-              ProfileSelection.APPS_BYPASS -> "Исключения · $selectedApplicationCount"
-              else -> "Все приложения"
+              ProfileSelection.APPS_ONLY -> pluralStringResource(
+                R.plurals.only_selected_count,
+                selectedApplicationCount,
+                selectedApplicationCount,
+              )
+              ProfileSelection.APPS_BYPASS -> pluralStringResource(
+                R.plurals.bypass_selected_count,
+                selectedApplicationCount,
+                selectedApplicationCount,
+              )
+              else -> stringResource(R.string.all_apps)
             },
           )
           HorizontalDivider(modifier = Modifier.padding(horizontal = 20.dp))
           InfoRow(
-            "Защита от DPI",
+            stringResource(R.string.dpi_protection),
             if (dpiMode == ProfileSelection.DPI_TLS_FRAGMENT) {
-              "Фрагментация TLS"
+              stringResource(R.string.tls_fragmentation)
             } else {
-              "Стандартная"
+              stringResource(R.string.standard)
             },
           )
           HorizontalDivider(modifier = Modifier.padding(horizontal = 20.dp))
-          InfoRow("DNS", "Защищённый")
+          InfoRow(stringResource(R.string.dns), stringResource(R.string.protected_value))
           HorizontalDivider(modifier = Modifier.padding(horizontal = 20.dp))
-          InfoRow("Защита при обрыве", "Включена")
+          InfoRow(stringResource(R.string.kill_switch), stringResource(R.string.enabled_value))
         } else {
-          InfoRow("Трафик", "Полный туннель через TrustTunnel")
+          InfoRow(stringResource(R.string.traffic), stringResource(R.string.trust_full_tunnel))
           HorizontalDivider(modifier = Modifier.padding(horizontal = 20.dp))
-          InfoRow("Защита", "H2/H3 · Anti-DPI · Kill switch")
+          InfoRow(stringResource(R.string.protection), "H2/H3 · Anti-DPI · Kill switch")
         }
       }
     }
@@ -1756,7 +2027,7 @@ private fun RoutingSettingsDialog(
           ) {
             Column(Modifier.weight(1f)) {
               Text(
-                "Маршрутизация",
+              stringResource(R.string.routing),
                 style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.SemiBold,
               )
@@ -1768,7 +2039,7 @@ private fun RoutingSettingsDialog(
             }
             CompactIconAction(
               glyph = ActionGlyph.Close,
-              description = "Закрыть настройки маршрутизации",
+              description = stringResource(R.string.close_routing),
               onClick = onDismiss,
             )
           }
@@ -1778,18 +2049,18 @@ private fun RoutingSettingsDialog(
             verticalArrangement = Arrangement.spacedBy(10.dp),
           ) {
             if (!trustTunnelActive) {
-              item { SettingsSectionTitle("Трафик") }
+            item { SettingsSectionTitle(stringResource(R.string.traffic)) }
               item {
                 SettingChoice(
-                  title = "Весь трафик через VPN",
+                  title = stringResource(R.string.all_traffic_vpn),
                   selected = route == ProfileSelection.ROUTING_ALL,
                   onClick = { route = ProfileSelection.ROUTING_ALL },
                 )
               }
               item {
                 SettingChoice(
-                  title = "Свои правила",
-                  subtitle = "Укажите, что направлять напрямую или через VPN",
+                  title = stringResource(R.string.custom_rules),
+                  subtitle = stringResource(R.string.custom_rules_description),
                   selected = route == ProfileSelection.ROUTING_MANUAL,
                   onClick = { route = ProfileSelection.ROUTING_MANUAL },
                 )
@@ -1800,8 +2071,8 @@ private fun RoutingSettingsDialog(
                     value = direct,
                     onValueChange = { direct = it },
                     modifier = Modifier.fillMaxWidth(),
-                    label = { Text("Напрямую, без VPN") },
-                    supportingText = { Text("Домены и сети через пробел или с новой строки") },
+                    label = { Text(stringResource(R.string.direct_without_vpn)) },
+                    supportingText = { Text(stringResource(R.string.routes_input_hint)) },
                     placeholder = { Text("gosuslugi.ru\n192.168.0.0/16") },
                     minLines = 3,
                     shape = RoundedCornerShape(16.dp),
@@ -1812,8 +2083,8 @@ private fun RoutingSettingsDialog(
                     value = vpn,
                     onValueChange = { vpn = it },
                     modifier = Modifier.fillMaxWidth(),
-                    label = { Text("Всегда через VPN") },
-                    supportingText = { Text("Эти правила имеют приоритет над прямыми") },
+                    label = { Text(stringResource(R.string.always_vpn)) },
+                    supportingText = { Text(stringResource(R.string.vpn_routes_priority)) },
                     placeholder = { Text("youtube.com\ngooglevideo.com") },
                     minLines = 3,
                     shape = RoundedCornerShape(16.dp),
@@ -1827,7 +2098,7 @@ private fun RoutingSettingsDialog(
                   color = MaterialTheme.colorScheme.secondaryContainer,
                 ) {
                   Text(
-                    text = "Для TrustTunnel доступны правила по приложениям. Android применяет их при создании VPN-интерфейса, поэтому изменение вступит в силу при следующем подключении. Доменные и IP-правила доступны в sing-box.",
+                    text = stringResource(R.string.trust_app_rules_note),
                     modifier = Modifier.padding(16.dp),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSecondaryContainer,
@@ -1835,24 +2106,24 @@ private fun RoutingSettingsDialog(
                 }
               }
             }
-            item { SettingsSectionTitle("Приложения") }
+            item { SettingsSectionTitle(stringResource(R.string.applications)) }
             item {
               SettingChoice(
-                title = "Все приложения",
+                title = stringResource(R.string.all_apps),
                 selected = appMode == ProfileSelection.APPS_ALL,
                 onClick = { appMode = ProfileSelection.APPS_ALL },
               )
             }
             item {
               SettingChoice(
-                title = "Только выбранные через VPN",
+                title = stringResource(R.string.apps_only_vpn),
                 selected = appMode == ProfileSelection.APPS_ONLY,
                 onClick = { appMode = ProfileSelection.APPS_ONLY },
               )
             }
             item {
               SettingChoice(
-                title = "Выбранные без VPN",
+                title = stringResource(R.string.apps_bypass_vpn),
                 selected = appMode == ProfileSelection.APPS_BYPASS,
                 onClick = { appMode = ProfileSelection.APPS_BYPASS },
               )
@@ -1865,14 +2136,22 @@ private fun RoutingSettingsDialog(
                   horizontalArrangement = Arrangement.SpaceBetween,
                 ) {
                   Text(
-                    if (packages.isEmpty()) "Ничего не выбрано" else "Выбрано: ${packages.size}",
+                    if (packages.isEmpty()) {
+                      stringResource(R.string.nothing_selected)
+                    } else {
+                      pluralStringResource(
+                        R.plurals.selected_apps_count,
+                        packages.size,
+                        packages.size,
+                      )
+                    },
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                   )
                   if (packages.isNotEmpty()) {
                     CompactIconAction(
                       glyph = ActionGlyph.Clear,
-                      description = "Сбросить выбранные приложения",
+                      description = stringResource(R.string.clear_selected_apps),
                       onClick = { packages = emptySet() },
                     )
                   }
@@ -1883,7 +2162,7 @@ private fun RoutingSettingsDialog(
                   value = search,
                   onValueChange = { search = it },
                   modifier = Modifier.fillMaxWidth(),
-                  label = { Text("Найти приложение") },
+                  label = { Text(stringResource(R.string.find_application)) },
                   singleLine = true,
                   shape = RoundedCornerShape(16.dp),
                 )
@@ -1905,9 +2184,9 @@ private fun RoutingSettingsDialog(
                 item {
                   Text(
                     if (installedApplications.isEmpty()) {
-                      "Загрузка списка приложений…"
+                      stringResource(R.string.apps_loading)
                     } else {
-                      "Приложения не найдены"
+                      stringResource(R.string.apps_not_found)
                     },
                     modifier = Modifier.fillMaxWidth().padding(vertical = 20.dp),
                     textAlign = TextAlign.Center,
@@ -1917,26 +2196,26 @@ private fun RoutingSettingsDialog(
               }
               item {
                 Text(
-                  "Исключённое приложение работает напрямую. Системный значок VPN при этом остаётся видимым для всего устройства.",
+                  stringResource(R.string.bypass_app_note),
                   style = MaterialTheme.typography.bodySmall,
                   color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
               }
             }
             if (!trustTunnelActive) {
-              item { SettingsSectionTitle("Защита от DPI") }
+              item { SettingsSectionTitle(stringResource(R.string.dpi_protection)) }
               item {
                 SettingChoice(
-                  title = "Стандартная",
-                  subtitle = "Максимальная совместимость и скорость",
+                  title = stringResource(R.string.standard),
+                  subtitle = stringResource(R.string.standard_description),
                   selected = dpi == ProfileSelection.DPI_OFF,
                   onClick = { dpi = ProfileSelection.DPI_OFF },
                 )
               }
               item {
                 SettingChoice(
-                  title = "Фрагментация TLS",
-                  subtitle = "Дробит ClientHello TCP-профилей; подключение может стать немного дольше",
+                  title = stringResource(R.string.tls_fragmentation),
+                  subtitle = stringResource(R.string.tls_fragmentation_description),
                   selected = dpi == ProfileSelection.DPI_TLS_FRAGMENT,
                   onClick = { dpi = ProfileSelection.DPI_TLS_FRAGMENT },
                 )
@@ -1951,7 +2230,7 @@ private fun RoutingSettingsDialog(
           ) {
             CompactIconAction(
               glyph = ActionGlyph.Check,
-              description = "Применить маршрутизацию",
+              description = stringResource(R.string.apply_routing),
               onClick = { onApply(route, direct, vpn, appMode, dpi, packages) },
               enabled = canApply,
             )
@@ -2115,7 +2394,7 @@ private fun ErrorCard(
   ) {
     Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
       Text(
-        text = "Подключение не выполнено",
+        text = stringResource(R.string.connection_failed_title),
         fontWeight = FontWeight.SemiBold,
         color = MaterialTheme.colorScheme.onErrorContainer,
       )
@@ -2126,7 +2405,7 @@ private fun ErrorCard(
       )
       if (code != null) {
         Text(
-          text = "Код: $code",
+          text = stringResource(R.string.error_code, code),
           style = MaterialTheme.typography.labelSmall,
           color = MaterialTheme.colorScheme.onErrorContainer.copy(alpha = 0.72f),
         )
@@ -2134,7 +2413,7 @@ private fun ErrorCard(
       if (diagnosticReportAvailable) {
         CompactIconAction(
           glyph = ActionGlyph.Copy,
-          description = "Скопировать диагностику",
+          description = stringResource(R.string.copy_diagnostics),
           onClick = onCopyDiagnostic,
           modifier = Modifier.align(Alignment.End),
         )
@@ -2161,19 +2440,19 @@ private fun ImportActions(
     ) {
       CompactIconAction(
         glyph = ActionGlyph.Paste,
-        description = "Вставить ссылку из буфера обмена",
+        description = stringResource(R.string.paste_from_clipboard),
         enabled = !importing,
         onClick = onPaste,
       )
       CompactIconAction(
         glyph = ActionGlyph.Qr,
-        description = "Сканировать QR-код",
+        description = stringResource(R.string.scan_qr),
         enabled = !importing,
         onClick = onScanQr,
       )
       CompactIconAction(
         glyph = ActionGlyph.File,
-        description = "Выбрать sing-box JSON-файл",
+        description = stringResource(R.string.choose_singbox_json),
         enabled = !importing,
         onClick = onImportFile,
       )
@@ -2228,7 +2507,7 @@ private fun ImportDialog(
               )
             }
             Text(
-              "Добавить подписку",
+              stringResource(R.string.add_subscription),
               modifier = Modifier.weight(1f),
               style = MaterialTheme.typography.headlineSmall,
               fontWeight = FontWeight.SemiBold,
@@ -2237,7 +2516,7 @@ private fun ImportDialog(
             )
           }
           Text(
-            text = "HTTPS, QR, Base64, sing-box/Xray JSON, Clash/Mihomo YAML и прямые ссылки.",
+            text = stringResource(R.string.import_formats),
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             style = MaterialTheme.typography.bodyMedium,
           )
@@ -2245,7 +2524,7 @@ private fun ImportDialog(
             value = subscriptionUrl,
             onValueChange = onUrlChange,
             modifier = Modifier.fillMaxWidth(),
-            label = { Text("Ссылка подписки или профиля") },
+            label = { Text(stringResource(R.string.subscription_or_profile_link)) },
             minLines = 1,
             maxLines = 3,
             enabled = !importing,
@@ -2274,13 +2553,15 @@ private fun ImportDialog(
           ) {
             CompactIconAction(
               glyph = ActionGlyph.Close,
-              description = "Отмена",
+              description = stringResource(R.string.cancel),
               enabled = !importing,
               onClick = onDismiss,
             )
             CompactIconAction(
               glyph = ActionGlyph.Import,
-              description = if (importing) "Профиль импортируется" else "Импортировать профиль",
+              description = stringResource(
+                if (importing) R.string.profile_importing else R.string.profile_import,
+              ),
               enabled = subscriptionUrl.contains("://") && !importing,
               loading = importing,
               onClick = onImportUrl,
@@ -2333,6 +2614,6 @@ private fun ShieldMark(
 @Composable
 private fun MainScreenPreview() {
   VeilarkTheme(dynamicColor = false) {
-    MainScreen(profileName = "Veilark · 10 узлов")
+    MainScreen(profileName = "Veilark · 10 servers")
   }
 }

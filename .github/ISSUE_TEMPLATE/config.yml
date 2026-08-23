@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Private security report
+    url: https://github.com/KatoteKiru/veilark-android/security/advisories/new
+    about: Report vulnerabilities or leaked secrets privately.
+  - name: Privacy policy
+    url: https://github.com/KatoteKiru/veilark-android/blob/main/PRIVACY.md
+    about: Read how the public Android app handles data.

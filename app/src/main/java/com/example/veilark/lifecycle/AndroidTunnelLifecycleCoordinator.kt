@@ -564,7 +564,7 @@ object AndroidTunnelLifecycleOwner {
         if (launched.isFailure) {
           TechnicalLogStore.error(
             "LIFECYCLE",
-            "Android не запустил ${action.attempt.engine.name}: " +
+            "Android did not start ${action.attempt.engine.name}: " +
               launched.exceptionOrNull()?.javaClass?.simpleName,
           )
           executeAction(
@@ -672,7 +672,7 @@ object AndroidTunnelLifecycleOwner {
     if (!stopped) {
       TechnicalLogStore.warning(
         "LIFECYCLE",
-        "Таймаут завершения ${engine.name}; запуск нового туннеля заблокирован",
+        "${engine.name} stop timed out; starting a new tunnel is blocked",
       )
     }
     return stopped

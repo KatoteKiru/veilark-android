@@ -70,13 +70,13 @@ enum class ConnectionState {
   Failed,
 }
 
-enum class StartupStage(val safeTitle: String) {
-  Idle("Ожидание"),
-  Config("Проверка профиля"),
-  Network("Поиск физической сети"),
-  Core("Запуск сетевого ядра"),
-  Tun("Создание VPN-туннеля"),
-  Internet("Проверка доступа"),
+enum class StartupStage(val titleRes: Int) {
+  Idle(R.string.stage_idle),
+  Config(R.string.stage_config),
+  Network(R.string.stage_network),
+  Core(R.string.stage_core),
+  Tun(R.string.stage_tun),
+  Internet(R.string.stage_internet),
 }
 
 class VeilarkVpnService :
@@ -110,7 +110,7 @@ class VeilarkVpnService :
 
     lifecycleAttempt = intent?.lifecycleAttempt()
     if (!ownsLifecycleAttempt()) {
-      TechnicalLogStore.warning("LIFECYCLE", "Устаревший запуск sing-box отклонён")
+      TechnicalLogStore.warning("LIFECYCLE", "Stale sing-box start rejected")
       stopSelf(startId)
       return START_NOT_STICKY
     }
@@ -124,7 +124,7 @@ class VeilarkVpnService :
 
     activeProfileName = readActiveProfileName()
     connectionStartedAtMillis = 0L
-    val startingNotification = createStatusNotification("Подключение…")
+    val startingNotification = createStatusNotification(getString(R.string.notification_connecting))
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
       startForeground(
         NOTIFICATION_ID,
@@ -135,7 +135,7 @@ class VeilarkVpnService :
       startForeground(NOTIFICATION_ID, startingNotification)
     }
     val attempt = synchronized(startupLock) { ++startupAttempt }
-    TechnicalLogStore.info("SING-BOX", "Запуск сетевого ядра")
+    TechnicalLogStore.info("SING-BOX", "Starting network engine")
     publishState(ConnectionState.Connecting)
     mutableFailureMessage.value = null
     mutableFailureCode.value = null
@@ -151,9 +151,9 @@ class VeilarkVpnService :
           currentStartupSideEffect(attempt, lifecycleToken) {
             check(mutableState.value == ConnectionState.Connecting)
             mutableFailureMessage.value =
-              "Сетевое ядро не подключилось за 45 секунд. Проверьте профиль и сеть"
+              getString(R.string.failure_core_timeout)
             mutableFailureCode.value = "VPN-CORE-TIMEOUT"
-            TechnicalLogStore.error("SING-BOX", "VPN-CORE-TIMEOUT: таймаут подключения")
+            TechnicalLogStore.error("SING-BOX", "VPN-CORE-TIMEOUT: connection timed out")
           }
           requireCurrentStartup(attempt, lifecycleToken)
           shutdown(delayStop = true)
@@ -207,8 +207,8 @@ class VeilarkVpnService :
           mutableState.value = ConnectionState.Connected
           mutableFailureMessage.value = null
           connectionStartedAtMillis = System.currentTimeMillis()
-          updateNotification("Защищено")
-          TechnicalLogStore.info("SING-BOX", "Туннель подключён; core=$coreVersion")
+          updateNotification(getString(R.string.notification_protected))
+          TechnicalLogStore.info("SING-BOX", "Tunnel connected; core=$coreVersion")
           LatencyMonitor.start()
           connected = true
         }
@@ -220,14 +220,14 @@ class VeilarkVpnService :
           currentStartupSideEffect(attempt, lifecycleToken) {
             mutableState.value = ConnectionState.Failed
             mutableFailureMessage.value =
-              "${stage.safeTitle}. ${classifyFailure(failure, stage)}"
+              "${getString(stage.titleRes)}. ${classifyFailure(failure, stage)}"
             mutableFailureCode.value = diagnosticCode(failure, stage)
             TechnicalLogStore.error(
               "SING-BOX",
               "${mutableFailureCode.value}: ${classifyFailure(failure, stage)}",
             )
             mutableDiagnosticReport.value = buildDiagnosticReport(failure, stage)
-            updateNotification("Ошибка конфигурации или соединения")
+            updateNotification(getString(R.string.notification_connection_error))
           }
           requireCurrentStartup(attempt, lifecycleToken)
           shutdown(delayStop = true)
@@ -440,13 +440,23 @@ class VeilarkVpnService :
       override fun onAvailable(network: Network) = considerUnderlyingNetwork(network)
       override fun onLost(network: Network) {
         if (network == underlyingNetwork) {
-          TechnicalLogStore.warning("NETWORK", "Физическая сеть потеряна, ищем замену")
+          TechnicalLogStore.warning("NETWORK", "Physical network lost; finding replacement")
           underlyingNetwork = findPhysicalNetwork(excluding = network)
           publishDefaultInterface(underlyingNetwork)
           updateUnderlyingNetworks(underlyingNetwork)
-          updateNotification(if (underlyingNetwork == null) "Ожидание сети…" else "Смена сети…")
+      updateNotification(
+        getString(
+          if (underlyingNetwork == null) {
+            R.string.notification_waiting_network
+          } else {
+            R.string.notification_switching_network
+          },
+        ),
+      )
           commandServer?.resetNetwork()
-          if (underlyingNetwork != null) updateNotification("Защищено")
+      if (underlyingNetwork != null) {
+        updateNotification(getString(R.string.notification_protected))
+      }
         }
       }
       override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) {
@@ -515,8 +525,8 @@ class VeilarkVpnService :
     underlyingNetwork = network
     publishDefaultInterface(network)
     updateUnderlyingNetworks(network)
-    TechnicalLogStore.info("NETWORK", "Туннель переведён на ${networkType(caps)}")
-    updateNotification("Защищено")
+    TechnicalLogStore.info("NETWORK", "Tunnel moved to ${networkType(caps)}")
+    updateNotification(getString(R.string.notification_protected))
     commandServer?.resetNetwork()
   }
 
@@ -525,7 +535,7 @@ class VeilarkVpnService :
       runCatching {
         setUnderlyingNetworks(network?.let { arrayOf(it) })
       }.onFailure {
-        TechnicalLogStore.warning("NETWORK", "Android не принял смену базовой сети")
+        TechnicalLogStore.warning("NETWORK", "Android rejected underlying network change")
       }
     }
   }
@@ -540,9 +550,10 @@ class VeilarkVpnService :
 
   private fun networkType(caps: NetworkCapabilities): String = when {
     caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> "Wi‑Fi"
-    caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> "мобильную сеть"
+      caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) ->
+        getString(R.string.network_cellular)
     caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) -> "Ethernet"
-    else -> "новую физическую сеть"
+      else -> getString(R.string.network_physical)
   }
 
   private fun networkPriority(caps: NetworkCapabilities): Int = when {
@@ -609,7 +620,7 @@ class VeilarkVpnService :
       append("; final=")
       append(route?.optString("final").orEmpty().ifBlank { "unset" })
     }
-  }.getOrElse { "Не удалось разобрать сводку конфигурации" }
+  }.getOrElse { getString(R.string.failure_summary_parse) }
 
   private fun classifyFailure(failure: Throwable, stage: StartupStage): String {
     val chain = generateSequence(failure) { it.cause }
@@ -617,19 +628,19 @@ class VeilarkVpnService :
       .lowercase()
     return when {
       "tunnel verification failed" in chain ->
-        "Туннель создан, но контрольный трафик через него не прошёл"
+        getString(R.string.failure_tunnel_probe)
       "certificate" in chain || "x509" in chain ->
-        "Сертификат сервера не прошёл проверку"
+        getString(R.string.failure_certificate)
       "dns" in chain || "lookup" in chain ->
-        "Не удалось разрешить адрес сервера или DNS"
+        getString(R.string.failure_dns)
       "timeout" in chain || "deadline" in chain ->
-        "Сеть не ответила за отведённое время"
+        getString(R.string.failure_timeout)
       "connection refused" in chain ->
-        "Сервер отклонил соединение"
+        getString(R.string.failure_refused)
       "network is unreachable" in chain || "no route" in chain ->
-        "Физическая сеть недоступна"
+        getString(R.string.failure_network_unavailable)
       else ->
-        "Сетевое ядро не смогло запустить профиль (${failure.javaClass.simpleName})"
+        getString(R.string.failure_core_start, failure.javaClass.simpleName)
     }
   }
 
@@ -739,7 +750,7 @@ class VeilarkVpnService :
         finishTeardown(stoppingAttempt)
       }
     }
-    if (!delayStop) TechnicalLogStore.info("SING-BOX", "Туннель остановлен")
+    if (!delayStop) TechnicalLogStore.info("SING-BOX", "Tunnel stopped")
     stopForeground(STOP_FOREGROUND_REMOVE)
     stopSelf()
   }
@@ -830,10 +841,10 @@ class VeilarkVpnService :
       manager.createNotificationChannel(
         NotificationChannel(
           CHANNEL_ID,
-          "VPN-соединение",
+          getString(R.string.notification_channel_name),
           NotificationManager.IMPORTANCE_LOW,
         ).apply {
-          description = "Состояние активного VPN-туннеля Veilark"
+          description = getString(R.string.notification_channel_description)
           setShowBadge(false)
           lockscreenVisibility = android.app.Notification.VISIBILITY_PRIVATE
         },
@@ -865,14 +876,23 @@ class VeilarkVpnService :
         NotificationCompat.Builder(this, CHANNEL_ID)
           .setSmallIcon(R.drawable.ic_vpn_status)
           .setContentTitle("Veilark · VPN")
-          .setContentText(if (status.startsWith("Защищено")) "Соединение активно" else status)
+          .setContentText(
+            if (status == getString(R.string.notification_protected)) {
+              getString(R.string.notification_connection_active)
+            } else {
+              status
+            },
+          )
           .setCategory(NotificationCompat.CATEGORY_SERVICE)
           .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
           .build(),
       )
       .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
-      .addAction(0, "Отключить", stop)
-    if (connectionStartedAtMillis > 0L && status.startsWith("Защищено")) {
+      .addAction(0, getString(R.string.notification_disconnect), stop)
+    if (
+      connectionStartedAtMillis > 0L &&
+      status == getString(R.string.notification_protected)
+    ) {
       notification
         .setWhen(connectionStartedAtMillis)
         .setUsesChronometer(true)

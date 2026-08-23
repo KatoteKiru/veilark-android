@@ -1,0 +1,54 @@
+name: Bug report
+description: Report a reproducible Veilark problem without exposing credentials
+title: "[Bug] "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not post a live subscription, password, private server address, or an unredacted configuration. Use a private security advisory for security-sensitive reports.
+  - type: input
+    id: version
+    attributes:
+      label: Veilark version
+      placeholder: 0.8.0-rc13-oss
+    validations:
+      required: true
+  - type: input
+    id: device
+    attributes:
+      label: Device and Android version
+      placeholder: Google Pixel 8 Pro, Android 16
+    validations:
+      required: true
+  - type: dropdown
+    id: engine
+    attributes:
+      label: Network engine
+      options:
+        - sing-box
+        - TrustTunnel
+        - App UI or import
+        - Both engines
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Reproduction steps
+      placeholder: Tell us what you did, what you expected, and what happened.
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Redacted technical log
+      description: Copy only the relevant lines from Veilark's technical log and check them for secrets.
+      render: text
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Safety check
+      options:
+        - label: I removed live subscriptions, credentials, private server addresses, and other secrets.
+          required: true

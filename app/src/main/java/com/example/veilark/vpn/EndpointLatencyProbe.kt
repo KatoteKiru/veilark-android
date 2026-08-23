@@ -47,10 +47,10 @@ object EndpointLatencyProbe {
         }.awaitAll().filterNotNull().toMap()
         TechnicalLogStore.info(
           "PING",
-          "Проверено TCP-узлов: ${endpoints.size}, ответили: ${mutableLatencies.value.size}",
+          "TCP endpoints checked: ${endpoints.size}; responded: ${mutableLatencies.value.size}",
         )
       } catch (failure: Throwable) {
-        TechnicalLogStore.error("PING", "Проверка узлов не выполнена: ${failure.javaClass.simpleName}")
+        TechnicalLogStore.error("PING", "Endpoint check failed: ${failure.javaClass.simpleName}")
       } finally {
         mutableChecking.value = false
       }

@@ -159,7 +159,9 @@ class MainActivity : ComponentActivity() {
       }
       var availableUpdate by remember { mutableStateOf<AppUpdate?>(null) }
       var updateStatus by remember {
-        mutableStateOf(if (BuildConfig.SELF_UPDATE_ENABLED) "Проверка обновлений…" else "")
+        mutableStateOf(
+          if (BuildConfig.SELF_UPDATE_ENABLED) getString(R.string.update_checking) else "",
+        )
       }
       var updating by remember { mutableStateOf(false) }
       var updateProgress by remember { mutableStateOf<Float?>(null) }
@@ -346,7 +348,7 @@ class MainActivity : ComponentActivity() {
       LaunchedEffect(Unit) {
         if (!BuildConfig.SELF_UPDATE_ENABLED) return@LaunchedEffect
         if (!UpdateManager.shouldCheckAutomatically(this@MainActivity)) {
-          updateStatus = "Установлена актуальная версия"
+          updateStatus = getString(R.string.update_current)
           return@LaunchedEffect
         }
         runCatching { UpdateManager.check() }
@@ -354,14 +356,14 @@ class MainActivity : ComponentActivity() {
             availableUpdate = update
             updateStatus = if (update == null) {
               UpdateManager.markCurrentVersionChecked(this@MainActivity)
-              "Установлена актуальная версия"
+              getString(R.string.update_current)
             } else {
-              "Доступна версия ${update.versionName}"
+              getString(R.string.update_available_version, update.versionName)
             }
           }
           .onFailure {
-            updateStatus = "Не удалось проверить обновления"
-            TechnicalLogStore.warning("UPDATE", "Автоматическая проверка обновления не прошла")
+            updateStatus = getString(R.string.update_check_failed)
+            TechnicalLogStore.warning("UPDATE", "Automatic update check failed")
           }
       }
 
@@ -404,7 +406,7 @@ class MainActivity : ComponentActivity() {
         if (!granted) {
           TechnicalLogStore.warning(
             "NOTIFICATION",
-            "Доступ к уведомлениям не предоставлен; состояние VPN останется в системном диспетчере",
+            getString(R.string.notification_permission_denied),
           )
         }
         if (connectAfterNotificationPermission) {
@@ -425,7 +427,7 @@ class MainActivity : ComponentActivity() {
         runCatching {
           if (profileEngine == ProfileEngine.TRUST_TUNNEL) {
             check(SecureProfileStore.exists(this@MainActivity, SecureProfileStore.TRUST_TUNNEL)) {
-              "Профиль TrustTunnel не найден"
+              getString(R.string.trust_profile_not_found)
             }
             val config = SecureProfileStore.load(
               this@MainActivity,
@@ -440,7 +442,7 @@ class MainActivity : ComponentActivity() {
             }
           } else {
             check(SecureProfileStore.exists(this@MainActivity, SecureProfileStore.SING_BOX)) {
-              "Основной профиль не найден"
+              getString(R.string.main_profile_not_found)
             }
             val permissionIntent = VpnService.prepare(this@MainActivity)
             if (permissionIntent == null) {
@@ -451,8 +453,8 @@ class MainActivity : ComponentActivity() {
             }
           }
         }.onFailure {
-          importError = it.message ?: "Не удалось запустить VPN"
-          TechnicalLogStore.error("APP", "Запуск из панели быстрых настроек не выполнен")
+          importError = it.userMessage(R.string.vpn_start_failed)
+          TechnicalLogStore.error("APP", "Quick Settings connection command failed")
         }
       }
 
@@ -464,7 +466,7 @@ class MainActivity : ComponentActivity() {
             UpdateManager.requestInstall(this, apk)
             pendingUpdateApk = null
           } else {
-            updateStatus = "Разрешите установку обновлений для Veilark"
+            updateStatus = getString(R.string.update_allow_install)
           }
         }
       }
@@ -476,8 +478,8 @@ class MainActivity : ComponentActivity() {
         runCatching {
           val config = contentResolver.openInputStream(uri)?.use { input ->
             input.readAtMost(MAX_CONFIG_SIZE + 1)
-          } ?: error("Не удалось прочитать профиль")
-          require(config.size <= MAX_CONFIG_SIZE) { "Профиль больше 2 МБ" }
+          } ?: error(getString(R.string.profile_read_failed))
+          require(config.size <= MAX_CONFIG_SIZE) { getString(R.string.profile_too_large) }
           val configText = config.toString(Charsets.UTF_8)
           Libbox.checkConfig(configText)
           val importedName =
@@ -508,8 +510,8 @@ class MainActivity : ComponentActivity() {
           subscriptionRefreshAvailable = false
           importError = null
         }.onFailure {
-          importError = it.message ?: "Некорректная конфигурация"
-          TechnicalLogStore.error("IMPORT", "Импорт JSON-конфигурации отклонён")
+          importError = it.userMessage(R.string.invalid_configuration)
+          TechnicalLogStore.error("IMPORT", "JSON configuration import rejected")
         }
       }
 
@@ -529,7 +531,7 @@ class MainActivity : ComponentActivity() {
           val message = result.data
             ?.getStringExtra(QrScannerActivity.EXTRA_ERROR)
             ?.takeIf(String::isNotBlank)
-            ?: "Сканер камеры закрылся до чтения QR-кода"
+            ?: getString(R.string.qr_closed_without_result)
           importError = message
           TechnicalLogStore.warning("IMPORT", "QR: $message")
         }
@@ -541,8 +543,8 @@ class MainActivity : ComponentActivity() {
         if (granted) {
           qrScanner.launch(Intent(this@MainActivity, QrScannerActivity::class.java))
         } else {
-          importError = "Разрешите Veilark доступ к камере для чтения QR-кода"
-          TechnicalLogStore.warning("QR", "Пользователь не разрешил доступ к камере")
+          importError = getString(R.string.qr_camera_permission_denied)
+          TechnicalLogStore.warning("QR", "Camera permission denied")
           pendingQrConsumer = null
         }
       }
@@ -650,7 +652,7 @@ class MainActivity : ComponentActivity() {
                   val active = trustProfiles.firstOrNull {
                     it.sourceId == importedSourceId
                   } ?: trustProfiles.firstOrNull()
-                    ?: error("Не удалось сохранить профиль TrustTunnel")
+                    ?: error(getString(R.string.trust_profile_save_failed))
                   TrustTunnelCatalog.activate(this@MainActivity, trustProfiles, active.id)
                   stopTunnelsAfterProfileCommit()
                   profileEngine = ProfileEngine.TRUST_TUNNEL
@@ -665,15 +667,15 @@ class MainActivity : ComponentActivity() {
                     .putString("profile_engine", profileEngine)
                     .apply()
                   subscriptionRefreshAvailable = active.sourceUrl != null
-                  TechnicalLogStore.info("IMPORT", "Профиль TrustTunnel добавлен")
+                  TechnicalLogStore.info("IMPORT", "TrustTunnel profile added")
                 }.onFailure {
-                  importError = it.message ?: "Не удалось импортировать TrustTunnel"
-                  TechnicalLogStore.error("IMPORT", "TrustTunnel-ссылка отклонена")
+                  importError = it.userMessage(R.string.trust_import_failed)
+                  TechnicalLogStore.error("IMPORT", "TrustTunnel link rejected")
                 }
               } else {
                 runCatching {
                   require(!url.startsWith("http://", ignoreCase = true)) {
-                    "HTTP-подписки небезопасны. Используйте HTTPS-ссылку"
+                    getString(R.string.http_subscription_insecure)
                   }
                   val payload = if (url.startsWith("https://", ignoreCase = true)) {
                     SubscriptionFetcher.fetch(
@@ -699,7 +701,7 @@ class MainActivity : ComponentActivity() {
                     val active = trustProfiles.firstOrNull {
                       it.sourceId == trustSourceId
                     } ?: trustProfiles.firstOrNull()
-                      ?: error("Не удалось сохранить подписку TrustTunnel")
+                      ?: error(getString(R.string.trust_subscription_save_failed))
                     TrustTunnelCatalog.activate(
                       this@MainActivity,
                       trustProfiles,
@@ -720,7 +722,7 @@ class MainActivity : ComponentActivity() {
                     subscriptionRefreshAvailable = active.sourceUrl != null
                     TechnicalLogStore.info(
                       "IMPORT",
-                      "TrustTunnel-подписка импортирована, узлов: ${trustCompiled.size}",
+                      "TrustTunnel subscription imported; servers=${trustCompiled.size}",
                     )
                     return@runCatching null
                   }
@@ -783,7 +785,7 @@ class MainActivity : ComponentActivity() {
                   }
                   TechnicalLogStore.info(
                     "IMPORT",
-                    "Подписка импортирована, узлов: ${compiled.profileCount}",
+                    "Subscription imported; servers=${compiled.profileCount}",
                   )
                   compiled.rejectedReasons.forEach {
                     TechnicalLogStore.warning("IMPORT", it)
@@ -796,14 +798,14 @@ class MainActivity : ComponentActivity() {
                       selectedSingBoxId,
                     )?.name ?: compiled.displayName
                     importError = if (compiled.rejectedCount > 0) {
-                      "Импортировано ${compiled.profileCount}; пропущено ${compiled.rejectedCount}"
+                      "Imported=${compiled.profileCount}; rejected=${compiled.rejectedCount}"
                     } else {
                       null
                     }
                   }
                 }.onFailure {
-                  importError = it.message ?: "Не удалось импортировать подписку"
-                  TechnicalLogStore.error("IMPORT", "Подписка не импортирована")
+                  importError = it.userMessage(R.string.subscription_import_failed)
+                  TechnicalLogStore.error("IMPORT", "Subscription import failed")
                 }
               }
               importing = false
@@ -842,7 +844,7 @@ class MainActivity : ComponentActivity() {
                   if (refreshEngine == ProfileEngine.TRUST_TUNNEL) {
                     val links = SubscriptionParser().extractTrustTunnelLinks(payload)
                     require(links.isNotEmpty()) {
-                      "В подписке больше нет профилей TrustTunnel"
+                      getString(R.string.trust_subscription_empty)
                     }
                     val refreshed = withContext(Dispatchers.Default) {
                       links.map(TrustTunnelProfile::compile)
@@ -852,7 +854,7 @@ class MainActivity : ComponentActivity() {
                         refreshSourceId,
                         trustProfiles.map { it.sourceId },
                       ),
-                    ) { "Подписка TrustTunnel была удалена до завершения обновления" }
+                  ) { getString(R.string.trust_subscription_removed_refresh) }
                     val stillSelected = trustProfiles.firstOrNull { it.id == selectedTrustId }
                       ?.sourceId == refreshSourceId
                     trustProfiles = TrustTunnelCatalog.replaceSource(
@@ -866,7 +868,7 @@ class MainActivity : ComponentActivity() {
                           it.fingerprint == trustSnapshot?.fingerprint
                       } ?: trustProfiles.firstOrNull {
                         it.sourceId == refreshSourceId
-                      } ?: error("Обновлённый источник TrustTunnel пуст")
+                      } ?: error(getString(R.string.trust_refreshed_source_empty))
                       TrustTunnelCatalog.activate(
                         this@MainActivity,
                         trustProfiles,
@@ -889,7 +891,7 @@ class MainActivity : ComponentActivity() {
                     }
                     TechnicalLogStore.info(
                       "SUBSCRIPTION",
-                      "TrustTunnel-подписка обновлена, узлов: ${refreshed.size}",
+                      "TrustTunnel subscription refreshed; servers=${refreshed.size}",
                     )
                     return@runCatching
                   }
@@ -925,7 +927,7 @@ class MainActivity : ComponentActivity() {
                       refreshSourceId,
                       singBoxProfiles.map { it.id },
                     ),
-                  ) { "Подписка была удалена до завершения обновления" }
+                  ) { getString(R.string.subscription_removed_refresh) }
                   val stillSelected = selectedSingBoxId == refreshSourceId
                   val refreshedEntry = SingBoxCatalog.create(
                     config = config,
@@ -960,14 +962,14 @@ class MainActivity : ComponentActivity() {
                   }
                   TechnicalLogStore.info(
                     "SUBSCRIPTION",
-                    "Подписка обновлена, узлов: ${compiled.profileCount}",
+                    "Subscription refreshed; servers=${compiled.profileCount}",
                   )
                   compiled.rejectedReasons.forEach {
                     TechnicalLogStore.warning("SUBSCRIPTION", it)
                   }
                 }.onFailure {
-                  importError = it.message ?: "Не удалось обновить подписку"
-                  TechnicalLogStore.error("SUBSCRIPTION", "Обновление подписки не выполнено")
+                  importError = it.userMessage(R.string.subscription_refresh_failed)
+                  TechnicalLogStore.error("SUBSCRIPTION", "Subscription refresh failed")
                 }
                 refreshingSubscription = false
               }
@@ -989,7 +991,7 @@ class MainActivity : ComponentActivity() {
             profileEngine = target
             TechnicalLogStore.info(
               "APP",
-              "Выбран режим ${if (target == ProfileEngine.TRUST_TUNNEL) "TrustTunnel" else "sing-box"}",
+              "Selected engine=${if (target == ProfileEngine.TRUST_TUNNEL) "TrustTunnel" else "sing-box"}",
             )
             if (target == ProfileEngine.TRUST_TUNNEL) {
               trustProfiles = TrustTunnelCatalog.load(this)
@@ -1061,8 +1063,8 @@ class MainActivity : ComponentActivity() {
                 profilePreferences.edit().putString("selected_node", tag).apply()
               }
             }.onFailure {
-              importError = it.message ?: "Не удалось выбрать узел"
-              TechnicalLogStore.error("PROFILE", "Выбор узла не применён")
+              importError = it.userMessage(R.string.node_select_failed)
+              TechnicalLogStore.error("PROFILE", "Server selection failed")
             }
           },
           onSelectSubscription = { id ->
@@ -1072,7 +1074,7 @@ class MainActivity : ComponentActivity() {
                   TrustTunnelManager.stop(this)
                 }
                 val entry = trustProfiles.firstOrNull { it.sourceId == id }
-                  ?: error("Подписка TrustTunnel больше не найдена")
+                  ?: error(getString(R.string.trust_subscription_missing))
                 TrustTunnelCatalog.activate(this, trustProfiles, entry.id)
                 selectedTrustId = entry.id
                 profileName = entry.name
@@ -1084,13 +1086,13 @@ class MainActivity : ComponentActivity() {
                   .putString("trust_display_name", entry.name)
                   .putString("display_name", entry.name)
                   .apply()
-                TechnicalLogStore.info("PROFILE", "Выбрана подписка ${entry.name}")
+                TechnicalLogStore.info("PROFILE", "Selected subscription=${entry.name}")
               } else {
                 if (singBoxConnectionState != ConnectionState.Disconnected) {
                   VeilarkVpnService.stop(this)
                 }
                 val entry = singBoxProfiles.firstOrNull { it.id == id }
-                  ?: error("Подписка больше не найдена")
+                  ?: error(getString(R.string.subscription_missing))
                 SingBoxCatalog.activate(this, entry)
                 selectedSingBoxId = entry.id
                 profileName = entry.name
@@ -1104,19 +1106,19 @@ class MainActivity : ComponentActivity() {
                   .putString("nodes", ProfileSelection.encodeNodes(entry.nodes))
                   .putString("selected_node", entry.selectedNodeTag)
                   .apply()
-                TechnicalLogStore.info("PROFILE", "Выбрана подписка ${entry.name}")
+                TechnicalLogStore.info("PROFILE", "Selected subscription=${entry.name}")
               }
               importError = null
             }.onFailure {
-              importError = it.message ?: "Не удалось переключить подписку"
-              TechnicalLogStore.error("PROFILE", "Переключение подписки не выполнено")
+              importError = it.userMessage(R.string.subscription_switch_failed)
+              TechnicalLogStore.error("PROFILE", "Subscription switch failed")
             }
           },
           onDeleteSubscription = { sourceId ->
             runCatching {
               if (profileEngine == ProfileEngine.TRUST_TUNNEL) {
                 val removed = trustProfiles.filter { it.sourceId == sourceId }
-                require(removed.isNotEmpty()) { "Подписка TrustTunnel больше не найдена" }
+                require(removed.isNotEmpty()) { getString(R.string.trust_subscription_missing) }
                 removed.forEach { SubscriptionDeletionPolicy.requireDeletable(it.origin) }
                 val activeSourceId = trustProfiles
                   .firstOrNull { it.id == selectedTrustId }
@@ -1160,7 +1162,7 @@ class MainActivity : ComponentActivity() {
                   ?.sourceUrl != null
               } else {
                 require(singBoxProfiles.any { it.id == sourceId }) {
-                  "Подписка больше не найдена"
+                  getString(R.string.subscription_missing)
                 }
                 val activeRemoved = SubscriptionDeletionPolicy.removesActiveSource(
                   selectedSingBoxId,
@@ -1205,11 +1207,11 @@ class MainActivity : ComponentActivity() {
                   .firstOrNull { it.id == selectedSingBoxId }
                   ?.sourceUrl != null
               }
-              TechnicalLogStore.info("PROFILE", "Подписка удалена")
+              TechnicalLogStore.info("PROFILE", "Subscription deleted")
               importError = null
             }.onFailure {
-              importError = it.message ?: "Не удалось удалить подписку"
-              TechnicalLogStore.error("PROFILE", "Удаление подписки не выполнено")
+              importError = it.userMessage(R.string.subscription_delete_failed)
+              TechnicalLogStore.error("PROFILE", "Subscription deletion failed")
             }
           },
           onCopyDiagnostic = {
@@ -1223,21 +1225,21 @@ class MainActivity : ComponentActivity() {
           },
           onCheckUpdate = {
             updating = true
-            updateStatus = "Проверка обновлений…"
+            updateStatus = getString(R.string.update_checking)
             coroutineScope.launch {
               runCatching { UpdateManager.check() }
                 .onSuccess { update ->
                   availableUpdate = update
                   updateStatus = if (update == null) {
                     UpdateManager.markCurrentVersionChecked(this@MainActivity)
-                    "Установлена актуальная версия"
+                    getString(R.string.update_current)
                   } else {
-                    "Доступна версия ${update.versionName}"
+                    getString(R.string.update_available_version, update.versionName)
                   }
                 }
                 .onFailure {
-                  updateStatus = it.message ?: "Не удалось проверить обновления"
-                  TechnicalLogStore.warning("UPDATE", "Ручная проверка обновления не прошла")
+                  updateStatus = it.userMessage(R.string.update_check_failed)
+                  TechnicalLogStore.warning("UPDATE", "Manual update check failed")
                 }
               updating = false
             }
@@ -1254,7 +1256,7 @@ class MainActivity : ComponentActivity() {
                   connectionNodes,
                 )
               }.onFailure {
-                TechnicalLogStore.error("PING", "Основной профиль недоступен")
+                TechnicalLogStore.error("PING", "Main profile unavailable")
               }
             }
           },
@@ -1327,11 +1329,11 @@ class MainActivity : ComponentActivity() {
                   .putString("vpn_routes", vpnRoutes)
                   .putString("dpi_mode", dpiMode)
               }
-              check(routingEditor.commit()) { "Не удалось сохранить маршрутизацию приложений" }
+              check(routingEditor.commit()) { getString(R.string.routing_save_failed) }
               importError = null
             }.onFailure {
-              importError = it.message ?: "Не удалось применить маршрутизацию"
-              TechnicalLogStore.error("ROUTING", "Настройки маршрутизации отклонены")
+              importError = it.userMessage(R.string.routing_apply_failed)
+              TechnicalLogStore.error("ROUTING", "Routing settings rejected")
             }
           },
           onUpdate = {
@@ -1339,25 +1341,28 @@ class MainActivity : ComponentActivity() {
             if (update != null) {
               updating = true
               updateProgress = 0f
-              updateStatus = "Загрузка ${update.versionName}…"
+              updateStatus = getString(R.string.update_download_start, update.versionName)
               coroutineScope.launch {
                 runCatching {
                   UpdateManager.download(this@MainActivity, update) { progress ->
                     withContext(Dispatchers.Main) {
                       updateProgress = progress.fraction
-                      updateStatus = "Загрузка ${update.versionName} · " +
-                        "${(progress.fraction * 100).toInt()}%"
+                      updateStatus = getString(
+                        R.string.update_download_progress,
+                        update.versionName,
+                        (progress.fraction * 100).toInt(),
+                      )
                     }
                   }
                 }
                   .onSuccess { apk ->
                     updateProgress = 1f
-                    updateStatus = "Обновление загружено"
+                    updateStatus = getString(R.string.update_downloaded)
                     if (UpdateManager.canInstallPackages(this@MainActivity)) {
                       UpdateManager.requestInstall(this@MainActivity, apk)
                     } else {
                       pendingUpdateApk = apk
-                      updateStatus = "Разрешите установку обновлений для Veilark"
+                      updateStatus = getString(R.string.update_allow_install)
                       installPermission.launch(
                         UpdateManager.installPermissionIntent(this@MainActivity),
                       )
@@ -1365,8 +1370,8 @@ class MainActivity : ComponentActivity() {
                   }
                   .onFailure {
                     updateProgress = null
-                    updateStatus = it.message ?: "Не удалось загрузить обновление"
-                    TechnicalLogStore.error("UPDATE", "Загрузка APK не выполнена")
+                    updateStatus = it.userMessage(R.string.update_download_failed)
+                    TechnicalLogStore.error("UPDATE", "APK download failed")
                   }
                 updating = false
               }
@@ -1392,7 +1397,7 @@ class MainActivity : ComponentActivity() {
                     VeilarkVpnService.stop(this)
                   }
                   check(SecureProfileStore.exists(this, SecureProfileStore.TRUST_TUNNEL)) {
-                    "Профиль TrustTunnel не найден"
+                    getString(R.string.trust_profile_not_found)
                   }
                   val config = SecureProfileStore.load(this, SecureProfileStore.TRUST_TUNNEL)
                   val permissionIntent: Intent? = VpnService.prepare(this)
@@ -1407,7 +1412,7 @@ class MainActivity : ComponentActivity() {
                     TrustTunnelManager.stop(this)
                   }
                   check(SecureProfileStore.exists(this, SecureProfileStore.SING_BOX)) {
-                    "Основной профиль не найден"
+                    getString(R.string.main_profile_not_found)
                   }
                   val permissionIntent: Intent? = VpnService.prepare(this)
                   if (permissionIntent == null) {
@@ -1419,8 +1424,8 @@ class MainActivity : ComponentActivity() {
                 }
               }
             }.onFailure {
-              importError = it.message ?: "Не удалось запустить VPN"
-              TechnicalLogStore.error("APP", "Команда подключения не выполнена")
+              importError = it.userMessage(R.string.vpn_start_failed)
+              TechnicalLogStore.error("APP", "Connection command failed")
             }
           },
         )
@@ -1512,7 +1517,7 @@ class MainActivity : ComponentActivity() {
         }
         .apply()
     }.onFailure {
-      TechnicalLogStore.warning("PROFILE", "Не удалось сверить сохранённый выбор профиля")
+      TechnicalLogStore.warning("PROFILE", "Saved profile selection validation failed")
     }
   }
 
@@ -1536,6 +1541,15 @@ class MainActivity : ComponentActivity() {
         .remove("direct_routes")
         .remove("vpn_routes")
         .apply()
+    }
+  }
+
+  private fun Throwable.userMessage(fallbackRes: Int): String {
+    val language = resources.configuration.locales[0].language
+    return if (language == "ru") {
+      message?.takeIf(String::isNotBlank) ?: getString(fallbackRes)
+    } else {
+      getString(fallbackRes)
     }
   }
 

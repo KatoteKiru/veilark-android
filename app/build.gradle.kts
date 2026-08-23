@@ -135,8 +135,8 @@ android {
     defaultConfig {
         minSdk = 29
         targetSdk = 36
-        versionCode = 39
-        versionName = "0.8.0-rc12"
+        versionCode = 40
+        versionName = "0.8.0-rc13"
         buildConfigField("boolean", "VEILARK_CORE_ENABLED", "false")
         ndk {
             abiFilters += veilarkAbis

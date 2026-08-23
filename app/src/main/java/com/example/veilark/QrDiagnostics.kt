@@ -9,7 +9,7 @@ internal object QrDiagnostics {
     val root = generateSequence(failure) { it.cause }.last()
     val type = root.javaClass.simpleName.ifBlank { "Throwable" }
     val detail = root.message
-      ?.replace(linkPattern, "<ссылка скрыта>")
+      ?.replace(linkPattern, "<redacted link>")
       ?.replace(whitespacePattern, " ")
       ?.trim()
       ?.take(MAX_FAILURE_DETAIL)

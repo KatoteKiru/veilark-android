@@ -15,7 +15,7 @@ class QrDiagnosticsTest {
     val summary = QrDiagnostics.safeFailureSummary(failure)
 
     assertTrue(summary.startsWith("IllegalArgumentException: camera failed"))
-    assertTrue(summary.contains("<ссылка скрыта>"))
+    assertTrue(summary.contains("<redacted link>"))
     assertFalse(summary.contains("secret-token"))
     assertFalse(summary.contains('\n'))
   }

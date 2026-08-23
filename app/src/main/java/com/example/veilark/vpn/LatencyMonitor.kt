@@ -89,7 +89,7 @@ object LatencyMonitor : CommandClientHandler {
       reconnectJob?.cancel()
       reconnectJob = null
     }
-    TechnicalLogStore.info("CORE", "Канал технических логов sing-box подключён")
+    TechnicalLogStore.info("CORE", "sing-box technical log channel connected")
     refresh()
   }
 
@@ -97,7 +97,7 @@ object LatencyMonitor : CommandClientHandler {
     if (shouldRun) {
       TechnicalLogStore.warning(
         "CORE",
-        "Канал технических логов sing-box разорван: ${message ?: "без причины"}",
+        "sing-box technical log channel closed: ${message ?: "no reason"}",
       )
     }
     synchronized(this) {

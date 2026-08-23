@@ -1,52 +1,55 @@
 # Veilark for Android
 
-Veilark — независимый Android-клиент для пользовательских VPN-профилей. В
-приложении есть два сетевых движка: `sing-box` для совместимых прокси-протоколов
-и `TrustTunnel` для ссылок `tt://`. Репозиторий содержит приложение, адаптеры,
-тесты и инструкции воспроизводимой сборки. Серверная часть и VPN-доступ в проект
-не входят.
+[English](README.md) | [Русский](README.ru.md)
 
-## Возможности
+Veilark is an independent Android client for VPN profiles supplied by the user.
+It combines two network engines: `sing-box` for compatible proxy protocols and
+`TrustTunnel` for `tt://` profiles. This repository contains the app, adapters,
+tests, and reproducible build instructions. It does not provide servers, VPN
+access, accounts, or subscriptions.
 
-- Android 10+ (`minSdk 29`), `arm64-v8a` и `armeabi-v7a`;
-- независимые режимы sing-box 1.13.14 и TrustTunnel 1.0.49;
-- несколько подписок и профилей с обновлением, переключением и удалением;
-- импорт из ссылки, буфера обмена, файла и QR-кода;
-- ссылки VLESS, Trojan, Hysteria 2, VMess, Shadowsocks, TUIC и AnyTLS;
-- совместимое подмножество JSON sing-box/Xray и YAML Clash/Mihomo;
-- ссылки TrustTunnel `tt://` и списки таких ссылок;
-- раздельное туннелирование по приложениям для обоих движков;
-- ручные правила доменов и CIDR для sing-box;
-- Quick Settings tile, технический журнал и ручная проверка задержки;
-- зашифрованное хранение профилей через Android Keystore.
+## Features
 
-Импорт намеренно ограничен теми форматами, которые приложение может проверить
-и безопасно преобразовать. Произвольный граф конфигурации sing-box, все плагины
-Shadowsocks и каждый диалект сторонних панелей не заявлены как совместимые.
+- Android 10+ (`minSdk 29`), `arm64-v8a` and `armeabi-v7a`;
+- English and Russian UI selected from the Android system or per-app language;
+- separate sing-box 1.13.14 and TrustTunnel 1.0.49 modes;
+- multiple subscriptions and profiles with refresh, selection, and deletion;
+- import from a link, clipboard, file, or QR code;
+- VLESS, Trojan, Hysteria 2, VMess, Shadowsocks, TUIC, and AnyTLS links;
+- a compatible subset of sing-box/Xray JSON and Clash/Mihomo YAML;
+- TrustTunnel `tt://` links and lists of those links;
+- per-application split tunnelling for both engines;
+- manual domain and CIDR rules for sing-box;
+- Quick Settings tile, technical log, and on-demand latency checks;
+- encrypted profile storage backed by Android Keystore.
 
-## Публичная и частная сборки
+Import support is deliberately limited to formats Veilark can validate and
+convert safely. Compatibility is not claimed for arbitrary sing-box graphs,
+every Shadowsocks plugin, or every panel-specific subscription dialect.
 
-| Вариант | Application ID | Встроенные профили | Самообновление |
+## Public and private builds
+
+| Variant | Application ID | Bundled profiles | Self-update |
 |---|---|---:|---:|
-| `oss` | `app.veilark.android` | нет | нет |
-| `private` | задаётся локально | из локальных файлов | подписанный частный канал |
+| `oss` | `app.veilark.android` | no | no |
+| `private` | configured locally | local files only | signed private channel |
 
-Обе сборки используют один код приложения. Приватные адреса, подписки и ключи
-хранятся только в игнорируемом `private.properties` и не входят в Git. Публичная
-сборка дополнительно удаляет разрешение установки APK и update `FileProvider` из
-итогового манифеста.
+Both variants use the same application code. Private addresses, subscriptions,
+and update keys live only in an ignored `private.properties` file. The OSS build
+also removes the APK install permission and update `FileProvider` from its final
+manifest.
 
-## Сборка OSS
+## Building the OSS app
 
-Требуются JDK 17 и Android SDK с API 36.
+JDK 17 and Android SDK API 36 are required.
 
 ```bash
 ./gradlew testOssDebugUnitTest lintOssRelease assembleOssDebug
 ```
 
-Устанавливаемый debug APK появится в
-`app/build/outputs/apk/oss/debug/app-oss-debug.apk`. Для подписанного release APK
-задайте четыре переменные окружения:
+The installable debug APK is written to
+`app/build/outputs/apk/oss/debug/app-oss-debug.apk`. To produce a signed release,
+provide these four environment variables:
 
 ```text
 VEILARK_OSS_KEYSTORE
@@ -55,62 +58,58 @@ VEILARK_OSS_KEY_ALIAS
 VEILARK_OSS_KEY_PASSWORD
 ```
 
-После этого выполните `./gradlew assembleOssRelease`. Закрытый ключ нельзя
-добавлять в репозиторий. Полный порядок релиза описан в
-[`docs/RELEASING.md`](docs/RELEASING.md).
+Then run `./gradlew assembleOssRelease`. Never commit the private key. The full
+release procedure is in [`docs/RELEASING.md`](docs/RELEASING.md).
+Store-side policy and localisation gates are tracked separately in
+[`docs/GOOGLE_PLAY_RELEASE_CHECKLIST.md`](docs/GOOGLE_PLAY_RELEASE_CHECKLIST.md).
 
-## Проверка импортов
+## Import verification
 
-JVM-тесты покрывают отдельные URI, base64-списки, JSON sing-box/Xray,
-Clash/Mihomo YAML и смешанные списки с `tt://`. Instrumentation-тест использует
-публичный localhost fixture из TrustTunnelClient и вызывает настоящее native
-ядро. Он требует ARM-устройство:
+JVM tests cover individual URIs, base64 lists, sing-box/Xray JSON,
+Clash/Mihomo YAML, and mixed lists containing `tt://`. The instrumentation test
+uses the public localhost fixture from TrustTunnelClient and calls the real
+native engine. It requires an ARM device:
 
 ```bash
 ./gradlew assembleOssDebugAndroidTest
 ./gradlew connectedOssDebugAndroidTest
 ```
 
-Обычный x86_64 Android Emulator не подходит: поставляемые native-библиотеки
-имеют только ARM ABI.
+A standard x86_64 Android Emulator is not suitable because the bundled native
+libraries currently provide ARM ABIs only.
 
-## Безопасность и приватность
+## Security and privacy
 
-OSS-вариант не содержит VPN-аккаунтов, конфигурации аналитики, рекламных SDK и
-частного OTA.
-Приложение обращается к адресам, которые импортировал пользователь, а также к
-явно запускаемым пользователем проверкам соединения. Технический журнал
-редактирует чувствительные значения. Это клиент, а не гарантия анонимности:
-результат зависит от импортированного сервера и его оператора.
+The OSS variant contains no VPN account, analytics configuration, advertising
+SDK, private subscription, or private update channel. It connects to endpoints
+imported by the user and to checks explicitly started by the user. The technical
+log redacts sensitive values. QR scanning uses on-device Google ML Kit, whose SDK
+may send performance and utilisation metrics as disclosed in the bilingual
+[`PRIVACY.md`](PRIVACY.md).
 
-Уязвимости следует сообщать по правилам из [`SECURITY.md`](SECURITY.md), не через
-публичную задачу.
+Veilark is a client, not an anonymity guarantee. Privacy and availability still
+depend on the imported server and its operator. Report vulnerabilities through
+the private process in [`SECURITY.md`](SECURITY.md), never in a public issue.
 
-## Поддержать проект
+## Support the project
 
-Veilark остаётся бесплатным и открытым. Если приложение оказалось полезным,
-можно поддержать дальнейшую разработку и тестирование:
+Veilark is free and open source. If it is useful to you, you can help fund
+continued development and device testing:
 
-- [ЮMoney](https://yoomoney.ru/fundraise/1JR7FR9V605.260823)
-- USDT в сети TON: `UQA-PCRmPUXwmpNd7Zoys4rRHbz6pA8AZd7EuX54gEk_sBkS`
+- [YooMoney](https://yoomoney.ru/fundraise/1JR7FR9V605.260823)
+- USDT on TON: `UQA-PCRmPUXwmpNd7Zoys4rRHbz6pA8AZd7EuX54gEk_sBkS`
 
-Для перевода USDT выбирайте только сеть TON. Перевод через другую сеть может
-быть потерян.
+Use the TON network only for USDT. A transfer through another network may be
+lost.
 
-## Лицензии
+## Licensing and attribution
 
-Код Veilark распространяется на условиях GPL-3.0-or-later. В APK включён
-sing-box (GPL-3.0-or-later) и адаптированный Android-клиент TrustTunnel
-(Apache-2.0). Точные версии, исходные коммиты, патчи и хеши находятся в
-`vendor/`; дополнительные сведения — в
-[`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
+Veilark is distributed under GPL-3.0-or-later. The APK includes sing-box under
+GPL-3.0-or-later and a modified Android adapter from TrustTunnelClient under
+Apache-2.0. Exact versions, source commits, patches, build records, and hashes
+are tracked under `vendor/` and in
+[`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md). The full license texts and
+third-party notices are also bundled in the app under **About Veilark**.
 
-Veilark — самостоятельный проект и не является официальным приложением
-SagerNet, sing-box, AdGuard или TrustTunnel.
-
-## English
-
-Veilark is an independent Android client for user-supplied VPN profiles. The
-open-source build ships no account, server, subscription, or private update
-channel. See the sections above for the supported import subset, build commands,
-security model, and exact third-party provenance.
+Veilark is an independent community project. It is not affiliated with or
+endorsed by AdGuard, TrustTunnel, SagerNet, or sing-box.

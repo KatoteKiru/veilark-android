@@ -4,6 +4,7 @@ import android.content.Context
 import com.adguard.trusttunnel.AppNotifier
 import com.adguard.trusttunnel.VpnService
 import com.adguard.trusttunnel.VpnState
+import com.example.veilark.R
 import com.example.veilark.diagnostics.TechnicalLogStore
 import com.example.veilark.lifecycle.AndroidTunnelLifecycleOwner
 import com.example.veilark.lifecycle.LifecycleAttempt
@@ -47,8 +48,10 @@ object TrustTunnelManager : AppNotifier {
   private var networkManagerStarted = false
   @Volatile
   private var activeLifecycleAttempt: LifecycleAttempt? = null
+  private lateinit var appContext: Context
 
   fun initialize(context: Context) {
+    appContext = context.applicationContext
     // Remove routing state written by the short-lived experimental adapter in 0.7.7.
     context.getSharedPreferences(
       "trusttunnel_application_routing",
@@ -66,7 +69,7 @@ object TrustTunnelManager : AppNotifier {
   fun start(context: Context, config: String) {
     NativeRuntimeState.requireTrustTunnel()
     check(VpnServiceConfigValidator.isValid(config)) {
-      "Некорректная конфигурация TrustTunnel"
+      context.getString(R.string.trust_invalid_configuration)
     }
     AndroidTunnelLifecycleOwner.startTrustTunnel(context, config)
   }
@@ -75,7 +78,7 @@ object TrustTunnelManager : AppNotifier {
   internal fun startEngine(context: Context, config: String, attempt: LifecycleAttempt) {
     NativeRuntimeState.requireTrustTunnel()
     check(VpnServiceConfigValidator.isValid(config)) {
-      "Некорректная конфигурация TrustTunnel"
+      context.getString(R.string.trust_invalid_configuration)
     }
     connectionRequested = true
     activeLifecycleAttempt = attempt
@@ -85,7 +88,7 @@ object TrustTunnelManager : AppNotifier {
     mutableFailureMessage.value = null
     mutableTransport.value = null
     mutableState.value = ConnectionState.Connecting
-    TechnicalLogStore.info("TRUST", "Запуск туннеля")
+    TechnicalLogStore.info("TRUST", "Starting tunnel")
     ensureNetworkManager(context.applicationContext)
     try {
       VpnService.start(context, config)
@@ -113,12 +116,11 @@ object TrustTunnelManager : AppNotifier {
       !connectionRequested ||
       mutableState.value != ConnectionState.Connecting
     ) return
-    mutableFailureMessage.value =
-      "TrustTunnel не подключился за 45 секунд. Проверьте профиль и сеть"
+    mutableFailureMessage.value = context.getString(R.string.trust_connection_timeout)
     connectionRequested = false
     VpnService.stop(context)
     mutableState.value = ConnectionState.Failed
-    TechnicalLogStore.error("TRUST", "Таймаут подключения")
+    TechnicalLogStore.error("TRUST", "Connection timed out")
   }
 
   @Synchronized
@@ -140,7 +142,7 @@ object TrustTunnelManager : AppNotifier {
       return
     }
     VpnService.stop(context)
-    TechnicalLogStore.info("TRUST", "Туннель остановлен пользователем")
+    TechnicalLogStore.info("TRUST", "Tunnel stopped by user")
   }
 
   @Synchronized
@@ -170,8 +172,8 @@ object TrustTunnelManager : AppNotifier {
         if (connectionRequested) {
           connectionRequested = false
           mutableFailureMessage.value =
-            "TrustTunnel не установил соединение. Проверьте доступность сервера и профиль"
-          TechnicalLogStore.error("TRUST", "Ядро завершило подключение с ошибкой")
+            appContext.getString(R.string.trust_connection_failed)
+          TechnicalLogStore.error("TRUST", "Core ended the connection with an error")
           ConnectionState.Failed
         } else if (mutableFailureMessage.value != null) {
           ConnectionState.Failed
@@ -181,11 +183,11 @@ object TrustTunnelManager : AppNotifier {
       }
       VpnState.CONNECTED -> {
         if (!connectionRequested || activeLifecycleAttempt == null) {
-          TechnicalLogStore.warning("TRUST", "Запоздалое событие CONNECTED проигнорировано")
+          TechnicalLogStore.warning("TRUST", "Ignored a stale CONNECTED event")
           ConnectionState.Disconnected
         } else {
           hasConnected = true
-          TechnicalLogStore.info("TRUST", "Туннель подключён")
+          TechnicalLogStore.info("TRUST", "Tunnel connected")
           ConnectionState.Connected
         }
       }
@@ -199,7 +201,7 @@ object TrustTunnelManager : AppNotifier {
       VpnState.RECOVERING,
       VpnState.WAITING_FOR_NETWORK,
       -> {
-        TechnicalLogStore.warning("TRUST", "Смена физической сети: ${nativeState.name}")
+        TechnicalLogStore.warning("TRUST", "Physical network transition: ${nativeState.name}")
         trustRecoveryUiState(hasConnected, connectionRequested)
       }
     }
@@ -214,7 +216,7 @@ object TrustTunnelManager : AppNotifier {
     }
     if (transport != mutableTransport.value) {
       mutableTransport.value = transport
-      TechnicalLogStore.info("TRUST", "Согласован транспорт ${transport ?: "unknown"}")
+      TechnicalLogStore.info("TRUST", "Negotiated transport ${transport ?: "unknown"}")
     }
   }
 
@@ -223,7 +225,7 @@ object TrustTunnelManager : AppNotifier {
     if (networkManagerStarted) return
     VpnService.startNetworkManager(context)
     networkManagerStarted = true
-    TechnicalLogStore.info("TRUST", "Монитор физической сети запущен по требованию")
+    TechnicalLogStore.info("TRUST", "Physical network monitor started on demand")
   }
 
   private fun measureEndpointLatency(config: String): Int? {

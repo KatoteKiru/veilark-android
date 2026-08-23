@@ -78,7 +78,7 @@ object SingBoxCatalog {
       ?: suggestedName
         ?.trim()
         ?.takeIf(String::isNotBlank)
-      ?: "Локальный профиль"
+      ?: "Local profile"
     val identity = normalizedUrl ?: config
     return SingBoxCatalogEntry(
       id = SubscriptionIdentity.sourceId(
@@ -253,7 +253,7 @@ object SingBoxCatalog {
 
   private fun hostName(url: String): String = runCatching {
     URI(url).host?.removePrefix("www.")?.takeIf(String::isNotBlank)
-  }.getOrNull() ?: "Подписка"
+  }.getOrNull() ?: "Subscription"
 
   private fun nodeFingerprints(
     config: String,

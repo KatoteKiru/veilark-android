@@ -46,7 +46,7 @@ object TechnicalLogStore {
         .orEmpty()
       startWriter()
     }
-    info("APP", "Veilark запущен")
+    info("APP", "Veilark started")
   }
 
   fun info(component: String, message: String) = append("INFO", component, message)

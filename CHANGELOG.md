@@ -2,6 +2,17 @@
 
 All notable changes to the public distribution are documented here.
 
+## 0.8.0-rc13-oss
+
+- added complete English and Russian UI selected by Android system locale;
+- added an in-app About screen with source link, attribution, full license
+  texts, and third-party notices;
+- added a bilingual privacy policy and an in-app link to it, including accurate
+  ML Kit metrics and manual diagnostics disclosures;
+- localized TrustTunnel connection errors, notifications, Quick Settings tile,
+  QR scanner, routing, subscription, and update surfaces;
+- added full English and Russian project documentation.
+
 ## 0.8.0-rc12-oss
 
 - first source release with a dedicated `oss` product flavor;

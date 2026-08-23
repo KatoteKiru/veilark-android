@@ -25,7 +25,7 @@ class VeilarkApplication : Application() {
       NativeRuntimeState.recordTrustTunnel(it)
       TechnicalLogStore.error(
         "NATIVE",
-        "TrustTunnel не инициализирован: ${it.javaClass.simpleName}",
+        "TrustTunnel initialization failed: ${it.javaClass.simpleName}",
       )
     }
     runCatching { BuiltInTrustProfiles.install(this) }
@@ -47,7 +47,7 @@ class VeilarkApplication : Application() {
       NativeRuntimeState.recordLibbox(it)
       TechnicalLogStore.error(
         "NATIVE",
-        "sing-box не инициализирован: ${it.javaClass.simpleName}",
+        "sing-box initialization failed: ${it.javaClass.simpleName}",
       )
     }
   }

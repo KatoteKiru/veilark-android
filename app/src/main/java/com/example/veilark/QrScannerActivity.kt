@@ -48,13 +48,13 @@ class QrScannerActivity : ComponentActivity() {
     if (granted) {
       startCamera()
     } else {
-      finishWithError("Для сканирования QR разрешите доступ к камере")
+      finishWithError(getString(R.string.qr_permission_required))
     }
   }
 
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
-    TechnicalLogStore.info("QR", "Открыт сканер QR-кода")
+    TechnicalLogStore.info("QR", "QR scanner opened")
     runCatching {
       setContentView(createScannerView())
       if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) ==
@@ -66,7 +66,7 @@ class QrScannerActivity : ComponentActivity() {
       }
     }.onFailure { failure ->
       finishWithError(
-        "Не удалось открыть сканер камеры (${failure.javaClass.simpleName})",
+        getString(R.string.qr_scanner_failed, failure.javaClass.simpleName),
       )
     }
   }
@@ -77,7 +77,7 @@ class QrScannerActivity : ComponentActivity() {
       scaleType = PreviewView.ScaleType.FILL_CENTER
     }
     val hint = TextView(this).apply {
-      text = "Наведите камеру на QR-код"
+      text = getString(R.string.qr_scanner_hint)
       setTextColor(Color.WHITE)
       setBackgroundColor(0xB3000000.toInt())
       textSize = 16f
@@ -86,7 +86,7 @@ class QrScannerActivity : ComponentActivity() {
     }
     val close = TextView(this).apply {
       text = "×"
-      contentDescription = "Закрыть сканер"
+      contentDescription = getString(R.string.qr_scanner_close)
       setTextColor(Color.WHITE)
       textSize = 34f
       gravity = Gravity.CENTER
@@ -172,7 +172,7 @@ class QrScannerActivity : ComponentActivity() {
           provider.bindToLifecycle(this@QrScannerActivity, selector, preview, analysis)
           TechnicalLogStore.info(
             "QR",
-            "Камера запущена: ${if (selector == CameraSelector.DEFAULT_BACK_CAMERA) "back" else "front"}",
+            "Camera started: ${if (selector == CameraSelector.DEFAULT_BACK_CAMERA) "back" else "front"}",
           )
         }.onFailure { failure ->
           finishWithCameraFailure("QR-CAMERA-BIND", failure)
@@ -213,7 +213,7 @@ class QrScannerActivity : ComponentActivity() {
   private fun finishWithResult(value: String) {
     if (delivered) return
     delivered = true
-    TechnicalLogStore.info("QR", "QR-код распознан")
+    TechnicalLogStore.info("QR", "QR code decoded")
     setResult(Activity.RESULT_OK, Intent().putExtra(EXTRA_RESULT, value))
     finish()
   }
@@ -230,7 +230,7 @@ class QrScannerActivity : ComponentActivity() {
   private fun finishWithCameraFailure(code: String, failure: Throwable) {
     val summary = QrDiagnostics.safeFailureSummary(failure)
     TechnicalLogStore.error("QR", "$code: $summary")
-    finishWithError("Не удалось запустить камеру · $code")
+    finishWithError(getString(R.string.qr_camera_start_failed, code))
   }
 
   override fun onDestroy() {
