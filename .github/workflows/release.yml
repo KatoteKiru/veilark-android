@@ -16,7 +16,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
-      VEILARK_OSS_KEYSTORE: ${{ runner.temp }}/veilark-oss-release.jks
       VEILARK_OSS_STORE_PASSWORD: ${{ secrets.VEILARK_OSS_STORE_PASSWORD }}
       VEILARK_OSS_KEY_ALIAS: ${{ secrets.VEILARK_OSS_KEY_ALIAS }}
       VEILARK_OSS_KEY_PASSWORD: ${{ secrets.VEILARK_OSS_KEY_PASSWORD }}
@@ -32,7 +31,8 @@ jobs:
           KEYSTORE_B64: ${{ secrets.VEILARK_OSS_KEYSTORE_B64 }}
         run: |
           test -n "$KEYSTORE_B64"
-          printf '%s' "$KEYSTORE_B64" | base64 --decode > "$VEILARK_OSS_KEYSTORE"
+          printf '%s' "$KEYSTORE_B64" | base64 --decode > "$RUNNER_TEMP/veilark-oss-release.jks"
+          echo "VEILARK_OSS_KEYSTORE=$RUNNER_TEMP/veilark-oss-release.jks" >> "$GITHUB_ENV"
       - name: Test and build signed OSS release
         run: ./gradlew testOssDebugUnitTest lintOssRelease assembleOssRelease --no-daemon
       - name: Validate release tag
