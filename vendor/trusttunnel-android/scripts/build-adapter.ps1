@@ -1,16 +1,15 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)]
-    [string]$BaselineAar,
-
-    [Parameter(Mandatory = $true)]
     [string]$OutputAar,
 
     [Parameter(Mandatory = $true)]
     [string]$WorkDirectory,
 
-    [string]$AndroidSdk = $env:ANDROID_HOME,
-
+    [string]$AndroidSdk = "$env:LOCALAPPDATA\Android\Sdk",
+    [string]$JavaHome = $env:JAVA_HOME,
+    [string]$PythonLauncher = 'py',
+    [string]$RustToolchain = '1.95-x86_64-pc-windows-gnu',
     [string]$HostManifest
 )
 
@@ -18,26 +17,29 @@ $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
 $UpstreamRepository = 'https://github.com/TrustTunnel/TrustTunnelClient.git'
-$UpstreamCommit = 'be6596652d9722c3109164f505be8e7975a2daa5'
-$BaselineAarHash = '8de1d62df1d2242b527c99ab28d172886326bbdeddcc931caa3d23251d6393b1'
-$BaselineClassesHash = '89c744cc589c8547bb8796769c630ee06e2cdd0bde6a7ecafce9d9fab82b6386'
-$PatchedClassesHash = '760c80213cc7c6074b9a124ec2cd730fbbf4960b5c03a0210fea56e8bb85c2c6'
-$PatchedAarHash = '3257274bb06fa2ef7b13d91d40b0bbd81434e9a5b8d1ee2cda4a347ae6428d82'
-$FixedTimestamp = '2026-04-09T09:55:00Z'
+$UpstreamCommit = '7da863b1b947d22a3131d94dcc7c80b0240b6e97'
+$DnsLibsRepository = 'https://github.com/AdguardTeam/DnsLibs.git'
+$DnsLibsBootstrapTag = 'v2.8.52'
+$DnsLibsPackageVersion = '2.8.51'
+$NativeLibsRepository = 'https://github.com/AdguardTeam/NativeLibsCommon.git'
+$NativeLibsTag = 'v8.1.28'
+$CMakeVersion = '3.31.6'
+$ExpectedAarHash = '3BC3B2D39915305B8F18AD3D33E805054EB3C21FFBD2B0D554CCD48A08DB40D8'
+$ExpectedClassesHash = 'B0904AE6B4513D6AEA17012827108754E5A35C8A5BA05D2B66A16066D02F5F7C'
 $PatchPath = (Resolve-Path (Join-Path $PSScriptRoot '..\patches\0001-android-per-app-routing.patch')).Path
 
 $ExpectedPayloadHashes = [ordered]@{
-    'AndroidManifest.xml' = 'e2b8620b22bf37d9860165bba5df9b1b4fff41cbdfdd240d7038628a077941ba'
-    'R.txt' = 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'
-    'proguard.txt' = '59a5016dc2777c4a21b3c88d1d2ba7bdf36999eff08cecb301e00e2ead478510'
-    'assets/logback.xml' = '7ac50f5a58e5fb5dfa8648cb459e4fb8b45df3d6c50aeec4dc1afa64321d77c4'
-    'META-INF/com/android/build/gradle/aar-metadata.properties' = '9cc8517bbdf06d879f57a2cfd6f8c6914e48800d443421cd850971945f98e7b2'
-    'jni/arm64-v8a/libtrusttunnel_android.so' = '26adfbb9780c11a51e2e10e561310be07977a1fa68d44e202598f01378dd4a73'
-    'jni/armeabi-v7a/libtrusttunnel_android.so' = '16416cb7e567dbe90e9d52a2211e5d8ae27118197d83a209d5b9d7df7169813c'
+    'AndroidManifest.xml' = 'E2B8620B22BF37D9860165BBA5DF9B1B4FFF41CBDFDD240D7038628A077941BA'
+    'R.txt' = 'E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855'
+    'proguard.txt' = '59A5016DC2777C4A21B3C88D1D2BA7BDF36999EFF08CECB301E00E2EAD478510'
+    'assets/logback.xml' = '7AC50F5A58E5FB5DFA8648CB459E4FB8B45DF3D6C50AEEC4DC1AFA64321D77C4'
+    'META-INF/com/android/build/gradle/aar-metadata.properties' = '9CC8517BBDF06D879F57A2CFD6F8C6914E48800D443421CD850971945F98E7B2'
+    'jni/arm64-v8a/libtrusttunnel_android.so' = 'D698806D46779B7A9D508ACBF9BA0C015ACC910704BD1A04B101A0FA04B8B60B'
+    'jni/armeabi-v7a/libtrusttunnel_android.so' = 'E5F28B07FC348728FCFB018BE42D6BDFFEA9AF29FD37D886A8A53104E08FAB9E'
 }
 
 function Get-Sha256([string]$Path) {
-    (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
+    (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToUpperInvariant()
 }
 
 function Assert-Hash([string]$Path, [string]$Expected) {
@@ -47,31 +49,39 @@ function Assert-Hash([string]$Path, [string]$Expected) {
     }
 }
 
+function Invoke-Checked([string]$Executable, [string[]]$Arguments, [string]$WorkingDirectory) {
+    Push-Location $WorkingDirectory
+    try {
+        & $Executable @Arguments
+        if ($LASTEXITCODE -ne 0) {
+            throw "$Executable failed with exit code $LASTEXITCODE"
+        }
+    } finally {
+        Pop-Location
+    }
+}
+
 function Assert-TrustAdapterBytecode([string]$ClassesJar) {
-    $bytecodeLines = & javap -classpath $ClassesJar -c -p com.adguard.trusttunnel.VpnService
+    $service = (& javap -classpath $ClassesJar -c -p com.adguard.trusttunnel.VpnService) -join "`n"
     if ($LASTEXITCODE -ne 0) {
-        throw 'javap failed while verifying the patched VpnService.'
+        throw 'javap failed while verifying VpnService.'
     }
-    $bytecode = $bytecodeLines -join "`n"
-    if ($bytecode -notmatch '(?s)bipush\s+34.{0,400}int 1073741824.{0,200}startForeground') {
-        throw 'Android 34+ SPECIAL_USE foreground-service bytecode is missing.'
+    if ($service -notmatch 'int 1073741824' -or $service -match 'sipush\s+1024') {
+        throw 'Android 14+ SPECIAL_USE foreground-service bytecode is missing or invalid.'
     }
-    if ($bytecode -match 'sipush\s+1024') {
-        throw 'SYSTEM_EXEMPTED foreground-service bytecode was reintroduced.'
+    if ($service -notmatch 'applyApplicationRouting') {
+        throw 'Application routing hook is missing from VpnService.'
+    }
+    if ($service -notmatch 'stopping the foreground service') {
+        throw 'Early-failure foreground-service cleanup is missing.'
     }
 
-    $closeStart = $bytecode.IndexOf('private final boolean close(java.lang.Integer);')
-    $closeEnd = $bytecode.IndexOf('static boolean close$default', $closeStart + 1)
-    if ($closeStart -lt 0 -or $closeEnd -le $closeStart) {
-        throw 'Could not locate VpnService.close bytecode.'
-    }
-    $closeBytecode = $bytecode.Substring($closeStart, $closeEnd - $closeStart)
-    if ($closeBytecode -notmatch 'VPN service is not running, stopping the foreground service') {
-        throw 'Inactive-service foreground cleanup log marker is missing.'
-    }
-    if (([regex]::Matches($closeBytecode, 'stopSelf:\(I\)V')).Count -lt 2 -or
-        ([regex]::Matches($closeBytecode, 'stopSelf:\(\)V')).Count -lt 2) {
-        throw 'Inactive-service close path no longer calls both stopSelf variants.'
+    $sink = (& javap -classpath $ClassesJar -c -p 'com.adguard.trusttunnel.VpnService$BuilderApplicationRuleSink') -join "`n"
+    if ($LASTEXITCODE -ne 0 -or
+        $sink -notmatch 'addAllowedApplication' -or
+        $sink -notmatch 'addDisallowedApplication' -or
+        $sink -notmatch 'NameNotFoundException') {
+        throw 'Per-application routing bytecode is incomplete.'
     }
 }
 
@@ -97,31 +107,21 @@ function Assert-HostManifest([string]$ManifestPath) {
     }
 }
 
-function Invoke-Checked([string]$Executable, [string[]]$Arguments, [string]$WorkingDirectory) {
-    Push-Location $WorkingDirectory
-    try {
-        & $Executable @Arguments
-        if ($LASTEXITCODE -ne 0) {
-            throw "$Executable failed with exit code $LASTEXITCODE"
-        }
-    } finally {
-        Pop-Location
-    }
+$AndroidSdk = (Resolve-Path -LiteralPath $AndroidSdk).Path
+$JavaHome = (Resolve-Path -LiteralPath $JavaHome).Path
+$cmakeBin = Join-Path $AndroidSdk "cmake\$CMakeVersion\bin"
+if (-not (Test-Path -LiteralPath (Join-Path $cmakeBin 'cmake.exe') -PathType Leaf)) {
+    throw "Android SDK CMake $CMakeVersion is required."
 }
-
-$BaselineAar = (Resolve-Path -LiteralPath $BaselineAar).Path
-Assert-Hash $BaselineAar $BaselineAarHash
+if (-not (Test-Path -LiteralPath (Join-Path $AndroidSdk 'ndk\28.1.13356709\source.properties') -PathType Leaf)) {
+    throw 'Android NDK 28.1.13356709 is required.'
+}
 
 if ([string]::IsNullOrWhiteSpace($HostManifest)) {
     $HostManifest = Join-Path $PSScriptRoot '..\..\..\app\src\main\AndroidManifest.xml'
 }
 $HostManifest = (Resolve-Path -LiteralPath $HostManifest).Path
 Assert-HostManifest $HostManifest
-
-if ([string]::IsNullOrWhiteSpace($AndroidSdk)) {
-    throw 'AndroidSdk is required (pass -AndroidSdk or set ANDROID_HOME).'
-}
-$AndroidSdk = (Resolve-Path -LiteralPath $AndroidSdk).Path
 
 $work = [System.IO.Path]::GetFullPath($WorkDirectory)
 if (Test-Path -LiteralPath $work) {
@@ -133,55 +133,66 @@ if (Test-Path -LiteralPath $work) {
 }
 
 $source = Join-Path $work 'source'
-$package = Join-Path $work 'aar'
-$compiledJar = Join-Path $work 'classes.jar'
+$dnsLibs = Join-Path $work 'dns-libs'
+$nativeLibs = Join-Path $work 'native-libs-common'
+$inspect = Join-Path $work 'aar-inspect'
 $resolvedOutput = [System.IO.Path]::GetFullPath($OutputAar)
-New-Item -ItemType Directory -Path $package | Out-Null
-New-Item -ItemType Directory -Force -Path (Split-Path -Parent $resolvedOutput) | Out-Null
+New-Item -ItemType Directory -Force -Path (Split-Path -Parent $resolvedOutput), $inspect | Out-Null
+
+$pythonScripts = (& $PythonLauncher -c 'import sysconfig; print(sysconfig.get_path("scripts"))').Trim()
+if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($pythonScripts)) {
+    throw 'Unable to locate the Python scripts directory.'
+}
+$env:PATH = "$cmakeBin;$pythonScripts;$JavaHome\bin;$env:USERPROFILE\.cargo\bin;$env:PATH"
+$env:ANDROID_HOME = $AndroidSdk
+$env:ANDROID_SDK_ROOT = $AndroidSdk
+$env:JAVA_HOME = $JavaHome
+$env:RUSTUP_TOOLCHAIN = $RustToolchain
+
+Invoke-Checked $PythonLauncher @('-m', 'conan', '--version') $work
+Invoke-Checked 'rustup' @('run', $RustToolchain, 'rustc', '--version') $work
+Invoke-Checked 'cargo' @('ndk', '--version') $work
 
 Invoke-Checked 'git' @('clone', '--filter=blob:none', '--no-checkout', $UpstreamRepository, $source) $work
 Invoke-Checked 'git' @('checkout', '--detach', $UpstreamCommit) $source
 $actualCommit = (& git -C $source rev-parse HEAD).Trim()
-if ($LASTEXITCODE -ne 0 -or $actualCommit -ne $UpstreamCommit) {
+if ($actualCommit -ne $UpstreamCommit) {
     throw "Unexpected upstream commit: $actualCommit"
 }
+
+Invoke-Checked 'git' @('clone', $DnsLibsRepository, $dnsLibs) $work
+Invoke-Checked 'git' @('checkout', $DnsLibsBootstrapTag) $dnsLibs
+Invoke-Checked $PythonLauncher @('scripts/export_conan.py', $DnsLibsPackageVersion) $dnsLibs
+
+Invoke-Checked 'git' @('clone', $NativeLibsRepository, $nativeLibs) $work
+Invoke-Checked 'git' @('checkout', $NativeLibsTag) $nativeLibs
+Invoke-Checked $PythonLauncher @('scripts/export_conan.py', '8.1.28') $nativeLibs
+
 Invoke-Checked 'git' @('apply', '--check', $PatchPath) $source
 Invoke-Checked 'git' @('apply', $PatchPath) $source
 
 $escapedSdk = $AndroidSdk.Replace('\', '\\').Replace(':', '\:')
-$localProperties = "sdk.dir=$escapedSdk`n"
 [System.IO.File]::WriteAllText(
     (Join-Path $source 'platform\android\local.properties'),
-    $localProperties,
+    "sdk.dir=$escapedSdk`n",
     [System.Text.UTF8Encoding]::new($false)
 )
 
 $androidProject = Join-Path $source 'platform\android'
 Invoke-Checked (Join-Path $androidProject 'gradlew.bat') `
-    @(':lib:compileReleaseKotlin', ':lib:testDebugUnitTest', '--no-daemon', '--stacktrace') `
+    @(':lib:assembleRelease', ':lib:testDebugUnitTest', '--no-daemon', '--stacktrace') `
     $androidProject
 
-$compiledClasses = Join-Path $androidProject 'lib\build\tmp\kotlin-classes\release'
-if (-not (Test-Path -LiteralPath $compiledClasses)) {
-    throw "Compiled Kotlin classes not found: $compiledClasses"
-}
-Invoke-Checked 'jar' `
-    @('--create', '--no-manifest', '--file', $compiledJar, '--date', $FixedTimestamp, '-C', $compiledClasses, '.') `
-    $work
-Assert-Hash $compiledJar $PatchedClassesHash
-Assert-TrustAdapterBytecode $compiledJar
+$builtAar = Join-Path $androidProject 'lib\build\outputs\aar\lib-release.aar'
+Copy-Item -LiteralPath $builtAar -Destination $resolvedOutput -Force
+Assert-Hash $resolvedOutput $ExpectedAarHash
 
-Invoke-Checked 'jar' @('--extract', '--file', $BaselineAar) $package
-Assert-Hash (Join-Path $package 'classes.jar') $BaselineClassesHash
+Invoke-Checked 'jar' @('--extract', '--file', $resolvedOutput) $inspect
+Assert-Hash (Join-Path $inspect 'classes.jar') $ExpectedClassesHash
 foreach ($entry in $ExpectedPayloadHashes.GetEnumerator()) {
-    Assert-Hash (Join-Path $package $entry.Key) $entry.Value
+    Assert-Hash (Join-Path $inspect $entry.Key) $entry.Value
 }
+Assert-TrustAdapterBytecode (Join-Path $inspect 'classes.jar')
 
-Copy-Item -LiteralPath $compiledJar -Destination (Join-Path $package 'classes.jar') -Force
-Invoke-Checked 'jar' `
-    @('--create', '--no-manifest', '--file', $resolvedOutput, '--date', $FixedTimestamp, '-C', $package, '.') `
-    $work
-
-Assert-Hash $resolvedOutput $PatchedAarHash
-Write-Host "Built and verified TrustTunnel adapter: $resolvedOutput"
-Write-Host "SHA-256: $PatchedAarHash"
+Write-Host "Built and verified TrustTunnel 1.1.4 Android AAR: $resolvedOutput"
+Write-Host "SHA-256: $ExpectedAarHash"

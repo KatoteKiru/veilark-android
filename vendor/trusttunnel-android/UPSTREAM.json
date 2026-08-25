@@ -1,20 +1,33 @@
 {
-  "schema": 1,
+  "schema": 2,
   "upstream": {
     "repository": "https://github.com/TrustTunnel/TrustTunnelClient.git",
-    "tag": "v1.0.49",
-    "commit": "be6596652d9722c3109164f505be8e7975a2daa5"
+    "tag": "v1.1.4",
+    "commit": "7da863b1b947d22a3131d94dcc7c80b0240b6e97"
   },
   "patch": "patches/0001-android-per-app-routing.patch",
-  "patch_sha256": "e4ad8cc0c731ae71682dba8de33dc13be7802758feef7dff09eca82fac8daecc",
+  "patch_sha256": "A1A7B2AB5C1D05B693448302748DB83F48B77D8C03F07E428025E32093EDD1B7",
   "packaging": {
-    "method": "adapter-only-classes-jar-replacement",
-    "fixed_zip_timestamp_utc": "2026-04-09T09:55:00Z",
-    "native_rebuilt": false,
+    "method": "full-upstream-android-aar-build",
+    "native_rebuilt": true,
+    "abis": ["arm64-v8a", "armeabi-v7a"],
     "preserved_veilark_adapter_fixes": [
       "android-34-special-use-foreground-service",
-      "stop-foreground-service-after-early-start-failure"
+      "stop-foreground-service-after-early-start-failure",
+      "per-application-routing"
     ]
+  },
+  "dependency_bootstrap": {
+    "dns_libs": {
+      "package": "dns-libs/2.8.51@adguard/oss",
+      "repository_tag": "v2.8.52",
+      "source_commit": "8b4fec198f12f69f23b3ae45d6d86afb8e82ba62"
+    },
+    "native_libs_common": {
+      "package": "native_libs_common/8.1.28@adguard/oss",
+      "repository_tag": "v8.1.28",
+      "source_commit": "e9ea7f8b99294d1638c40edb1c14001416edf8fa"
+    }
   },
   "toolchain": {
     "jdk": "Eclipse Temurin 17.0.19+10",
@@ -23,21 +36,27 @@
     "kotlin": "2.0.21",
     "compile_sdk": 35,
     "min_sdk": 26,
-    "ndk_declared_by_upstream": "28.1.13356709",
-    "cmake_available_on_build_host": "3.31.6",
-    "native_toolchain_used_for_final_artifact": false
+    "android_ndk": "28.1.13356709",
+    "cmake": "3.31.6",
+    "conan": "2.31.2",
+    "rust": "1.95-x86_64-pc-windows-gnu"
   },
   "sha256": {
-    "veilark_baseline_aar": "8de1d62df1d2242b527c99ab28d172886326bbdeddcc931caa3d23251d6393b1",
-    "veilark_baseline_classes_jar": "89c744cc589c8547bb8796769c630ee06e2cdd0bde6a7ecafce9d9fab82b6386",
-    "patched_classes_jar": "760c80213cc7c6074b9a124ec2cd730fbbf4960b5c03a0210fea56e8bb85c2c6",
-    "patched_aar": "3257274bb06fa2ef7b13d91d40b0bbd81434e9a5b8d1ee2cda4a347ae6428d82",
-    "android_manifest_xml": "e2b8620b22bf37d9860165bba5df9b1b4fff41cbdfdd240d7038628a077941ba",
-    "r_txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-    "proguard_txt": "59a5016dc2777c4a21b3c88d1d2ba7bdf36999eff08cecb301e00e2ead478510",
-    "assets_logback_xml": "7ac50f5a58e5fb5dfa8648cb459e4fb8b45df3d6c50aeec4dc1afa64321d77c4",
-    "aar_metadata_properties": "9cc8517bbdf06d879f57a2cfd6f8c6914e48800d443421cd850971945f98e7b2",
-    "jni_arm64_v8a": "26adfbb9780c11a51e2e10e561310be07977a1fa68d44e202598f01378dd4a73",
-    "jni_armeabi_v7a": "16416cb7e567dbe90e9d52a2211e5d8ae27118197d83a209d5b9d7df7169813c"
+    "aar": "3BC3B2D39915305B8F18AD3D33E805054EB3C21FFBD2B0D554CCD48A08DB40D8",
+    "classes_jar": "B0904AE6B4513D6AEA17012827108754E5A35C8A5BA05D2B66A16066D02F5F7C",
+    "jni_arm64_v8a": "D698806D46779B7A9D508ACBF9BA0C015ACC910704BD1A04B101A0FA04B8B60B",
+    "jni_armeabi_v7a": "E5F28B07FC348728FCFB018BE42D6BDFFEA9AF29FD37D886A8A53104E08FAB9E",
+    "android_manifest_xml": "E2B8620B22BF37D9860165BBA5DF9B1B4FFF41CBDFDD240D7038628A077941BA",
+    "r_txt": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855",
+    "proguard_txt": "59A5016DC2777C4A21B3C88D1D2BA7BDF36999EFF08CECB301E00E2EAD478510",
+    "assets_logback_xml": "7AC50F5A58E5FB5DFA8648CB459E4FB8B45DF3D6C50AEEC4DC1AFA64321D77C4",
+    "aar_metadata_properties": "9CC8517BBDF06D879F57A2CFD6F8C6914E48800D443421CD850971945F98E7B2"
+  },
+  "verification": {
+    "upstream_android_unit_tests": "passed",
+    "release_kotlin_compilation": "passed",
+    "full_native_build": "passed",
+    "patched_bytecode": "passed",
+    "physical_arm_device": "not-run"
   }
 }

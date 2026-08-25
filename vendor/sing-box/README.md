@@ -1,9 +1,9 @@
-# sing-box/libbox 1.13.19 canary
+# sing-box/libbox 1.13.19 production core
 
-This directory describes an isolated Android canary of upstream sing-box. It is
-not used by a normal application build and does not replace
-`app/libs/libbox.aar`. The large generated AAR is intentionally ignored by Git;
-run the tracked build recipe to create it locally before enabling the canary.
+This directory records the isolated validation that preceded promotion of
+sing-box 1.13.19 to `app/libs/libbox.aar`. The large intermediate AAR is
+intentionally ignored by Git; the tracked production build recipe writes the
+same core directly to the application library directory.
 
 ## Artifact
 
@@ -20,7 +20,7 @@ library provenance. The build recipe is `scripts/build-canary.ps1`.
 
 ## Compatibility evidence
 
-Compared with the production 1.13.14 AAR without changing it:
+Compared with the previous production 1.13.14 AAR:
 
 - `classes.jar` is byte-identical (`95A1A5B...A04CC82`);
 - all 90 `io.nekohasekai.libbox` class names match;
@@ -38,9 +38,8 @@ identical to the hashes in `UPSTREAM.json`. Full `assembleRelease` in that
 throw-away copy stopped only because production TrustTunnel credential inputs
 were intentionally not copied into the isolated workspace.
 
-This is a canary input, not a production approval. Before integration, copy the
-AAR into a throw-away branch/worktree, build the signed release, and validate on
-a physical arm64 device: cold start, profile import, DNS, TCP/UDP, QUIC,
+The source/API/ABI gates passed before promotion. Physical-device release
+acceptance still covers cold start, profile import, DNS, TCP/UDP, QUIC,
 Wi-Fi/LTE handover, reconnect, split tunnelling, 30-minute soak, and rollback.
 
 The artifact is GPLv3 software. Preserve the license and make the exact

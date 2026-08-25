@@ -1,25 +1,19 @@
-From 6f0f47c642a55af82d80b2053f99c978171ecbb1 Mon Sep 17 00:00:00 2001
+From 0a35b4fbb6bb3b0784c37e9cfa49e44cc8150535 Mon Sep 17 00:00:00 2001
 From: Veilark Build <build@veilark.local>
-Date: Tue, 11 Aug 2026 12:00:00 +0300
+Date: Tue, 25 Aug 2026 23:31:55 +0300
 Subject: [PATCH] android: preserve lifecycle fixes and add per-app routing
 
-Preserve Veilark's Android 14+ SPECIAL_USE foreground-service contract and its
-early-failure service cleanup from the verified baseline AAR. Keep application
-routing at the Android VpnService.Builder boundary so it also applies to the
-TrustTunnel transport. Never mix allowed and disallowed application rules,
-ignore packages removed since preference capture, and fail closed when ONLY
-mode has no installed selected application.
 ---
- platform/android/lib/build.gradle.kts          |   4 +
- .../adguard/trusttunnel/ApplicationRouting.kt  |  76 ++++++++++++
- .../com/adguard/trusttunnel/VpnService.kt      |  58 +++++++--
- .../trusttunnel/ApplicationRoutingTest.kt      | 115 ++++++++++++++++++
- 4 files changed, 248 insertions(+), 5 deletions(-)
+ platform/android/lib/build.gradle.kts         |   5 +
+ .../adguard/trusttunnel/ApplicationRouting.kt |  74 +++++++++++
+ .../com/adguard/trusttunnel/VpnService.kt     |  58 ++++++++-
+ .../trusttunnel/ApplicationRoutingTest.kt     | 115 ++++++++++++++++++
+ 4 files changed, 247 insertions(+), 5 deletions(-)
  create mode 100644 platform/android/lib/src/main/java/com/adguard/trusttunnel/ApplicationRouting.kt
  create mode 100644 platform/android/lib/src/test/java/com/adguard/trusttunnel/ApplicationRoutingTest.kt
 
 diff --git a/platform/android/lib/build.gradle.kts b/platform/android/lib/build.gradle.kts
-index 24dc5c6..a71b7f4 100644
+index 0a975a3..de771a6 100644
 --- a/platform/android/lib/build.gradle.kts
 +++ b/platform/android/lib/build.gradle.kts
 @@ -15,6 +15,10 @@ android {
@@ -33,12 +27,20 @@ index 24dc5c6..a71b7f4 100644
          testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
          consumerProguardFiles("proguard-rules.pro")
          externalNativeBuild {
+@@ -45,6 +49,7 @@ android {
+     externalNativeBuild {
+         cmake {
+             path = file("src/main/cpp/CMakeLists.txt")
++            version = "3.31.6"
+         }
+     }
+ }
 diff --git a/platform/android/lib/src/main/java/com/adguard/trusttunnel/ApplicationRouting.kt b/platform/android/lib/src/main/java/com/adguard/trusttunnel/ApplicationRouting.kt
 new file mode 100644
-index 0000000..e008866
+index 0000000..4337024
 --- /dev/null
 +++ b/platform/android/lib/src/main/java/com/adguard/trusttunnel/ApplicationRouting.kt
-@@ -0,0 +1,76 @@
+@@ -0,0 +1,74 @@
 +package com.adguard.trusttunnel
 +
 +internal enum class ApplicationRoutingMode(val preferenceValue: String) {
@@ -86,10 +88,8 @@ index 0000000..e008866
 +}
 +
 +internal interface ApplicationRuleSink {
-+    /** Returns false when the package is no longer installed. */
 +    fun allow(packageName: String): Boolean
 +
-+    /** Returns false when the package is no longer installed. */
 +    fun disallow(packageName: String): Boolean
 +}
 +
@@ -116,7 +116,7 @@ index 0000000..e008866
 +    return appliedRules
 +}
 diff --git a/platform/android/lib/src/main/java/com/adguard/trusttunnel/VpnService.kt b/platform/android/lib/src/main/java/com/adguard/trusttunnel/VpnService.kt
-index 5cebd0b..3d44c14 100644
+index ed3373b..c3fca12 100644
 --- a/platform/android/lib/src/main/java/com/adguard/trusttunnel/VpnService.kt
 +++ b/platform/android/lib/src/main/java/com/adguard/trusttunnel/VpnService.kt
 @@ -5,6 +5,7 @@ import android.app.NotificationChannel
@@ -127,7 +127,7 @@ index 5cebd0b..3d44c14 100644
  import android.content.pm.ServiceInfo
  import android.net.ConnectivityManager
  import android.net.NetworkCapabilities
-@@ -139,8 +140,8 @@ class VpnService : android.net.VpnService(), VpnClientListener {
+@@ -146,8 +147,8 @@ class VpnService : android.net.VpnService(), VpnClientListener {
 
          // Foreground service must spawn its notification in the first 5 seconds of the service lifetime
          val notification = createNotification(this.applicationContext)
@@ -138,7 +138,7 @@ index 5cebd0b..3d44c14 100644
          } else {
              startForeground(NOTIFICATION_ID, notification)
          }
-@@ -242,7 +243,7 @@ class VpnService : android.net.VpnService(), VpnClientListener {
+@@ -249,7 +250,7 @@ class VpnService : android.net.VpnService(), VpnClientListener {
                  .setMtu(tunConfig.mtuSize.toInt())
                  .addAddress("172.20.2.13", 32)
                  .addAddress("fdfd:29::2", 64)
@@ -147,7 +147,7 @@ index 5cebd0b..3d44c14 100644
              val dnsServers = if (config.endpoint.dnsUpstreams.isEmpty()) {
                  ADGUARD_DNS_SERVERS
              } else {
-@@ -271,6 +272,45 @@ class VpnService : android.net.VpnService(), VpnClientListener {
+@@ -278,6 +279,45 @@ class VpnService : android.net.VpnService(), VpnClientListener {
          }
      }
 
@@ -193,10 +193,10 @@ index 5cebd0b..3d44c14 100644
      /**
       * Closes the VPN TUN interface and stops itself only if the called is the only one who
       * tries to stop the service.
-@@ -293,7 +333,15 @@ class VpnService : android.net.VpnService(), VpnClientListener {
+@@ -300,7 +340,15 @@ class VpnService : android.net.VpnService(), VpnClientListener {
       *         false if something is wrong with closing or the service has already been closed
       */
-     private fun close(startId: Int? = null): Boolean = synchronized(SYNC) {
+     private fun close(startId: Int? = null): Boolean {
 -        if (state != State.Started) return false.also { LOG.info("VPN service is not running, do nothing") }
 +        if (state != State.Started) {
 +            LOG.info("VPN service is not running, stopping the foreground service")
@@ -210,7 +210,7 @@ index 5cebd0b..3d44c14 100644
 
          LOG.info("Closing VPN service")
 
-@@ -373,4 +421,4 @@ class VpnService : android.net.VpnService(), VpnClientListener {
+@@ -381,4 +429,4 @@ class VpnService : android.net.VpnService(), VpnClientListener {
              // This is a key characteristic of foreground service notifications.
              .build()
      }
@@ -219,7 +219,7 @@ index 5cebd0b..3d44c14 100644
 +}
 diff --git a/platform/android/lib/src/test/java/com/adguard/trusttunnel/ApplicationRoutingTest.kt b/platform/android/lib/src/test/java/com/adguard/trusttunnel/ApplicationRoutingTest.kt
 new file mode 100644
-index 0000000..7df1e9e
+index 0000000..4752af5
 --- /dev/null
 +++ b/platform/android/lib/src/test/java/com/adguard/trusttunnel/ApplicationRoutingTest.kt
 @@ -0,0 +1,115 @@

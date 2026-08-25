@@ -12,7 +12,7 @@ access, accounts, or subscriptions.
 
 - Android 10+ (`minSdk 29`), `arm64-v8a` and `armeabi-v7a`;
 - English and Russian UI selected from the Android system or per-app language;
-- separate sing-box 1.13.14 and TrustTunnel 1.0.49 modes;
+- separate sing-box 1.13.19 and TrustTunnel 1.1.4 modes;
 - multiple subscriptions and profiles with refresh, selection, and deletion;
 - import from a link, clipboard, file, or QR code;
 - VLESS, Trojan, Hysteria 2, VMess, Shadowsocks, TUIC, and AnyTLS links;

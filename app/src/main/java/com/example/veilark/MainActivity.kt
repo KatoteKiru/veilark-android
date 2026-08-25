@@ -602,11 +602,11 @@ class MainActivity : ComponentActivity() {
             SecureProfileStore.exists(this, SecureProfileStore.TRUST_TUNNEL),
           engineDescription = if (profileEngine == ProfileEngine.TRUST_TUNNEL) {
             buildString {
-              append("TrustTunnel 1.0.49")
+              append("TrustTunnel 1.1.4")
               trustTunnelTransport?.let { append(" · $it") }
             }
           } else {
-            "sing-box 1.13.14"
+            "sing-box 1.13.19"
           },
           subscriptionRefreshAvailable = subscriptionRefreshAvailable,
           refreshingSubscription = refreshingSubscription,

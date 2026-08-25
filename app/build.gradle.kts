@@ -135,8 +135,8 @@ android {
     defaultConfig {
         minSdk = 29
         targetSdk = 36
-        versionCode = 40
-        versionName = "0.8.0-rc13"
+        versionCode = 41
+        versionName = "0.8.0-rc14"
         buildConfigField("boolean", "VEILARK_CORE_ENABLED", "false")
         ndk {
             abiFilters += veilarkAbis
@@ -298,17 +298,8 @@ dependencies {
   implementation(libs.androidx.lifecycle.viewmodel.navigation3)
   implementation(libs.kotlinx.coroutines.android)
 
-  // Production remains pinned to 1.13.14. The opt-in canary build uses the
-  // separately reproducible 1.13.19 AAR and a distinct application id.
-  implementation(
-    files(
-      if (veilarkCoreCanaryRequested.get()) {
-        rootProject.file("vendor/sing-box/artifacts/libbox-1.13.19-android-arm-arm64.aar")
-      } else {
-        file("libs/libbox.aar")
-      },
-    ),
-  )
+  // Stable sing-box 1.13.19, reproducibly built for arm64-v8a and armeabi-v7a.
+  implementation(files("libs/libbox.aar"))
 
   // Official TrustTunnel Android client built from the upstream source.
   implementation(files("libs/trusttunnel-client.aar"))

@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "component": "sing-box experimental/libbox for Android",
-  "status": "canary-not-integrated",
+  "status": "production-integrated",
   "source": {
     "repository": "https://github.com/SagerNet/sing-box.git",
     "release": "https://github.com/SagerNet/sing-box/releases/tag/v1.13.19",

@@ -133,7 +133,7 @@
     <string name="veilark_license_title">Veilark · GPL-3.0-or-later</string>
     <string name="trust_license_title">TrustTunnelClient · Apache-2.0</string>
     <string name="third_party_notices_title">Уведомления сторонних компонентов</string>
-    <string name="trust_attribution">Veilark включает изменённый Android-адаптер TrustTunnelClient v1.0.49, Copyright 2020 Adguard Software Ltd, лицензия Apache License 2.0. В Android-адаптер добавлены исправления жизненного цикла и маршрутизация по приложениям; встроенные нативные библиотеки не изменялись.</string>
+    <string name="trust_attribution">Veilark включает изменённый Android-адаптер и нативное ядро TrustTunnelClient v1.1.4, Copyright 2020 Adguard Software Ltd, лицензия Apache License 2.0. В Android-адаптере сохранены исправления жизненного цикла и добавлена маршрутизация по приложениям.</string>
     <string name="independent_project_notice">Veilark — независимый проект сообщества. Он не связан с AdGuard, TrustTunnel, SagerNet или sing-box и не одобрен ими.</string>
     <string name="legal_document_back">Назад к лицензиям</string>
     <string name="qr_permission_required">Для сканирования QR разрешите доступ к камере</string>

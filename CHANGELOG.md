@@ -2,6 +2,16 @@
 
 All notable changes to the public distribution are documented here.
 
+## 0.8.0-rc14-oss
+
+- updated the production sing-box core from 1.13.14 to stable 1.13.19;
+- updated the Android TrustTunnel adapter and native core from 1.0.49 to the
+  stable 1.1.4 source tag;
+- retained Veilark per-application split tunnelling and Android foreground
+  service lifecycle fixes on the new TrustTunnel adapter;
+- rebuilt and verified both native engines for `arm64-v8a` and
+  `armeabi-v7a`.
+
 ## 0.8.0-rc13-oss
 
 - added complete English and Russian UI selected by Android system locale;
