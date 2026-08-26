@@ -128,14 +128,14 @@ private fun MainScreen(session: VeilarkSession, tick: Int, refresh: () -> Unit) 
         )
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
           FilterChip(
-            selected = session.engine == TunnelEngineKind.SING_BOX,
-            onClick = { session.engine = TunnelEngineKind.SING_BOX; refresh() },
-            label = { Text(Strings.singBox) },
-          )
-          FilterChip(
             selected = session.engine == TunnelEngineKind.TRUST_TUNNEL,
             onClick = { session.engine = TunnelEngineKind.TRUST_TUNNEL; refresh() },
             label = { Text(Strings.trustTunnel) },
+          )
+          FilterChip(
+            selected = session.engine == TunnelEngineKind.SING_BOX,
+            onClick = { session.engine = TunnelEngineKind.SING_BOX; refresh() },
+            label = { Text(Strings.singBox) },
           )
         }
         Button(

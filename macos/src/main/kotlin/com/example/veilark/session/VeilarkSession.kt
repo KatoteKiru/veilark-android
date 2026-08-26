@@ -34,7 +34,7 @@ class VeilarkSession(
   private val store: EncryptedStore,
   private val helper: PrivilegedHelper = PrivilegedHelper(BundledPaths.resolve()),
 ) {
-  var engine by mutableStateOf(TunnelEngineKind.SING_BOX)
+  var engine by mutableStateOf(TunnelEngineKind.TRUST_TUNNEL)
   var status by mutableStateOf(TunnelStatus.DISCONNECTED)
     private set
   var statusDetail by mutableStateOf("")
