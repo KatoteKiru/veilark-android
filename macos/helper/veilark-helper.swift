@@ -83,7 +83,9 @@ func allowedEngine(_ name: String) -> String {
 }
 
 func managedProcessPath(_ pid: pid_t) -> String? {
-    var buffer = [CChar](repeating: 0, count: Int(PROC_PIDPATHINFO_MAXSIZE))
+    // PROC_PIDPATHINFO_MAXSIZE is a C macro that Swift cannot import on all SDKs.
+    // Darwin defines it as 4 * MAXPATHLEN (4096 bytes).
+    var buffer = [CChar](repeating: 0, count: 4096)
     let length = proc_pidpath(pid, &buffer, UInt32(buffer.count))
     guard length > 0 else { return nil }
     return String(cString: buffer)
