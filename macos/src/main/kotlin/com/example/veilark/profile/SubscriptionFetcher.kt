@@ -32,7 +32,7 @@ object SubscriptionFetcher {
         connection.readTimeout = 20_000
         connection.setRequestProperty(
           "User-Agent",
-          "SFA/1.13.14 Veilark/$VERSION",
+          "SFA/1.13.19 Veilark/$VERSION",
         )
         connection.setRequestProperty("X-Client", "Veilark")
         headers.forEach(connection::setRequestProperty)
@@ -132,7 +132,7 @@ object SubscriptionFetcher {
   private const val MAX_REDIRECTS = 3
   private const val MAX_BYTES = 4 * 1024 * 1024
   private const val HTML_PROBE_BYTES = 2_048
-  private const val VERSION = "0.1.0-macos"
+  private const val VERSION = "1.0.1-macos"
 }
 
 private object SubscriptionClientIdentity {

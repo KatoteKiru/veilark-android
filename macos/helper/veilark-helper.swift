@@ -48,22 +48,20 @@ func invokingUserHome() -> String? {
     return String(cString: pw.pointee.pw_dir)
 }
 
-func configPathAllowed(_ configPath: String, callerHome: String?) -> Bool {
-    let suffix = "/Library/Application Support/Veilark/"
-    var prefixes = [
-        "/Library/Application Support/Veilark/",
-        "/System/Volumes/Data/Library/Application Support/Veilark/",
-    ]
-    if let home = callerHome, !home.isEmpty {
-        prefixes += [home + suffix, "/System/Volumes/Data" + home + suffix]
+func configPathAllowed(_ configPath: String, callerHome: String?, callerUid: uid_t) -> Bool {
+    guard let home = callerHome, !home.isEmpty else { return false }
+    let expected = home + "/Library/Application Support/Veilark/runtime/"
+    let dataExpected = "/System/Volumes/Data" + expected
+    guard configPath.hasPrefix(expected) || configPath.hasPrefix(dataExpected) else { return false }
+    guard configPath.hasSuffix("/sing-box.json") || configPath.hasSuffix("/trusttunnel.toml") else {
+        return false
     }
-    if prefixes.contains(where: { configPath.hasPrefix($0) }) {
-        return true
-    }
-    return configPath.range(
-        of: #"^(/System/Volumes/Data)?/Users/[^/]+/Library/Application Support/Veilark/"#,
-        options: .regularExpression,
-    ) != nil
+    var fileInfo = stat()
+    guard lstat(configPath, &fileInfo) == 0 else { return false }
+    guard (fileInfo.st_mode & S_IFMT) == S_IFREG else { return false }
+    guard fileInfo.st_uid == callerUid else { return false }
+    guard (fileInfo.st_mode & (S_IWGRP | S_IWOTH)) == 0 else { return false }
+    return fileInfo.st_size > 0 && fileInfo.st_size <= 4 * 1024 * 1024
 }
 
 func realpathOrFail(_ path: String) -> String {
@@ -84,6 +82,19 @@ func allowedEngine(_ name: String) -> String {
     }
 }
 
+func managedProcessPath(_ pid: pid_t) -> String? {
+    var buffer = [CChar](repeating: 0, count: Int(PROC_PIDPATHINFO_MAXSIZE))
+    let length = proc_pidpath(pid, &buffer, UInt32(buffer.count))
+    guard length > 0 else { return nil }
+    return String(cString: buffer)
+}
+
+func isManagedProcess(_ pid: pid_t) -> Bool {
+    guard let path = managedProcessPath(pid) else { return false }
+    return path == installedEngines + "/sing-box" ||
+        path == installedEngines + "/trusttunnel_client"
+}
+
 func stopEngine() {
     becomeRoot()
     guard FileManager.default.fileExists(atPath: pidFile),
@@ -91,32 +102,51 @@ func stopEngine() {
           let pid = Int32(text.trimmingCharacters(in: .whitespacesAndNewlines)), pid > 1 else {
         return
     }
+    guard isManagedProcess(pid) else {
+        try? FileManager.default.removeItem(atPath: pidFile)
+        fail("stale engine pid rejected")
+    }
     kill(pid, SIGTERM)
     usleep(1_500_000)
-    kill(pid, SIGKILL)
-    usleep(200_000)
+    if kill(pid, 0) == 0 && isManagedProcess(pid) {
+        kill(pid, SIGKILL)
+        usleep(200_000)
+    }
     try? FileManager.default.removeItem(atPath: pidFile)
 }
 
 func startEngine(name: String, config: String) {
+    let callerUid = getuid()
     let callerHome = invokingUserHome()
-    becomeRoot()
     let engine = realpathOrFail(allowedEngine(name))
     let configPath = realpathOrFail(config)
-    guard configPathAllowed(configPath, callerHome: callerHome) else {
+    guard configPathAllowed(configPath, callerHome: callerHome, callerUid: callerUid) else {
         fail("config path not allowed")
     }
+    guard let configData = try? Data(contentsOf: URL(fileURLWithPath: configPath)),
+          !configData.isEmpty,
+          configData.count <= 4 * 1024 * 1024 else {
+        fail("config could not be read safely")
+    }
+    becomeRoot()
     guard FileManager.default.isExecutableFile(atPath: engine) else {
         fail("engine binary missing")
     }
     stopEngine()
     let runtimeDir = URL(fileURLWithPath: logFile).deletingLastPathComponent().path
     try? FileManager.default.createDirectory(atPath: runtimeDir, withIntermediateDirectories: true)
+    let privilegedConfig = runtimeDir + (name == "sing-box" ? "/active-sing-box.json" : "/active-trusttunnel.toml")
+    do {
+        try configData.write(to: URL(fileURLWithPath: privilegedConfig), options: .atomic)
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: privilegedConfig)
+    } catch {
+        fail("failed to stage config")
+    }
     try? FileManager.default.removeItem(atPath: logFile)
     FileManager.default.createFile(
         atPath: logFile,
         contents: Data(),
-        attributes: [.posixPermissions: 0o644]
+        attributes: [.posixPermissions: 0o600]
     )
     guard let log = FileHandle(forWritingAtPath: logFile) else {
         fail("failed to open engine log")
@@ -124,8 +154,8 @@ func startEngine(name: String, config: String) {
     let process = Process()
     process.executableURL = URL(fileURLWithPath: engine)
     process.arguments = name == "sing-box"
-        ? ["run", "-c", configPath]
-        : ["-c", configPath]
+        ? ["run", "-c", privilegedConfig]
+        : ["-c", privilegedConfig]
     process.standardOutput = log
     process.standardError = log
     do {
@@ -163,7 +193,7 @@ func status() {
         print("disconnected")
         return
     }
-    if kill(pid, 0) == 0 {
+    if kill(pid, 0) == 0 && isManagedProcess(pid) {
         print("connected")
     } else {
         print("disconnected")

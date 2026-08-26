@@ -79,8 +79,12 @@ object MacKeychain {
       "security", "add-generic-password", "-U",
       "-s", SERVICE, "-a", ACCOUNT, "-w", hex,
     ).redirectErrorStream(true).start()
-    add.waitFor()
-    return EncryptedStore.keyFromBytes(existing() ?: generated)
+    val output = add.inputStream.bufferedReader().readText()
+    check(add.waitFor() == 0) {
+      output.ifBlank { "Не удалось сохранить ключ шифрования в Keychain" }
+    }
+    val stored = existing() ?: error("Keychain не вернул сохранённый ключ шифрования")
+    return EncryptedStore.keyFromBytes(stored)
   }
 
   private fun existing(): ByteArray? {

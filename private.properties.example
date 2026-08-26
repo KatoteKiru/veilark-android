@@ -6,4 +6,5 @@ otaManifestUrl=https://updates.example.com/veilark/manifest.json
 otaHost=updates.example.com
 otaPort=443
 otaPublicKey=BASE64_ED25519_PUBLIC_KEY
+macosOtaManifestUrl=https://updates.example.com/veilark/macos/manifest.json
 retiredTrustHost=retired-endpoint.example.com
