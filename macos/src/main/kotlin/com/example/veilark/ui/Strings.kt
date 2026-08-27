@@ -85,7 +85,12 @@ object Strings {
   val privilegedHelper get() = if (russian) "Привилегированный helper" else "Privileged helper"
   val installed get() = if (russian) "Установлен" else "Installed"
   val updateChannelNotReady get() = if (russian) "OTA для macOS ещё не настроен" else "macOS OTA is not configured yet"
-  val updateChannelVerified get() = if (russian) "Подписанный канал Ed25519 и проверка SHA-256" else "Ed25519-signed channel with SHA-256 verification"
+  val updateChannelVerified get() = if (russian) "OTA внутри приложения: подпись Ed25519 и SHA-256" else "In-app OTA with Ed25519 and SHA-256 verification"
+  val updateChannelPreview get() = if (russian) {
+    "Preview OTA внутри приложения; Apple notarization ещё не подключена"
+  } else {
+    "In-app preview OTA; Apple notarization is not configured yet"
+  }
   val updateCheckFailed get() = if (russian) "Не удалось проверить обновления" else "Could not check for updates"
   val updateDownloadFailed get() = if (russian) "Не удалось загрузить обновление" else "Could not download the update"
   val signedUpdateReady get() = if (russian) "Подписанное обновление macOS готово к загрузке" else "A signed macOS update is ready to download"
@@ -170,6 +175,6 @@ object Strings {
   val notInstalled get() = if (russian) "Не установлен" else "Not installed"
   val ready get() = if (russian) "Готово" else "Ready"
   val checkUpdates get() = if (russian) "Проверить обновления" else "Check for updates"
-  val downloadUpdate get() = if (russian) "Скачать и открыть" else "Download and open"
+  val installUpdate get() = if (russian) "Установить и перезапустить" else "Install and restart"
   val noUpdates get() = if (russian) "Установлена актуальная версия" else "Veilark is up to date"
 }

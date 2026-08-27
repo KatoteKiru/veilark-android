@@ -25,6 +25,7 @@ GEOSITE_SHA="c36e157adf86edf7b722b51f3acb93bbb2a7f8083932dae29b4b5ef2c1ced870"
 
 for asset in \
   "$COMMON/veilark-helper" \
+  "$COMMON/veilark-updater" \
   "$COMMON/sing-box" \
   "$COMMON/trusttunnel_client" \
   "$COMMON/geo/geoip-ru.srs" \
@@ -33,6 +34,7 @@ for asset in \
 done
 
 [ -x "$COMMON/veilark-helper" ] || fail "veilark-helper is not executable"
+[ -x "$COMMON/veilark-updater" ] || fail "veilark-updater is not executable"
 [ -x "$COMMON/sing-box" ] || fail "sing-box is not executable"
 [ -x "$COMMON/trusttunnel_client" ] || fail "trusttunnel_client is not executable"
 
@@ -43,6 +45,8 @@ echo "$GEOSITE_SHA  $COMMON/geo/geosite-category-ru.srs" | shasum -a 256 -c -
 
 file "$COMMON/sing-box" | grep -q 'Mach-O' || fail "sing-box is not a Mach-O executable"
 file "$COMMON/trusttunnel_client" | grep -q 'Mach-O' || fail "trusttunnel_client is not a Mach-O executable"
+file "$COMMON/veilark-updater" | grep -q 'Mach-O' || fail "veilark-updater is not a Mach-O executable"
+lipo -archs "$COMMON/veilark-updater" | tr ' ' '\n' | grep -qx "$(uname -m)" || fail "veilark-updater does not match $(uname -m)"
 lipo -archs "$COMMON/sing-box" | tr ' ' '\n' | grep -qx "$(uname -m)" || fail "sing-box does not match $(uname -m)"
 for architecture in arm64 x86_64; do
   lipo -archs "$COMMON/trusttunnel_client" | tr ' ' '\n' | grep -qx "$architecture" || fail "trusttunnel_client is not universal ($architecture absent)"

@@ -6,6 +6,8 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
+import java.util.Base64
+import java.util.Properties
 
 class MacPackagingMetadataTest {
   @Test
@@ -27,6 +29,27 @@ class MacPackagingMetadataTest {
     assertFalse(script.contains("TRUST_TUNNEL_VERSION"))
     assertTrue(script.contains("verify_sha256 \"${'$'}SING_BOX_BINARY_SHA256\" \"${'$'}COMMON/sing-box\""))
     assertTrue(script.contains("verify_sha256 \"${'$'}TRUST_BINARY_SHA256\" \"${'$'}COMMON/trusttunnel_client\""))
+  }
+
+  @Test
+  fun packageRequiresTheNativeInAppUpdater() {
+    val build = File("build.gradle.kts").readText()
+    val inventory = File("scripts/verify-packaged-dmg.sh").readText()
+    assertTrue(build.contains("val compileUpdater by tasks.registering"))
+    assertTrue(build.contains("veilark-updater.swift"))
+    assertTrue(inventory.contains("veilark-updater"))
+  }
+
+  @Test
+  fun kotlinAndNativeUpdaterTrustTheSameDedicatedReleaseKey() {
+    val properties = Properties().apply {
+      File("gradle.properties").inputStream().use(::load)
+    }
+    val publicDer = Base64.getDecoder().decode(properties.getProperty("otaPublicKey"))
+    val rawPublicKey = Base64.getEncoder().encodeToString(publicDer.takeLast(32).toByteArray())
+    val updater = File("updater/veilark-updater.swift").readText()
+    assertTrue(updater.contains("Data(base64Encoded: \"$rawPublicKey\")"))
+    assertTrue(properties.getProperty("macosOtaManifestUrl").startsWith("https://"))
   }
 
   companion object {

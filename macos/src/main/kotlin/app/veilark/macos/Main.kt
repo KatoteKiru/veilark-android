@@ -212,6 +212,12 @@ fun main() = application {
           tick = tick,
           refresh = ::refresh,
           onToggleConnection = ::toggleConnection,
+          onUpdaterLaunched = {
+            scope.launch {
+              session.stopForQuit()
+              exitApplication()
+            }
+          },
         )
       }
     }
@@ -236,6 +242,7 @@ private fun MacShell(
   tick: Int,
   refresh: () -> Unit,
   onToggleConnection: () -> Unit,
+  onUpdaterLaunched: () -> Unit,
 ) {
   tick
   val shortcutModifier = Modifier.onPreviewKeyEvent { event ->
@@ -273,7 +280,7 @@ private fun MacShell(
           MacSection.PROFILES -> ProfilesSection(session, refresh)
           MacSection.ROUTING -> RoutingSection(session)
           MacSection.DIAGNOSTICS -> DiagnosticsSection(session)
-          MacSection.SETTINGS -> SettingsSection(session, refresh)
+          MacSection.SETTINGS -> SettingsSection(session, refresh, onUpdaterLaunched)
         }
       }
     }
@@ -1011,7 +1018,11 @@ private fun DiagnosticsSection(session: VeilarkSession) {
 }
 
 @Composable
-private fun SettingsSection(session: VeilarkSession, refresh: () -> Unit) {
+private fun SettingsSection(
+  session: VeilarkSession,
+  refresh: () -> Unit,
+  onUpdaterLaunched: () -> Unit,
+) {
   val scope = rememberCoroutineScope()
   var helperBusy by remember { mutableStateOf(false) }
   var helperError by remember { mutableStateOf<String?>(null) }
@@ -1063,7 +1074,11 @@ private fun SettingsSection(session: VeilarkSession, refresh: () -> Unit) {
     SettingsRow(
       Icons.Outlined.Info,
       Strings.updateChannel,
-      if (MacUpdateClient.configured) Strings.updateChannelVerified else Strings.updateChannelNotReady,
+      when {
+        !MacUpdateClient.configured -> Strings.updateChannelNotReady
+        MacUpdateClient.gatekeeperRequired -> Strings.updateChannelVerified
+        else -> Strings.updateChannelPreview
+      },
       MacUpdateClient.configured,
     )
     if (MacUpdateClient.configured) {
@@ -1118,15 +1133,19 @@ private fun SettingsSection(session: VeilarkSession, refresh: () -> Unit) {
               scope.launch {
                 updateBusy = true
                 updateError = null
-                runCatching { MacUpdateClient.download(available) }
-                  .onSuccess(MacUpdateClient::openInstaller)
+                runCatching {
+                  MacUpdateClient.download(available).also { file ->
+                    MacUpdateClient.launchInstaller(available, file)
+                  }
+                }
+                  .onSuccess { onUpdaterLaunched() }
                   .onFailure { updateError = it.message ?: Strings.updateDownloadFailed }
                 updateBusy = false
               }
             },
             enabled = !updateBusy,
           ) {
-            Text(Strings.downloadUpdate)
+            Text(Strings.installUpdate)
           }
         }
       }

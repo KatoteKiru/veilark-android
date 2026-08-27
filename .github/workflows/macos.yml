@@ -37,6 +37,8 @@ jobs:
         run: test "$(uname -m)" = arm64
       - name: Type-check privileged helper
         run: swiftc -warnings-as-errors -typecheck helper/veilark-helper.swift
+      - name: Type-check in-app updater
+        run: swiftc -warnings-as-errors -typecheck updater/veilark-updater.swift
       - name: Unit tests
         run: ./gradlew --no-daemon test
       - name: Fetch verified engines and geo data

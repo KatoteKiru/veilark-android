@@ -23,14 +23,18 @@ data class MacUpdate(
   val url: String,
   val sha256: String,
   val notes: String,
+  val signature: String = "",
 )
 
 object MacUpdateClient {
-  const val CURRENT_VERSION = "1.0.1"
-  const val CURRENT_BUILD = 10_001
+  const val CURRENT_VERSION = UpdateChannel.CURRENT_VERSION
+  const val CURRENT_BUILD = UpdateChannel.CURRENT_BUILD
 
   val configured: Boolean
     get() = UpdateChannel.MANIFEST_URL.isNotBlank() && UpdateChannel.PUBLIC_KEY.isNotBlank()
+
+  val gatekeeperRequired: Boolean
+    get() = UpdateChannel.REQUIRE_GATEKEEPER
 
   suspend fun check(): MacUpdate? = withContext(Dispatchers.IO) {
     check(configured) { "Канал обновлений не настроен для этой сборки" }
@@ -42,7 +46,9 @@ object MacUpdateClient {
 
   suspend fun download(update: MacUpdate): File = withContext(Dispatchers.IO) {
     val source = validateHttps(update.url)
-    val downloads = File(System.getProperty("user.home"), "Downloads").apply { mkdirs() }
+    val downloads = File(System.getProperty("user.home"), "Library/Caches/Veilark/updates").apply {
+      check(isDirectory || mkdirs()) { "Не удалось подготовить каталог обновлений" }
+    }
     val target = File(downloads, "Veilark-${update.version}.dmg")
     val temp = File(downloads, ".Veilark-${update.version}-${System.nanoTime()}.part")
     try {
@@ -67,17 +73,55 @@ object MacUpdateClient {
     }
   }
 
-  fun openInstaller(file: File) {
+  fun launchInstaller(update: MacUpdate, file: File) {
     require(file.isFile) { "Файл обновления не найден" }
-    check(ProcessBuilder("open", file.absolutePath).start().waitFor() == 0) {
-      "Не удалось открыть установщик обновления"
+    check(System.getProperty("os.name").startsWith("Mac", ignoreCase = true)) {
+      "Установка OTA доступна только в macOS-сборке"
     }
+    val resources = System.getProperty("compose.application.resources.dir")
+      ?.takeIf(String::isNotBlank)
+      ?.let(::File)
+      ?.canonicalFile
+      ?: error("Каталог ресурсов приложения не найден")
+    val currentApp = appBundleFromResources(resources)
+      ?: error("OTA требует установленное приложение Veilark.app")
+    val updater = File(resources, "veilark-updater").canonicalFile
+    require(updater.isFile && updater.canExecute()) { "Компонент установки обновлений не найден" }
+    val logDir = File(System.getProperty("user.home"), "Library/Logs/Veilark").apply { mkdirs() }
+    val launchLog = File(logDir, "updater-launch.log")
+    ProcessBuilder(
+      updater.absolutePath,
+      "--dmg", file.canonicalPath,
+      "--sha256", update.sha256,
+      "--version", update.version,
+      "--build", update.build.toString(),
+      "--architecture", update.architecture,
+      "--url", update.url,
+      "--notes", update.notes,
+      "--signature", update.signature,
+      "--current-app", currentApp.canonicalPath,
+      "--pid", ProcessHandle.current().pid().toString(),
+      "--relaunch", "true",
+    )
+      .redirectErrorStream(true)
+      .redirectOutput(ProcessBuilder.Redirect.appendTo(launchLog))
+      .start()
+  }
+
+  internal fun appBundleFromResources(resources: File): File? {
+    var candidate: File? = resources.canonicalFile
+    while (candidate != null) {
+      if (candidate.extension == "app" && candidate.name == "Veilark.app") return candidate
+      candidate = candidate.parentFile
+    }
+    return null
   }
 
   internal fun parseAndVerify(raw: String, publicKeyBase64: String): MacUpdate {
     val json = JSONObject(raw)
     require(json.getInt("schemaVersion") == 1) { "Версия OTA-манифеста не поддерживается" }
     require(json.getString("platform") == "macos") { "Обновление предназначено для другой платформы" }
+    val signature = json.getString("signature").trim()
     val update = MacUpdate(
       version = json.getString("version").trim(),
       build = json.getInt("build"),
@@ -85,6 +129,7 @@ object MacUpdateClient {
       url = json.getString("url").trim(),
       sha256 = json.getString("sha256").trim().lowercase(),
       notes = json.optString("notes").trim().take(MAX_NOTES),
+      signature = signature,
     )
     require(update.version.matches(Regex("""\d+\.\d+(?:\.\d+)?"""))) { "Некорректная версия обновления" }
     require(update.build > 0) { "Некорректный номер сборки" }
@@ -99,7 +144,7 @@ object MacUpdateClient {
     val verifier = Signature.getInstance("Ed25519")
     verifier.initVerify(publicKey)
     verifier.update(canonicalPayload(update))
-    require(verifier.verify(Base64.getDecoder().decode(json.getString("signature")))) {
+    require(verifier.verify(Base64.getDecoder().decode(signature))) {
       "Подпись OTA-манифеста недействительна"
     }
     return update
@@ -195,13 +240,15 @@ object MacUpdateClient {
       .start()
     val verifyOutput = verify.inputStream.bufferedReader().readText()
     check(verify.waitFor() == 0) { verifyOutput.ifBlank { "DMG не прошёл проверку целостности" } }
-    val gatekeeper = ProcessBuilder(
-      "spctl", "--assess", "--verbose=2", "--type", "open",
-      "--context", "context:primary-signature", file.absolutePath,
-    ).redirectErrorStream(true).start()
-    val gatekeeperOutput = gatekeeper.inputStream.bufferedReader().readText()
-    check(gatekeeper.waitFor() == 0) {
-      gatekeeperOutput.ifBlank { "Обновление не прошло Gatekeeper" }
+    if (UpdateChannel.REQUIRE_GATEKEEPER) {
+      val gatekeeper = ProcessBuilder(
+        "spctl", "--assess", "--verbose=2", "--type", "open",
+        "--context", "context:primary-signature", file.absolutePath,
+      ).redirectErrorStream(true).start()
+      val gatekeeperOutput = gatekeeper.inputStream.bufferedReader().readText()
+      check(gatekeeper.waitFor() == 0) {
+        gatekeeperOutput.ifBlank { "Обновление не прошло Gatekeeper" }
+      }
     }
   }
 

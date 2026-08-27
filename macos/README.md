@@ -11,7 +11,7 @@ Development preview of the Veilark desktop client for Apple Silicon and Intel Ma
 - sing-box routing modes: full tunnel, Russia direct through pinned local SRS data, and manual domain/CIDR rules
 - AES-GCM catalogs, key in macOS Keychain
 - Process supervision and HTTPS/DNS health verification before the UI reports a successful connection
-- Optional signed OTA channel: Ed25519 manifest, SHA-256 DMG verification, `hdiutil`, and Gatekeeper verification
+- Signed in-app OTA: Ed25519 manifest, SHA-256 DMG verification, native app replacement, rollback, and restart
 
 ## Build
 
@@ -26,7 +26,9 @@ Requirements: JDK 17 and macOS. The engine fetcher selects arm64 or amd64 automa
 
 `packageDmg` fails closed when the helper, either engine, or the geo rule sets are missing. A distributable build must also pass Developer ID signing, hardened runtime, notarization, and stapling; do not ask users to bypass Gatekeeper.
 
-Private OTA builds read `macosOtaManifestUrl` and `otaPublicKey` from `../private.properties`, Gradle properties, or equivalent uppercase environment variables. OSS builds leave the channel disabled rather than trusting an unsigned feed.
+The preview channel is configured from Gradle properties and is signed with a dedicated macOS Ed25519 release key. The app downloads into its private cache, verifies the signed manifest and DMG again in a separate native updater, replaces `Veilark.app` atomically, rolls back on failure, and restarts. Replacing an app under `/Applications` may display the standard macOS administrator prompt.
+
+The preview channel does not bypass Apple security: it is visibly marked as a preview until Developer ID signing and notarization are available. Production builds must set `macosOtaRequireGatekeeper=true`; the client and native updater then both require Gatekeeper acceptance and the same Apple Team ID. See `docs/OTA.md` for the release and key-rotation procedure.
 
 ## Helper
 

@@ -1,0 +1,162 @@
+name: macOS OTA preview release
+
+on:
+  push:
+    tags:
+      - "macos-v[0-9]+.[0-9]+.[0-9]+"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: macos-ota-release
+  cancel-in-progress: false
+
+jobs:
+  build-publish-verify:
+    runs-on: macos-14
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: macos
+    env:
+      OTA_ORIGIN: ${{ vars.VEILARK_MACOS_OTA_ORIGIN }}
+      OTA_HOST: ${{ vars.VEILARK_MACOS_OTA_HOST }}
+      OTA_USER: ${{ vars.VEILARK_MACOS_OTA_USER }}
+      OTA_PUBLIC_KEY: ${{ vars.VEILARK_MACOS_OTA_PUBLIC_KEY }}
+      OTA_SIGNING_KEY_B64: ${{ secrets.VEILARK_MACOS_OTA_SIGNING_KEY_B64 }}
+      OTA_DEPLOY_KEY: ${{ secrets.VEILARK_MACOS_OTA_DEPLOY_KEY }}
+      OTA_KNOWN_HOSTS: ${{ secrets.VEILARK_MACOS_OTA_KNOWN_HOSTS }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+          cache-dependency-path: macos/**/*.gradle*
+
+      - name: Validate release identity and channel
+        shell: bash
+        run: |
+          set -euo pipefail
+          for value in OTA_ORIGIN OTA_HOST OTA_USER OTA_PUBLIC_KEY OTA_SIGNING_KEY_B64 OTA_DEPLOY_KEY OTA_KNOWN_HOSTS; do
+            [ -n "${!value:-}" ] || { echo "Missing release setting: $value" >&2; exit 1; }
+          done
+          VERSION="$(sed -n 's/^macosVersion=//p' gradle.properties)"
+          BUILD="$(sed -n 's/^macosBuild=//p' gradle.properties)"
+          REQUIRE_GATEKEEPER="$(sed -n 's/^macosOtaRequireGatekeeper=//p' gradle.properties)"
+          [ "$GITHUB_REF_NAME" = "macos-v$VERSION" ] || {
+            echo "Tag $GITHUB_REF_NAME does not match macosVersion=$VERSION" >&2
+            exit 1
+          }
+          [ "$REQUIRE_GATEKEEPER" = "false" ] || {
+            echo "Preview workflow may not publish the production Gatekeeper channel" >&2
+            exit 1
+          }
+          ARTIFACT="veilark-macos-$VERSION-arm64.dmg"
+          URL="$OTA_ORIGIN/$ARTIFACT"
+          {
+            echo "VERSION=$VERSION"
+            echo "BUILD=$BUILD"
+            echo "ARTIFACT=$ARTIFACT"
+            echo "OTA_URL=$URL"
+          } >> "$GITHUB_ENV"
+
+      - name: Prepare scripts and assert Apple Silicon
+        run: |
+          chmod +x gradlew scripts/*.sh
+          test "$(uname -m)" = arm64
+
+      - name: Test, fetch verified engines, and package DMG
+        run: |
+          ./gradlew --no-daemon test
+          ./scripts/fetch-engines.sh
+          ./gradlew --no-daemon packageDmg
+
+      - name: Create and self-verify signed OTA manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p build/ota
+          SOURCE_DMG="$(find build/compose/binaries/main/dmg -maxdepth 1 -type f -name '*.dmg' -print -quit)"
+          [ -n "$SOURCE_DMG" ]
+          cp "$SOURCE_DMG" "build/ota/$ARTIFACT"
+          printf '%s' "$OTA_SIGNING_KEY_B64" | base64 --decode > "$RUNNER_TEMP/veilark-macos-ota.pem"
+          chmod 0600 "$RUNNER_TEMP/veilark-macos-ota.pem"
+          NOTES="Veilark $VERSION: in-app updates, hardened lifecycle, subscriptions, routing and diagnostics."
+          ./gradlew --no-daemon createOtaManifest \
+            "-PotaDmg=build/ota/$ARTIFACT" \
+            "-PotaManifestOutput=build/ota/manifest.json" \
+            "-PotaSigningKey=$RUNNER_TEMP/veilark-macos-ota.pem" \
+            "-PotaVersion=$VERSION" \
+            "-PotaBuild=$BUILD" \
+            "-PotaArchitecture=arm64" \
+            "-PotaUrl=$OTA_URL" \
+            "-PotaNotes=$NOTES" \
+            "-PotaPublicKey=$OTA_PUBLIC_KEY"
+
+      - name: Exercise native in-app replacement
+        run: ./scripts/test-in-app-updater.sh "build/ota/$ARTIFACT" build/ota/manifest.json
+
+      - name: Atomically deploy OTA files
+        shell: bash
+        run: |
+          set -euo pipefail
+          install -m 0600 /dev/null "$RUNNER_TEMP/ota_deploy_key"
+          printf '%s\n' "$OTA_DEPLOY_KEY" > "$RUNNER_TEMP/ota_deploy_key"
+          install -m 0600 /dev/null "$RUNNER_TEMP/known_hosts"
+          printf '%s\n' "$OTA_KNOWN_HOSTS" > "$RUNNER_TEMP/known_hosts"
+          MANIFEST_TMP=".manifest.$GITHUB_RUN_ID.json"
+          sftp -b - \
+            -i "$RUNNER_TEMP/ota_deploy_key" \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="$RUNNER_TEMP/known_hosts" \
+            "$OTA_USER@$OTA_HOST" <<EOF
+          put build/ota/$ARTIFACT /veilark-macos/.$ARTIFACT.uploading
+          chmod 0644 /veilark-macos/.$ARTIFACT.uploading
+          rename /veilark-macos/.$ARTIFACT.uploading /veilark-macos/$ARTIFACT
+          put build/ota/manifest.json /veilark-macos/$MANIFEST_TMP
+          chmod 0644 /veilark-macos/$MANIFEST_TMP
+          rename /veilark-macos/$MANIFEST_TMP /veilark-macos/manifest.json
+          EOF
+
+      - name: Redownload and verify production bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
+            "$OTA_ORIGIN/manifest.json" -o "$RUNNER_TEMP/manifest.json"
+          cmp build/ota/manifest.json "$RUNNER_TEMP/manifest.json"
+          curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
+            "$OTA_URL" -o "$RUNNER_TEMP/$ARTIFACT"
+          EXPECTED="$(/usr/bin/plutil -extract sha256 raw -o - build/ota/manifest.json)"
+          ACTUAL="$(shasum -a 256 "$RUNNER_TEMP/$ARTIFACT" | awk '{print $1}')"
+          [ "$ACTUAL" = "$EXPECTED" ]
+          hdiutil verify "$RUNNER_TEMP/$ARTIFACT"
+
+      - name: Publish GitHub prerelease
+        shell: bash
+        run: |
+          set -euo pipefail
+          NOTES="Veilark $VERSION for macOS (Apple Silicon). In-app OTA is protected by the Veilark Ed25519 release key. Apple notarization is still pending, so this remains a preview build."
+          gh release create "$GITHUB_REF_NAME" \
+            "build/ota/$ARTIFACT#Veilark $VERSION DMG (ARM64 preview)" \
+            "build/ota/manifest.json#Signed macOS OTA manifest" \
+            --verify-tag \
+            --prerelease \
+            --title "Veilark $VERSION for macOS" \
+            --notes "$NOTES"
+
+      - name: Upload verified CI evidence
+        uses: actions/upload-artifact@v7
+        with:
+          name: veilark-macos-${{ env.VERSION }}-verified
+          path: |
+            macos/build/ota/${{ env.ARTIFACT }}
+            macos/build/ota/manifest.json
+            macos/build/ota/manifest.json.sha256
+          if-no-files-found: error
