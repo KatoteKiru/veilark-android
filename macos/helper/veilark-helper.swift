@@ -106,7 +106,7 @@ func stopEngine() {
     }
     guard isManagedProcess(pid) else {
         try? FileManager.default.removeItem(atPath: pidFile)
-        fail("stale engine pid rejected")
+        return
     }
     kill(pid, SIGTERM)
     usleep(1_500_000)

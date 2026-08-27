@@ -41,6 +41,16 @@ class MacPackagingMetadataTest {
   }
 
   @Test
+  fun helperTreatsAStalePidAsAnIdempotentStop() {
+    val helper = File("helper/veilark-helper.swift").readText()
+    val stalePidBranch = helper.substringAfter("guard isManagedProcess(pid) else {")
+      .substringBefore("}")
+    assertTrue(stalePidBranch.contains("removeItem(atPath: pidFile)"))
+    assertTrue(stalePidBranch.contains("return"))
+    assertFalse(stalePidBranch.contains("fail("))
+  }
+
+  @Test
   fun kotlinAndNativeUpdaterTrustTheSameDedicatedReleaseKey() {
     val properties = Properties().apply {
       File("gradle.properties").inputStream().use(::load)

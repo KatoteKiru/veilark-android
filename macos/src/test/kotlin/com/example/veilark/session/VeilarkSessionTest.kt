@@ -8,6 +8,7 @@ import com.example.veilark.profile.SingBoxCatalog
 import com.example.veilark.profile.SubscriptionParser
 import com.example.veilark.storage.EncryptedStore
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
@@ -76,6 +77,39 @@ class VeilarkSessionTest {
 
     assertEquals(TunnelStatus.DISCONNECTED, session.status)
     assertTrue(fake.stopCalls >= 2)
+    assertTrue(session.logs.any { it.code == "CONNECT_CANCELLED" })
+  }
+
+  @Test
+  fun queuedDisconnectDuringFinalHealthProbeCannotBeLost() = runBlocking {
+    val fake = FakeController()
+    val healthStarted = CompletableDeferred<Unit>()
+    val finishHealth = CompletableDeferred<Unit>()
+    val key = EncryptedStore.ephemeralKey()
+    val store = EncryptedStore(folder.newFolder("health-cancel-secure")) { key }
+    val parsed = SubscriptionParser().compile(LINKS.toByteArray())
+    val entry = SingBoxCatalog.create(
+      parsed.json,
+      parsed.nodes,
+      ProfileSelection.AUTOMATIC_TAG,
+      null,
+      "Local",
+    )
+    store.save(EncryptedStore.SING_BOX_CATALOG, SingBoxCatalog.encode(listOf(entry)))
+    val session = VeilarkSession(store, fake, ConnectionHealthChecker {
+      healthStarted.complete(Unit)
+      finishHealth.await()
+      NetworkHealth(true, "ok")
+    }).also { it.switchEngine(TunnelEngineKind.SING_BOX) }
+
+    val connect = launch { session.connect() }
+    healthStarted.await()
+    session.disconnect()
+    finishHealth.complete(Unit)
+    connect.join()
+
+    assertEquals(TunnelStatus.DISCONNECTED, session.status)
+    assertFalse(fake.running)
     assertTrue(session.logs.any { it.code == "CONNECT_CANCELLED" })
   }
 

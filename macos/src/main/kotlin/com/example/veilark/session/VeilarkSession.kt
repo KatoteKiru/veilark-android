@@ -342,6 +342,7 @@ class VeilarkSession(
           error(RuntimeMessages.singBoxResolutionFailed)
         }
         val health = healthChecker.check()
+        throwIfStopRequested()
         lastHealthDetail = health.detail
         if (!health.reachable) {
           log(

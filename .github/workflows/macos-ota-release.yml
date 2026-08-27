@@ -85,7 +85,7 @@ jobs:
           cp "$SOURCE_DMG" "build/ota/$ARTIFACT"
           printf '%s' "$OTA_SIGNING_KEY_B64" | base64 --decode > "$RUNNER_TEMP/veilark-macos-ota.pem"
           chmod 0600 "$RUNNER_TEMP/veilark-macos-ota.pem"
-          NOTES="Veilark $VERSION preview: TrustTunnel GeoIP-RU direct routing, deterministic pinned GeoIP data, and routing UI fixes. Apple signing and notarization are not configured."
+          NOTES="Veilark $VERSION preview: reliable cancellation during connection checks and idempotent engine shutdown. Apple signing and notarization are not configured."
           ./gradlew --no-daemon createOtaManifest \
             "-PotaDmg=build/ota/$ARTIFACT" \
             "-PotaManifestOutput=build/ota/manifest.json" \
@@ -142,7 +142,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          NOTES="Veilark $VERSION development preview for Apple Silicon. Adds TrustTunnel GeoIP-RU direct routing using pinned IP data and improves the routing UI. The DMG and OTA manifest are hash-verified, and the manifest is protected by the Veilark Ed25519 release key. This build is not signed or notarized by Apple and is not a production release."
+          NOTES="Veilark $VERSION development preview for Apple Silicon. Fixes lost cancellation during final network checks and makes engine shutdown idempotent when a stale PID is found. The DMG and OTA manifest are hash-verified, and the manifest is protected by the Veilark Ed25519 release key. This build is not signed or notarized by Apple and is not a production release."
           gh release create "$GITHUB_REF_NAME" \
             "build/ota/$ARTIFACT#Veilark $VERSION DMG (ARM64 preview)" \
             "build/ota/manifest.json#Signed macOS OTA manifest" \
