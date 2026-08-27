@@ -1792,10 +1792,10 @@ private fun RoutingCard(
         if (available) {
           InfoRow(
             stringResource(R.string.traffic),
-            if (routingMode == ProfileSelection.ROUTING_MANUAL) {
-              stringResource(R.string.custom_rules)
-            } else {
-              stringResource(R.string.all_traffic_vpn)
+            when (routingMode) {
+              ProfileSelection.ROUTING_RU_DIRECT -> stringResource(R.string.russia_direct)
+              ProfileSelection.ROUTING_MANUAL -> stringResource(R.string.custom_rules)
+              else -> stringResource(R.string.all_traffic_vpn)
             },
           )
           HorizontalDivider(modifier = Modifier.padding(horizontal = 20.dp))
@@ -2004,7 +2004,7 @@ private fun RoutingSettingsDialog(
 
   val canApply =
     (appMode == ProfileSelection.APPS_ALL || packages.isNotEmpty()) &&
-      (trustTunnelActive || route == ProfileSelection.ROUTING_ALL ||
+      (trustTunnelActive || route != ProfileSelection.ROUTING_MANUAL ||
         direct.isNotBlank() || vpn.isNotBlank())
   Dialog(
     onDismissRequest = onDismiss,
@@ -2055,6 +2055,14 @@ private fun RoutingSettingsDialog(
                   title = stringResource(R.string.all_traffic_vpn),
                   selected = route == ProfileSelection.ROUTING_ALL,
                   onClick = { route = ProfileSelection.ROUTING_ALL },
+                )
+              }
+              item {
+                SettingChoice(
+                  title = stringResource(R.string.russia_direct),
+                  subtitle = stringResource(R.string.russia_direct_description),
+                  selected = route == ProfileSelection.ROUTING_RU_DIRECT,
+                  onClick = { route = ProfileSelection.ROUTING_RU_DIRECT },
                 )
               }
               item {

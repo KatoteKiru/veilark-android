@@ -67,6 +67,7 @@ class NetworkProfileMigrationTest {
     assertFalse(tun.has("include_package"))
     assertFalse(tun.has("exclude_package"))
     assertFalse(recovered.getJSONObject("route").has("rules"))
+    assertFalse(recovered.getJSONObject("route").has("rule_set"))
     assertEquals("ipv4_only", recovered.getJSONObject("dns").getString("strategy"))
     assertFalse(
       recovered.getJSONArray("outbounds").getJSONObject(1)

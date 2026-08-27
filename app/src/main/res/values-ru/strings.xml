@@ -78,6 +78,8 @@
     <string name="traffic">Трафик</string>
     <string name="custom_rules">Свои правила</string>
     <string name="all_traffic_vpn">Весь трафик через VPN</string>
+    <string name="russia_direct">Россия напрямую</string>
+    <string name="russia_direct_description">Российские домены и IP-адреса идут без VPN, остальной трафик — через туннель</string>
     <string name="applications">Приложения</string>
     <plurals name="only_selected_count"><item quantity="one">Только выбранное · %1$d</item><item quantity="few">Только выбранные · %1$d</item><item quantity="many">Только выбранные · %1$d</item><item quantity="other">Только выбранные · %1$d</item></plurals>
     <plurals name="bypass_selected_count"><item quantity="one">Исключение · %1$d</item><item quantity="few">Исключения · %1$d</item><item quantity="many">Исключения · %1$d</item><item quantity="other">Исключения · %1$d</item></plurals>

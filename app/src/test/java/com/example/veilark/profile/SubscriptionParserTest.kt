@@ -200,6 +200,74 @@ class SubscriptionParserTest {
   }
 
   @Test
+  fun russianDirectModeUsesPackagedLocalRuleSets() {
+    val result = parser.compile(
+      "trojan://secret@203.0.113.2:443?security=tls&sni=example.com#NL"
+        .toByteArray(),
+    )
+    val configured = JSONObject(
+      ProfileSelection.applyRouting(
+        result.json,
+        ProfileSelection.ROUTING_RU_DIRECT,
+        geoRuleSets = ProfileSelection.GeoRuleSets(
+          geoIpRuPath = "/data/user/0/app.veilark.test/no_backup/geo/geoip-ru.srs",
+          geoSiteRuPath =
+            "/data/user/0/app.veilark.test/no_backup/geo/geosite-category-ru.srs",
+        ),
+      ),
+    )
+    val route = configured.getJSONObject("route")
+    assertEquals(2, route.getJSONArray("rule_set").length())
+    assertEquals(
+      "/data/user/0/app.veilark.test/no_backup/geo/geoip-ru.srs",
+      route.getJSONArray("rule_set").getJSONObject(0).getString("path"),
+    )
+    val rules = route.getJSONArray("rules")
+    assertEquals("sniff", rules.getJSONObject(0).getString("action"))
+    assertEquals("direct", rules.getJSONObject(1).getString("outbound"))
+    assertEquals("geoip-ru", rules.getJSONObject(1).getJSONArray("rule_set").getString(1))
+
+    val allTraffic = JSONObject(
+      ProfileSelection.applyRouting(configured.toString(), ProfileSelection.ROUTING_ALL),
+    )
+    assertFalse(allTraffic.getJSONObject("route").has("rule_set"))
+    assertFalse(allTraffic.getJSONObject("route").has("rules"))
+  }
+
+  @Test
+  fun russianDirectModePassesNativeSingBoxCheckWhenAssetsAreAvailable() {
+    val checker = System.getenv("SING_BOX_CHECKER")
+    val ruleDirectory = System.getenv("VEILARK_GEO_RULE_DIRECTORY")
+    assumeTrue(!checker.isNullOrBlank() && File(checker).isFile)
+    assumeTrue(!ruleDirectory.isNullOrBlank() && File(ruleDirectory).isDirectory)
+
+    val result = parser.compile(
+      "trojan://secret@203.0.113.2:443?security=tls&sni=example.com#NL"
+        .toByteArray(),
+    )
+    val config = Files.createTempFile("veilark-geo-", ".json").toFile()
+    try {
+      config.writeText(
+        ProfileSelection.applyRouting(
+          result.json,
+          ProfileSelection.ROUTING_RU_DIRECT,
+          geoRuleSets = ProfileSelection.GeoRuleSets(
+            geoIpRuPath = File(ruleDirectory, "geoip-ru.srs").absolutePath,
+            geoSiteRuPath = File(ruleDirectory, "geosite-category-ru.srs").absolutePath,
+          ),
+        ),
+      )
+      val process = ProcessBuilder(checker, "check", "-c", config.path)
+        .redirectErrorStream(true)
+        .start()
+      val output = process.inputStream.bufferedReader().readText()
+      assertEquals("sing-box rejected geo routing config: $output", 0, process.waitFor())
+    } finally {
+      config.delete()
+    }
+  }
+
+  @Test
   fun decodesBase64Subscription() {
     val link = "trojan://secret@203.0.113.2:443?security=tls&sni=example.com#NL"
     val payload = Base64.getEncoder().encode(link.toByteArray())
@@ -533,6 +601,9 @@ class SubscriptionParserTest {
 
     val result = parser.compile(SubscriptionFetcher.fetch(requireNotNull(subscription)))
     assertTrue("Live subscription did not contain supported profiles", result.profileCount > 0)
+    System.getenv("VEILARK_EXPECT_SING_BOX_PROFILES")?.toIntOrNull()?.let { expected ->
+      assertEquals(expected, result.profileCount)
+    }
     System.getenv("VEILARK_CONFIG_OUTPUT")?.takeIf(String::isNotBlank)?.let {
       File(it).writeText(result.json)
     }

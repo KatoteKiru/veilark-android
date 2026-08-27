@@ -79,6 +79,8 @@
     <string name="traffic">Traffic</string>
     <string name="custom_rules">Custom rules</string>
     <string name="all_traffic_vpn">All traffic through VPN</string>
+    <string name="russia_direct">Russia direct</string>
+    <string name="russia_direct_description">Russian domains and IP addresses bypass the VPN; everything else uses the tunnel</string>
     <string name="applications">Applications</string>
     <plurals name="only_selected_count"><item quantity="one">Selected only · %1$d app</item><item quantity="other">Selected only · %1$d apps</item></plurals>
     <plurals name="bypass_selected_count"><item quantity="one">Bypass · %1$d app</item><item quantity="other">Bypass · %1$d apps</item></plurals>

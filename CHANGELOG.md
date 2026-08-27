@@ -2,6 +2,15 @@
 
 All notable changes to the public distribution are documented here.
 
+## 0.8.0-rc15-oss
+
+- added an offline `Russia direct` mode for sing-box: Russian domains and IP
+  ranges bypass the VPN while all other traffic stays in the tunnel;
+- packaged rule sets are integrity-checked and installed atomically without
+  background downloads;
+- preserved manual domain/CIDR rules and per-application split tunnelling as
+  independent routing controls.
+
 ## 0.8.0-rc14-oss
 
 - updated the production sing-box core from 1.13.14 to stable 1.13.19;

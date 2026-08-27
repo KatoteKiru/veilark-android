@@ -19,6 +19,7 @@ access, accounts, or subscriptions.
 - a compatible subset of sing-box/Xray JSON and Clash/Mihomo YAML;
 - TrustTunnel `tt://` links and lists of those links;
 - per-application split tunnelling for both engines;
+- offline Russia-direct geographic routing for sing-box;
 - manual domain and CIDR rules for sing-box;
 - Quick Settings tile, technical log, and on-demand latency checks;
 - encrypted profile storage backed by Android Keystore.

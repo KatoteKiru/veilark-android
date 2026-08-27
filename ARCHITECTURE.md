@@ -66,7 +66,7 @@ supported version remain release-control work rather than current behavior.
   from ignored local inputs without placing them in source control;
 - per-application `all`, `only`, and `bypass` routing for both engines through
   Android `VpnService.Builder`; explicit user-defined VPN/direct domain or CIDR
-  rules remain specific to sing-box and automatic geographic routing is not applied;
+  rules and the offline Russia-direct geo preset remain specific to sing-box;
 - a source-tracked TrustTunnel Android adapter patch that preserves Android 14+
   `specialUse` foreground-service startup and early-failure service cleanup;
 - an explicit 1280-byte TUN MTU, authenticated Cloudflare DoH, and DNS reverse

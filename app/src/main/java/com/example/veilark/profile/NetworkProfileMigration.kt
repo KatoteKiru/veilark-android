@@ -38,7 +38,11 @@ object NetworkProfileMigration {
       .orEmpty()
 
     if (
-      routingMode !in setOf(ProfileSelection.ROUTING_ALL, ProfileSelection.ROUTING_MANUAL) ||
+      routingMode !in setOf(
+        ProfileSelection.ROUTING_ALL,
+        ProfileSelection.ROUTING_MANUAL,
+        ProfileSelection.ROUTING_RU_DIRECT,
+      ) ||
       (routingMode == ProfileSelection.ROUTING_MANUAL &&
         directRoutes.isBlank() && vpnRoutes.isBlank())
     ) {
@@ -58,6 +62,14 @@ object NetworkProfileMigration {
       dpiMode = ProfileSelection.DPI_OFF
     }
 
+    val geoRuleSets = if (routingMode == ProfileSelection.ROUTING_RU_DIRECT) {
+      runCatching { GeoRoutingAssets.prepare(context) }.getOrElse {
+        routingMode = ProfileSelection.ROUTING_ALL
+        null
+      }
+    } else {
+      null
+    }
     val current = SecureProfileStore.load(context, SecureProfileStore.SING_BOX)
     val reconciled = reconcile(
       config = current,
@@ -68,6 +80,7 @@ object NetworkProfileMigration {
       selectedApplications = selectedApplications,
       vpnPackage = context.packageName,
       dpiMode = dpiMode,
+      geoRuleSets = geoRuleSets,
     )
     if (reconciled != current) {
       SecureProfileStore.save(context, SecureProfileStore.SING_BOX, reconciled)
@@ -88,12 +101,14 @@ object NetworkProfileMigration {
     selectedApplications: Set<String>,
     vpnPackage: String,
     dpiMode: String,
+    geoRuleSets: ProfileSelection.GeoRuleSets? = null,
   ): String {
     var reconciled = ProfileSelection.applyRouting(
       config,
       routingMode,
       directRoutes,
       vpnRoutes,
+      geoRuleSets,
     )
     reconciled = ProfileSelection.applyApplications(
       reconciled,
@@ -175,7 +190,10 @@ object NetworkProfileMigration {
         }
       }
     }
-    root.optJSONObject("route")?.remove("rules")
+    root.optJSONObject("route")?.apply {
+      remove("rules")
+      remove("rule_set")
+    }
     root.optJSONArray("outbounds")?.let { outbounds ->
       repeat(outbounds.length()) { index ->
         val outbound = outbounds.optJSONObject(index) ?: return@repeat

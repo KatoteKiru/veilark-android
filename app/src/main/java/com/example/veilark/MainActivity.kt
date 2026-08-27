@@ -36,6 +36,7 @@ import com.example.veilark.profile.SubscriptionDeletionPolicy
 import com.example.veilark.profile.SubscriptionSelectionPolicy
 import com.example.veilark.profile.SubscriptionRefreshPolicy
 import com.example.veilark.profile.ApplicationRoutingPolicy
+import com.example.veilark.profile.GeoRoutingAssets
 import com.example.veilark.profile.ProfileSelection
 import com.example.veilark.profile.InstalledApp
 import com.example.veilark.profile.InstalledAppLoader
@@ -68,7 +69,6 @@ class MainActivity : ComponentActivity() {
     super.onCreate(savedInstanceState)
     consumeTileConnectIntent(intent)
     SecureProfileStore.migrateLegacy(this)
-    migrateAutomaticRouting()
     val initialProfilePreferences = getSharedPreferences("profile_meta", MODE_PRIVATE)
     TrustTunnelCatalog.migrateSingle(
       this,
@@ -196,7 +196,11 @@ class MainActivity : ComponentActivity() {
         )
         mutableStateOf(
           storedMode.takeIf {
-            it == ProfileSelection.ROUTING_ALL || it == ProfileSelection.ROUTING_MANUAL
+            it in setOf(
+              ProfileSelection.ROUTING_ALL,
+              ProfileSelection.ROUTING_MANUAL,
+              ProfileSelection.ROUTING_RU_DIRECT,
+            )
           } ?: ProfileSelection.ROUTING_ALL,
         )
       }
@@ -732,6 +736,7 @@ class MainActivity : ComponentActivity() {
                     routingMode,
                     directRoutes,
                     vpnRoutes,
+                    geoRuleSets(routingMode),
                   )
                   config = ProfileSelection.applyApplications(
                     config,
@@ -910,6 +915,7 @@ class MainActivity : ComponentActivity() {
                     refreshRoutingMode,
                     refreshDirectRoutes,
                     refreshVpnRoutes,
+                    geoRuleSets(refreshRoutingMode),
                   )
                   config = ProfileSelection.applyApplications(
                     config,
@@ -1293,6 +1299,7 @@ class MainActivity : ComponentActivity() {
                   newRoutingMode,
                   newDirectRoutes,
                   newVpnRoutes,
+                  geoRuleSets(newRoutingMode),
                 )
                 config = ProfileSelection.applyApplications(
                   config,
@@ -1521,28 +1528,12 @@ class MainActivity : ComponentActivity() {
     }
   }
 
-  private fun migrateAutomaticRouting() {
-    val preferences = getSharedPreferences("profile_meta", MODE_PRIVATE)
-    if (preferences.getString("routing_mode", null) != ProfileSelection.ROUTING_RU_DIRECT) {
-      return
+  private fun geoRuleSets(mode: String): ProfileSelection.GeoRuleSets? =
+    if (mode == ProfileSelection.ROUTING_RU_DIRECT) {
+      GeoRoutingAssets.prepare(this)
+    } else {
+      null
     }
-    runCatching {
-      if (SecureProfileStore.exists(this, SecureProfileStore.SING_BOX)) {
-        val migrated = ProfileSelection.applyRouting(
-          SecureProfileStore.load(this, SecureProfileStore.SING_BOX),
-          ProfileSelection.ROUTING_ALL,
-        )
-        Libbox.checkConfig(migrated)
-        SecureProfileStore.save(this, SecureProfileStore.SING_BOX, migrated)
-      }
-    }.onSuccess {
-      preferences.edit()
-        .putString("routing_mode", ProfileSelection.ROUTING_ALL)
-        .remove("direct_routes")
-        .remove("vpn_routes")
-        .apply()
-    }
-  }
 
   private fun Throwable.userMessage(fallbackRes: Int): String {
     val language = resources.configuration.locales[0].language
