@@ -131,7 +131,7 @@ object MacUpdateClient {
       notes = json.optString("notes").trim().take(MAX_NOTES),
       signature = signature,
     )
-    require(update.version.matches(Regex("""\d+\.\d+(?:\.\d+)?"""))) { "Некорректная версия обновления" }
+    require(update.version.matches(Regex("""\d+\.\d+\.\d+"""))) { "Некорректная версия обновления" }
     require(update.build > 0) { "Некорректный номер сборки" }
     require(update.sha256.matches(Regex("""[0-9a-f]{64}"""))) { "Некорректный SHA-256 обновления" }
     validateHttps(update.url)
@@ -164,7 +164,19 @@ object MacUpdateClient {
   }.toByteArray(Charsets.UTF_8)
 
   /** A signed manifest is advisory; it never installs an update on its own. */
-  internal fun isNewer(update: MacUpdate): Boolean = update.build > CURRENT_BUILD
+  internal fun isNewer(update: MacUpdate): Boolean =
+    update.build > CURRENT_BUILD && compareVersions(update.version, CURRENT_VERSION) >= 0
+
+  internal fun compareVersions(left: String, right: String): Int {
+    val leftParts = left.split('.').map(String::toInt)
+    val rightParts = right.split('.').map(String::toInt)
+    for (index in 0 until maxOf(leftParts.size, rightParts.size)) {
+      val comparison = (leftParts.getOrElse(index) { 0 })
+        .compareTo(rightParts.getOrElse(index) { 0 })
+      if (comparison != 0) return comparison
+    }
+    return 0
+  }
 
   private fun fetch(uri: URI, limit: Int): ByteArray {
     var current = uri

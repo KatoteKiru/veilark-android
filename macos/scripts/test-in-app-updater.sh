@@ -34,7 +34,9 @@ trap cleanup EXIT
 hdiutil attach "$DMG" -nobrowse -readonly -mountpoint "$MOUNT" >/dev/null
 /usr/bin/ditto "$MOUNT/Veilark.app" "$WORK/Applications/Veilark.app"
 hdiutil detach "$MOUNT" -quiet -force >/dev/null
-/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString 1.0.1" \
+/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" \
+  "$WORK/Applications/Veilark.app/Contents/Info.plist"
+/usr/libexec/PlistBuddy -c "Set :CFBundleVersion $((BUILD - 1))" \
   "$WORK/Applications/Veilark.app/Contents/Info.plist"
 cp "$DMG" "$WORK/update.dmg"
 
@@ -61,7 +63,7 @@ if "$UPDATER" \
 fi
 REJECTED_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' \
   "$WORK/Applications/Veilark.app/Contents/Info.plist")"
-[ "$REJECTED_VERSION" = "1.0.1" ] || { echo "Rejected update changed the app" >&2; exit 1; }
+[ "$REJECTED_VERSION" = "$VERSION" ] || { echo "Rejected update changed the app" >&2; exit 1; }
 
 sleep 0.3 &
 PARENT_PID=$!
@@ -84,5 +86,11 @@ INSTALLED_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionStri
   echo "Updater installed $INSTALLED_VERSION instead of $VERSION" >&2
   exit 1
 }
+INSTALLED_BUILD="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' \
+  "$WORK/Applications/Veilark.app/Contents/Info.plist")"
+[ "$INSTALLED_BUILD" = "$BUILD" ] || {
+  echo "Updater installed build $INSTALLED_BUILD instead of $BUILD" >&2
+  exit 1
+}
 [ ! -e "$WORK/update.dmg" ] || { echo "Updater did not remove the consumed DMG" >&2; exit 1; }
-echo "Verified in-app update from 1.0.1 to $VERSION without touching /Applications."
+echo "Verified in-app update to $VERSION build $BUILD without touching /Applications."

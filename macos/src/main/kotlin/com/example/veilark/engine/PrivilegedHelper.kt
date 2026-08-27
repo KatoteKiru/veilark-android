@@ -145,7 +145,7 @@ class PrivilegedHelper(private val paths: EnginePaths) : TunnelController {
     "'" + value.replace("'", "'\"'\"'") + "'"
 
   companion object {
-    const val VERSION = "5"
+    const val VERSION = "6"
     private val versionFile = File("/Library/Application Support/Veilark/helper.version")
     private val engineLog = File("/Library/Application Support/Veilark/runtime/engine.log")
     private val installedSingBox = File("/Library/PrivilegedHelperTools/VeilarkEngines/sing-box")

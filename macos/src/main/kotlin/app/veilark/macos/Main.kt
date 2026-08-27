@@ -141,7 +141,7 @@ fun main() = application {
 
   LaunchedEffect(session) {
     while (true) {
-      delay(10_000)
+      delay(if (session.status == TunnelStatus.CONNECTED) 30_000 else 60_000)
       session.reconcileStatus()
     }
   }
@@ -189,7 +189,11 @@ fun main() = application {
       Item(Strings.quit, onClick = {
         scope.launch {
           session.stopForQuit()
-          exitApplication()
+            .onSuccess { exitApplication() }
+            .onFailure {
+              selectedSection = MacSection.DIAGNOSTICS
+              windowVisible = true
+            }
         }
       })
     },
@@ -213,10 +217,7 @@ fun main() = application {
           refresh = ::refresh,
           onToggleConnection = ::toggleConnection,
           onUpdaterLaunched = {
-            scope.launch {
-              session.stopForQuit()
-              exitApplication()
-            }
+            exitApplication()
           },
         )
       }
@@ -862,7 +863,7 @@ private fun RoutingSection(session: VeilarkSession) {
       selected = mode == ProfileSelection.ROUTING_ALL,
       enabled = canEdit,
       title = Strings.fullTunnel,
-      body = Strings.fullTunnelHint,
+      body = if (singBox) Strings.fullTunnelHint else Strings.trustFullTunnelHint,
       onClick = { applyMode(ProfileSelection.ROUTING_ALL) },
     )
     RoutingOption(
@@ -1135,9 +1136,9 @@ private fun SettingsSection(
                 updateBusy = true
                 updateError = null
                 runCatching {
-                  MacUpdateClient.download(available).also { file ->
-                    MacUpdateClient.launchInstaller(available, file)
-                  }
+                  val file = MacUpdateClient.download(available)
+                  session.stopForQuit().getOrThrow()
+                  MacUpdateClient.launchInstaller(available, file)
                 }
                   .onSuccess { onUpdaterLaunched() }
                   .onFailure { updateError = it.message ?: Strings.updateDownloadFailed }

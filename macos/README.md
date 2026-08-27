@@ -2,6 +2,8 @@
 
 Development preview of the Veilark desktop client for Apple Silicon and Intel Macs. This branch is not yet approved for public distribution: the current CLI TUN helper must be replaced by an Apple Network Extension or an authenticated signed XPC service before a production release.
 
+TrustTunnel currently uses an IPv4-only compatibility profile on macOS. IPv6 is not captured by that tunnel and must not be described as protected until dual-stack routing and leak behaviour pass the physical-Mac gates in `docs/RELEASE_GATES.md`.
+
 ## What you get
 
 - macOS-oriented Compose Desktop UI with Overview, Profiles, Routing, Diagnostics, and Settings

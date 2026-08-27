@@ -32,7 +32,19 @@ private let logURL: URL = {
     return base.appendingPathComponent("updater.log")
 }()
 
+private func rotateLogIfNeeded() {
+    guard
+        let attributes = try? fileManager.attributesOfItem(atPath: logURL.path),
+        let size = attributes[.size] as? NSNumber,
+        size.int64Value >= 1_048_576
+    else { return }
+    let previous = logURL.deletingLastPathComponent().appendingPathComponent("updater.log.1")
+    try? fileManager.removeItem(at: previous)
+    try? fileManager.moveItem(at: logURL, to: previous)
+}
+
 private func log(_ message: String) {
+    rotateLogIfNeeded()
     let line = "\(ISO8601DateFormatter().string(from: Date())) \(message)\n"
     let data = Data(line.utf8)
     if !fileManager.fileExists(atPath: logURL.path) {
@@ -179,12 +191,12 @@ private func semanticVersion(_ value: String) -> [Int]? {
     return numbers.count == 3 ? numbers : nil
 }
 
-private func versionIsGreater(_ candidate: String, than current: String) -> Bool {
+private func versionIsAtLeast(_ candidate: String, _ current: String) -> Bool {
     guard let left = semanticVersion(candidate), let right = semanticVersion(current) else { return false }
     for index in 0..<3 where left[index] != right[index] {
         return left[index] > right[index]
     }
-    return false
+    return true
 }
 
 private func validateOwnedRegularFile(_ url: URL) {
@@ -219,9 +231,9 @@ private func verifyBundle(_ app: URL, expectedVersion: String, currentApp: URL) 
     }
     guard
         let currentVersion = Bundle(url: currentApp)?.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String,
-        versionIsGreater(expectedVersion, than: currentVersion)
+        versionIsAtLeast(expectedVersion, currentVersion)
     else {
-        fail("update version is not newer than the installed version")
+        fail("update version is older than the installed version")
     }
     guard requireGatekeeper else { return }
     let signature = run("/usr/bin/codesign", ["--verify", "--deep", "--strict", "--verbose=2", app.path])
@@ -312,6 +324,14 @@ waitForParentToExit(options.parentPID)
 let mountPoint = mount(options.dmg)
 defer { _ = run("/usr/bin/hdiutil", ["detach", mountPoint.path, "-quiet", "-force"]) }
 let updateApp = mountPoint.appendingPathComponent("Veilark.app", isDirectory: true)
+guard
+    let updateBuildText = Bundle(url: updateApp)?.object(forInfoDictionaryKey: "CFBundleVersion") as? String,
+    let updateBuild = Int(updateBuildText), updateBuild == options.expectedBuild,
+    let currentBuildText = Bundle(url: options.currentApp)?.object(forInfoDictionaryKey: "CFBundleVersion") as? String,
+    let currentBuild = Int(currentBuildText), options.expectedBuild > currentBuild
+else {
+    fail("update bundle build is invalid or not newer")
+}
 verifyBundle(updateApp, expectedVersion: options.expectedVersion, currentApp: options.currentApp)
 install(updateApp, over: options.currentApp)
 if options.relaunch {

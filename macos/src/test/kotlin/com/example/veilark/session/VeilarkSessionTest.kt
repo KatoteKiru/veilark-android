@@ -128,6 +128,22 @@ class VeilarkSessionTest {
   }
 
   @Test
+  fun quitStopFailureIsReturnedAndLeavesTechnicalFailureState() = runBlocking {
+    val fake = FakeController()
+    val session = sessionWithSingBox(fake, NetworkHealth(true, "ok"))
+    session.connect()
+    fake.failStop = true
+
+    val result = session.stopForQuit()
+
+    assertTrue(result.isFailure)
+    assertEquals(TunnelStatus.FAILED, session.status)
+    assertTrue(fake.running)
+    assertTrue(session.statusDetail.isNotBlank())
+    assertTrue(session.logs.any { it.code == "DISCONNECT_FAILED" })
+  }
+
+  @Test
   fun deletesSelectedSubscriptionAndDoesNotPersistSensitiveLinksInLogs() {
     val key = EncryptedStore.ephemeralKey()
     val store = EncryptedStore(folder.newFolder("secure")) { key }
@@ -199,6 +215,7 @@ class VeilarkSessionTest {
   private class FakeController : TunnelController {
     var running = false
     var stopCalls = 0
+    var failStop = false
 
     override fun installed(): Boolean = true
     override fun enginePresent(kind: TunnelEngineKind): Boolean = true
@@ -209,6 +226,7 @@ class VeilarkSessionTest {
     }
     override fun stop(): Result<Unit> {
       stopCalls += 1
+      if (failStop) return Result.failure(IllegalStateException("managed engine did not stop"))
       running = false
       return Result.success(Unit)
     }

@@ -97,24 +97,54 @@ func isManagedProcess(_ pid: pid_t) -> Bool {
         path == installedEngines + "/trusttunnel_client"
 }
 
+func clearPidFile() {
+    guard FileManager.default.fileExists(atPath: pidFile) else { return }
+    do {
+        try FileManager.default.removeItem(atPath: pidFile)
+    } catch {
+        fail("failed to clear engine pid")
+    }
+}
+
 func stopEngine() {
     becomeRoot()
-    guard FileManager.default.fileExists(atPath: pidFile),
-          let text = try? String(contentsOfFile: pidFile, encoding: .utf8),
+    guard FileManager.default.fileExists(atPath: pidFile) else {
+        return
+    }
+    guard let text = try? String(contentsOfFile: pidFile, encoding: .utf8),
           let pid = Int32(text.trimmingCharacters(in: .whitespacesAndNewlines)), pid > 1 else {
+        clearPidFile()
         return
     }
     guard isManagedProcess(pid) else {
-        try? FileManager.default.removeItem(atPath: pidFile)
+        clearPidFile()
         return
     }
-    kill(pid, SIGTERM)
-    usleep(1_500_000)
-    if kill(pid, 0) == 0 && isManagedProcess(pid) {
-        kill(pid, SIGKILL)
-        usleep(200_000)
+    guard kill(pid, SIGTERM) == 0 || errno == ESRCH else {
+        fail("failed to signal managed engine")
     }
-    try? FileManager.default.removeItem(atPath: pidFile)
+    for _ in 0..<30 {
+        if kill(pid, 0) != 0 || !isManagedProcess(pid) {
+            clearPidFile()
+            return
+        }
+        usleep(100_000)
+    }
+    guard isManagedProcess(pid) else {
+        clearPidFile()
+        return
+    }
+    guard kill(pid, SIGKILL) == 0 || errno == ESRCH else {
+        fail("failed to kill managed engine")
+    }
+    for _ in 0..<20 {
+        if kill(pid, 0) != 0 || !isManagedProcess(pid) {
+            clearPidFile()
+            return
+        }
+        usleep(100_000)
+    }
+    fail("managed engine did not stop")
 }
 
 func startEngine(name: String, config: String) {
@@ -166,7 +196,18 @@ func startEngine(name: String, config: String) {
         fail("failed to start engine")
     }
     let pid = process.processIdentifier
-    try? String(pid).write(toFile: pidFile, atomically: true, encoding: .utf8)
+    do {
+        try String(pid).write(toFile: pidFile, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: pidFile)
+    } catch {
+        process.terminate()
+        usleep(500_000)
+        if process.isRunning {
+            kill(pid, SIGKILL)
+        }
+        try? FileManager.default.removeItem(atPath: pidFile)
+        fail("failed to persist engine pid")
+    }
     usleep(1_200_000)
     if kill(pid, 0) != 0 {
         failFromEngineLog(fallback: "engine exited immediately")

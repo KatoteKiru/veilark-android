@@ -45,9 +45,29 @@ class MacPackagingMetadataTest {
     val helper = File("helper/veilark-helper.swift").readText()
     val stalePidBranch = helper.substringAfter("guard isManagedProcess(pid) else {")
       .substringBefore("}")
-    assertTrue(stalePidBranch.contains("removeItem(atPath: pidFile)"))
+    assertTrue(stalePidBranch.contains("clearPidFile()"))
     assertTrue(stalePidBranch.contains("return"))
     assertFalse(stalePidBranch.contains("fail("))
+  }
+
+  @Test
+  fun helperV6FailsClosedForPidPersistenceAndUnstoppableChild() {
+    val helper = File("helper/veilark-helper.swift").readText()
+    val controller = File("src/main/kotlin/com/example/veilark/engine/PrivilegedHelper.kt").readText()
+    assertTrue(controller.contains("const val VERSION = \"6\""))
+    assertTrue(helper.contains("failed to persist engine pid"))
+    assertTrue(helper.contains("managed engine did not stop"))
+    assertTrue(helper.contains("for _ in 0..<30"))
+    assertFalse(helper.contains("try? String(pid).write"))
+  }
+
+  @Test
+  fun packageBuildIsBoundToMacBuildNumber() {
+    val build = File("build.gradle.kts").readText()
+    val updater = File("updater/veilark-updater.swift").readText()
+    assertTrue(build.contains("packageBuildVersion = macosBuild.toString()"))
+    assertTrue(updater.contains("updateBuild == options.expectedBuild"))
+    assertTrue(updater.contains("options.expectedBuild > currentBuild"))
   }
 
   @Test

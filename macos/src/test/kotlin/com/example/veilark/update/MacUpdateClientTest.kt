@@ -13,7 +13,7 @@ import java.util.Base64
 
 class MacUpdateClientTest {
   @Test
-  fun treatsOnlyGreaterBuildAsAvailable() {
+  fun requiresGreaterBuildAndNonDecreasingVersion() {
     val current = MacUpdate(
       version = MacUpdateClient.CURRENT_VERSION,
       build = MacUpdateClient.CURRENT_BUILD,
@@ -25,6 +25,11 @@ class MacUpdateClientTest {
     assertFalse(MacUpdateClient.isNewer(current))
     assertFalse(MacUpdateClient.isNewer(current.copy(build = MacUpdateClient.CURRENT_BUILD - 1)))
     assertTrue(MacUpdateClient.isNewer(current.copy(build = MacUpdateClient.CURRENT_BUILD + 1)))
+    assertFalse(
+      MacUpdateClient.isNewer(
+        current.copy(version = "0.9.9", build = MacUpdateClient.CURRENT_BUILD + 1),
+      ),
+    )
   }
 
   @Test

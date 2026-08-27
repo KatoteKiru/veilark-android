@@ -7,6 +7,7 @@ import java.security.Signature
 import java.security.spec.PKCS8EncodedKeySpec
 import java.security.spec.X509EncodedKeySpec
 import java.util.Base64
+import groovy.json.JsonSlurper
 
 plugins {
   kotlin("jvm") version "2.1.20"
@@ -216,6 +217,56 @@ val createOtaManifest by tasks.registering {
   }
 }
 
+val verifyExistingOtaManifest by tasks.registering {
+  group = "verification"
+  description = "Verify the signed live OTA manifest is older than a candidate build"
+  doLast {
+    fun required(name: String): String = providers.gradleProperty(name).orNull
+      ?.takeIf(String::isNotBlank)
+      ?: error("Missing -P$name")
+
+    val manifest = file(required("otaExistingManifest")).canonicalFile
+    val candidateBuild = required("otaCandidateBuild").toIntOrNull()
+      ?: error("otaCandidateBuild must be an integer")
+    val publicDer = Base64.getDecoder().decode(required("otaPublicKey"))
+    require(manifest.isFile && manifest.length() in 1..(256 * 1024)) { "Invalid existing OTA manifest" }
+    @Suppress("UNCHECKED_CAST")
+    val json = JsonSlurper().parse(manifest) as Map<String, Any?>
+    fun textField(name: String): String = (json[name] as? String)?.trim()
+      ?.takeIf(String::isNotEmpty) ?: error("Existing OTA manifest is missing $name")
+    val schema = (json["schemaVersion"] as? Number)?.toInt()
+      ?: error("Existing OTA schema is invalid")
+    val build = (json["build"] as? Number)?.toInt()
+      ?: error("Existing OTA build is invalid")
+    val platform = textField("platform")
+    val version = textField("version")
+    val architecture = textField("architecture").lowercase()
+    val url = textField("url")
+    val sha256 = textField("sha256").lowercase()
+    val notes = (json["notes"] as? String)?.trim().orEmpty()
+    val signature = Base64.getDecoder().decode(textField("signature"))
+    require(schema == 1 && platform == "macos") { "Existing OTA identity is invalid" }
+    require(version.matches(Regex("""\d+\.\d+\.\d+"""))) { "Existing OTA version is invalid" }
+    require(architecture in setOf("arm64", "amd64", "universal")) { "Existing OTA architecture is invalid" }
+    require(URI(url).let { it.scheme == "https" && !it.host.isNullOrBlank() }) { "Existing OTA URL is invalid" }
+    require(sha256.matches(Regex("""[0-9a-f]{64}"""))) { "Existing OTA SHA-256 is invalid" }
+    require(notes.length <= 4_000) { "Existing OTA notes are invalid" }
+    val canonical = listOf(
+      schema.toString(), platform, version, build.toString(), architecture, url, sha256, notes,
+    ).joinToString("\n") { value -> "${value.toByteArray(Charsets.UTF_8).size}:$value" }
+      .toByteArray(Charsets.UTF_8)
+    val publicKey = KeyFactory.getInstance("Ed25519").generatePublic(X509EncodedKeySpec(publicDer))
+    val verifier = Signature.getInstance("Ed25519")
+    verifier.initVerify(publicKey)
+    verifier.update(canonical)
+    require(verifier.verify(signature)) { "Existing OTA signature is invalid" }
+    require(build < candidateBuild) {
+      "Candidate OTA build $candidateBuild is not newer than live build $build"
+    }
+    println("Verified live OTA build $build before candidate build $candidateBuild")
+  }
+}
+
 val compileHelper by tasks.registering(Exec::class) {
   val output = layout.buildDirectory.file("helper/veilark-helper")
   inputs.file("helper/veilark-helper.swift")
@@ -324,6 +375,7 @@ compose.desktop {
       vendor = "Veilark"
       appResourcesRootDir.set(project.layout.projectDirectory.dir("packaging"))
       macOS {
+        packageBuildVersion = macosBuild.toString()
         bundleID = "app.veilark.macos"
         dockName = "Veilark"
         infoPlist {

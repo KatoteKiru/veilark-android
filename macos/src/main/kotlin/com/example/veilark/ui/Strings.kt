@@ -43,7 +43,7 @@ object Strings {
   } else {
     "Active: ${if (kind == com.example.veilark.engine.TunnelEngineKind.TRUST_TUNNEL) trustTunnel else singBox}"
   }
-  val trustTunnelSummary get() = if (russian) "Полный туннель TrustTunnel" else "TrustTunnel full tunnel"
+  val trustTunnelSummary get() = if (russian) "IPv4-туннель TrustTunnel" else "TrustTunnel IPv4 tunnel"
   val singBoxSummary get() = if (russian) "Прокси-протоколы sing-box" else "sing-box proxy protocols"
   val disconnectBeforeEngineSwitch get() = if (russian) "Отключите туннель, чтобы сменить ядро" else "Disconnect the tunnel to switch engines"
   val openProfiles get() = if (russian) "Открыть профили" else "Open profiles"
@@ -56,7 +56,11 @@ object Strings {
   val profileActions get() = if (russian) "Действия с профилем" else "Profile actions"
   val checkHealth get() = if (russian) "Проверить соединение" else "Check connection"
   val routingSubtitle get() = if (russian) "Проверяемые возможности текущего macOS-клиента" else "Verified capabilities of this macOS client"
-  val trustRoutingDescription get() = if (russian) "TrustTunnel использует системный полный TUN-туннель." else "TrustTunnel uses a system-wide TUN tunnel."
+  val trustRoutingDescription get() = if (russian) {
+    "TrustTunnel использует системный IPv4 TUN; IPv6 пока не туннелируется."
+  } else {
+    "TrustTunnel uses a system-wide IPv4 TUN; IPv6 is not tunneled yet."
+  }
   val singRoutingDescription get() = if (russian) "Для sing-box доступны полный туннель, геомаршрутизация и ручные правила доменов и CIDR." else "sing-box supports full tunnel, geo routing, and manual domain and CIDR rules."
   val geoRouting get() = if (russian) "Геомаршрутизация" else "Geo routing"
   val geoRoutingNotReady get() = if (russian) "Правила geoip/geosite ещё не подключены к macOS-модулю. Сейчас режим работает как полный туннель." else "geoip/geosite rules are not connected to the macOS module yet. The current mode is full tunnel."
@@ -142,6 +146,11 @@ object Strings {
   } else {
     "Predictable mode without local exclusions"
   }
+  val trustFullTunnelHint get() = if (russian) {
+    "Весь IPv4-трафик через VPN; IPv6 остаётся вне туннеля до проверки на физическом Mac"
+  } else {
+    "All IPv4 traffic uses the VPN; IPv6 stays outside until physical-Mac validation"
+  }
   val ruDirect get() = if (russian) "Россия напрямую" else "Russia direct"
   val ruDirectHint get() = if (russian) {
     "Российские домены и IP идут мимо VPN; остальное — через туннель"
@@ -149,9 +158,9 @@ object Strings {
     "Russian domains and IPs bypass VPN; everything else uses the tunnel"
   }
   val trustRuDirectHint get() = if (russian) {
-    "Российские IP-сети GeoIP идут напрямую; остальной интернет — через TrustTunnel"
+    "Российские IPv4-сети GeoIP идут напрямую; другой IPv4 — через TrustTunnel; IPv6 не туннелируется"
   } else {
-    "Russian GeoIP networks go direct; the rest of the internet uses TrustTunnel"
+    "Russian GeoIP IPv4 networks go direct; other IPv4 uses TrustTunnel; IPv6 is not tunneled"
   }
   val manualRouting get() = if (russian) "Ручные правила" else "Manual rules"
   val manualRoutingHint get() = if (russian) {
@@ -164,9 +173,9 @@ object Strings {
   val save get() = if (russian) "Сохранить" else "Save"
   val noSelectedProfile get() = if (russian) "Профиль не выбран" else "No profile selected"
   val trustRoutingLimit get() = if (russian) {
-    "TrustTunnel поддерживает полный туннель и прямой маршрут российских IP-сетей GeoIP."
+    "TrustTunnel поддерживает IPv4-туннель и прямой маршрут российских IPv4-сетей GeoIP; IPv6 пока вне туннеля."
   } else {
-    "TrustTunnel supports full tunnel and direct routing for Russian GeoIP networks."
+    "TrustTunnel supports an IPv4 tunnel and direct Russian GeoIP IPv4 routing; IPv6 remains outside."
   }
   val installComponents get() = if (russian) "Системные компоненты" else "System components"
   val updateChannel get() = if (russian) "Обновления" else "Updates"
