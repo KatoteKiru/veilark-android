@@ -10,6 +10,7 @@ import re
 import shlex
 import shutil
 import subprocess
+import tempfile
 import uuid
 from urllib.request import Request, urlopen
 
@@ -47,12 +48,17 @@ def read_env(path: Path) -> dict[str, str]:
 
 
 def connect_node(env: dict[str, str]) -> paramiko.SSHClient:
+    host = env.get("OTA_SSH_HOST") or env.get("NETHERLANDS_NEW_HOST")
+    user = env.get("OTA_SSH_USER") or env.get("NETHERLANDS_NEW_USER")
+    password = env.get("OTA_SSH_PASSWORD") or env.get("NETHERLANDS_NEW_PASSWORD")
+    if not host or not user or not password:
+        raise ValueError("SSH environment is missing OTA or Netherlands-new credentials")
     client = paramiko.SSHClient()
     client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
     client.connect(
-        env["OTA_SSH_HOST"],
-        username=env["OTA_SSH_USER"],
-        password=env["OTA_SSH_PASSWORD"],
+        host,
+        username=user,
+        password=password,
         timeout=20,
         banner_timeout=20,
         auth_timeout=20,
@@ -109,16 +115,56 @@ def verify_local_apk(
         raise RuntimeError("APK signer does not match the established OTA signer")
 
 
-def download_sha256(url: str) -> tuple[str, int]:
-    digest = hashlib.sha256()
-    size = 0
-    with urlopen(Request(url, method="GET"), timeout=60) as response:
-        if response.status != 200:
-            raise RuntimeError(f"Published APK returned HTTP {response.status}")
-        while chunk := response.read(UPLOAD_CHUNK_SIZE):
-            digest.update(chunk)
-            size += len(chunk)
-    return digest.hexdigest().upper(), size
+def download_sha256(url: str, expected_size: int) -> tuple[str, int]:
+    """Download a large APK with resumable range requests before hashing it."""
+    last_error: Exception | None = None
+    with tempfile.TemporaryDirectory(prefix="veilark-ota-verify-") as directory:
+        destination = Path(directory) / "published.apk"
+        for _ in range(UPLOAD_ATTEMPTS):
+            offset = destination.stat().st_size if destination.exists() else 0
+            headers = {"Cache-Control": "no-cache"}
+            if offset:
+                headers["Range"] = f"bytes={offset}-"
+            try:
+                with urlopen(Request(url, headers=headers, method="GET"), timeout=60) as response:
+                    status = response.status
+                    mode = "ab"
+                    if offset and status == 206:
+                        content_range = response.headers.get("Content-Range", "")
+                        if not content_range.startswith(f"bytes {offset}-"):
+                            raise RuntimeError(
+                                f"Published APK returned invalid Content-Range: {content_range}"
+                            )
+                    elif status == 200:
+                        mode = "wb"
+                        offset = 0
+                    elif not offset and status == 206:
+                        mode = "wb"
+                    else:
+                        raise RuntimeError(f"Published APK returned HTTP {status}")
+
+                    with destination.open(mode) as output:
+                        while chunk := response.read(UPLOAD_CHUNK_SIZE):
+                            output.write(chunk)
+                            if output.tell() > expected_size:
+                                raise RuntimeError("Published APK exceeded the expected size")
+            except Exception as error:
+                last_error = error
+
+            actual_size = destination.stat().st_size if destination.exists() else 0
+            if actual_size == expected_size:
+                digest = hashlib.sha256()
+                with destination.open("rb") as source:
+                    while chunk := source.read(UPLOAD_CHUNK_SIZE):
+                        digest.update(chunk)
+                return digest.hexdigest().upper(), actual_size
+            if actual_size > expected_size:
+                raise RuntimeError("Published APK exceeded the expected size")
+
+        actual_size = destination.stat().st_size if destination.exists() else 0
+        raise RuntimeError(
+            f"Published APK download remained incomplete: {actual_size}/{expected_size} bytes"
+        ) from last_error
 
 
 def remote_sha256(client: paramiko.SSHClient, path: str) -> str:
@@ -327,7 +373,7 @@ def main() -> None:
         published = json.load(response)
     if published != manifest:
         raise RuntimeError("Published manifest verification failed")
-    downloaded_sha256, downloaded_size = download_sha256(apk_url)
+    downloaded_sha256, downloaded_size = download_sha256(apk_url, size)
     if downloaded_sha256 != sha256 or downloaded_size != size:
         raise RuntimeError("Downloaded production APK does not match the signed artifact")
 
