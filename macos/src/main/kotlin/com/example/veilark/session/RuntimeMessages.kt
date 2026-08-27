@@ -44,6 +44,7 @@ internal object RuntimeMessages {
   val trustProfileMissing get() = text("Выбранный TrustTunnel профиль отсутствует", "The selected TrustTunnel profile is missing")
   val chooseSingBox get() = text("Выберите sing-box профиль", "Select a sing-box profile")
   val geoFilesMissing get() = text("Файлы геомаршрутизации не установлены", "Geographic routing files are not installed")
+  val geoIpInvalid get() = text("Файл GeoIP RU повреждён или несовместим", "The GeoIP RU file is damaged or incompatible")
   val chooseTrust get() = text("Выберите TrustTunnel профиль", "Select a TrustTunnel profile")
   val disconnected get() = text("Туннель отключён", "Tunnel disconnected")
   val engineExited get() = text("Сетевое ядро неожиданно завершилось", "The network engine exited unexpectedly")

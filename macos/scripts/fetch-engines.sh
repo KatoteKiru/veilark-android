@@ -32,6 +32,7 @@ GEOSITE_COMMIT="11fb9814c7de626956aab504f83e066e70b250d4"
 GEOIP_URL="https://raw.githubusercontent.com/SagerNet/sing-geoip/${GEOIP_COMMIT}/geoip-ru.srs"
 GEOSITE_URL="https://raw.githubusercontent.com/SagerNet/sing-geosite/${GEOSITE_COMMIT}/geosite-category-ru.srs"
 GEOIP_SHA256="1a8115af741918ff24b37b87d3c6da21eccabc58f1eec059e461dca8bac16ff7"
+GEOIP_JSON_SHA256="ad921e489713e5a837417e3a0f5ed5ce07d9f8ffe9aeecf47c13ee397bff0d2b"
 GEOSITE_SHA256="c36e157adf86edf7b722b51f3acb93bbb2a7f8083932dae29b4b5ef2c1ced870"
 SING_BOX_BINARY_SHA256_ARM64="5b75c1dec19488675f725adc7a6e3a7301a553117af835dc47669b1fa918976b"
 SING_BOX_BINARY_SHA256_AMD64="078164e43464f2282ae526151411320582c3e60a0294cec24a627edf205305a6"
@@ -76,6 +77,9 @@ curl -fsSL "$GEOIP_URL" -o "$COMMON/geo/geoip-ru.srs"
 curl -fsSL "$GEOSITE_URL" -o "$COMMON/geo/geosite-category-ru.srs"
 verify_sha256 "$GEOIP_SHA256" "$COMMON/geo/geoip-ru.srs"
 verify_sha256 "$GEOSITE_SHA256" "$COMMON/geo/geosite-category-ru.srs"
+"$COMMON/sing-box" rule-set decompile "$COMMON/geo/geoip-ru.srs" \
+  --output "$COMMON/geo/geoip-ru.json"
+verify_sha256 "$GEOIP_JSON_SHA256" "$COMMON/geo/geoip-ru.json"
 
 file "$COMMON/sing-box" | grep -q 'Mach-O'
 file "$COMMON/trusttunnel_client" | grep -q 'Mach-O'
@@ -83,6 +87,7 @@ shasum -a 256 \
   "$COMMON/sing-box" \
   "$COMMON/trusttunnel_client" \
   "$COMMON/geo/geoip-ru.srs" \
+  "$COMMON/geo/geoip-ru.json" \
   "$COMMON/geo/geosite-category-ru.srs" | tee "$VENDOR/BUNDLED_SHA256SUMS"
 cat > "$VENDOR/BUNDLED_UPSTREAM.json" <<EOF
 {
@@ -103,7 +108,9 @@ cat > "$VENDOR/BUNDLED_UPSTREAM.json" <<EOF
   "geoip-ru": {
     "commit": "${GEOIP_COMMIT}",
     "url": "${GEOIP_URL}",
-    "sha256": "${GEOIP_SHA256}"
+    "sha256": "${GEOIP_SHA256}",
+    "derivedJsonSha256": "${GEOIP_JSON_SHA256}",
+    "derivedBy": "sing-box ${SING_BOX_VERSION} rule-set decompile"
   },
   "geosite-category-ru": {
     "commit": "${GEOSITE_COMMIT}",

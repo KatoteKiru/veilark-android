@@ -148,6 +148,11 @@ object Strings {
   } else {
     "Russian domains and IPs bypass VPN; everything else uses the tunnel"
   }
+  val trustRuDirectHint get() = if (russian) {
+    "Российские IP-сети GeoIP идут напрямую; остальной интернет — через TrustTunnel"
+  } else {
+    "Russian GeoIP networks go direct; the rest of the internet uses TrustTunnel"
+  }
   val manualRouting get() = if (russian) "Ручные правила" else "Manual rules"
   val manualRoutingHint get() = if (russian) {
     "Списки доменов и CIDR для прямого доступа или VPN"
@@ -159,9 +164,9 @@ object Strings {
   val save get() = if (russian) "Сохранить" else "Save"
   val noSelectedProfile get() = if (russian) "Профиль не выбран" else "No profile selected"
   val trustRoutingLimit get() = if (russian) {
-    "TrustTunnel на macOS работает в полном туннеле. Геомаршрутизация доступна для sing-box."
+    "TrustTunnel поддерживает полный туннель и прямой маршрут российских IP-сетей GeoIP."
   } else {
-    "TrustTunnel on macOS uses full tunnel. Geo routing is available for sing-box."
+    "TrustTunnel supports full tunnel and direct routing for Russian GeoIP networks."
   }
   val installComponents get() = if (russian) "Системные компоненты" else "System components"
   val updateChannel get() = if (russian) "Обновления" else "Updates"

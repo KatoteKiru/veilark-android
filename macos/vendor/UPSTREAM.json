@@ -22,7 +22,9 @@
   "geoip-ru": {
     "commit": "b9c5e675b4d5359d4b47f4434fa7ae77e9991306",
     "url": "https://raw.githubusercontent.com/SagerNet/sing-geoip/b9c5e675b4d5359d4b47f4434fa7ae77e9991306/geoip-ru.srs",
-    "sha256": "1a8115af741918ff24b37b87d3c6da21eccabc58f1eec059e461dca8bac16ff7"
+    "sha256": "1a8115af741918ff24b37b87d3c6da21eccabc58f1eec059e461dca8bac16ff7",
+    "derivedJsonSha256": "ad921e489713e5a837417e3a0f5ed5ce07d9f8ffe9aeecf47c13ee397bff0d2b",
+    "derivedBy": "sing-box 1.13.19 rule-set decompile"
   },
   "geosite-category-ru": {
     "commit": "11fb9814c7de626956aab504f83e066e70b250d4",

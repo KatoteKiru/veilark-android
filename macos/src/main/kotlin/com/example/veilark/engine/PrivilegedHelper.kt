@@ -19,6 +19,7 @@ data class EnginePaths(
   val singBox: File,
   val trustTunnel: File,
   val geoIpRu: File,
+  val geoIpRuJson: File,
   val geoSiteRu: File,
   val runtimeDir: File,
 ) {
@@ -179,6 +180,7 @@ object BundledPaths {
         File(root, "engines/trusttunnel_client"),
       ),
       geoIpRu = firstExisting(File(root, "geo/geoip-ru.srs")),
+      geoIpRuJson = firstExisting(File(root, "geo/geoip-ru.json")),
       geoSiteRu = firstExisting(File(root, "geo/geosite-category-ru.srs")),
       runtimeDir = File(System.getProperty("user.home"), "Library/Application Support/Veilark/runtime"),
     ).also { paths ->

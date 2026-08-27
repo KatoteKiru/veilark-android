@@ -14,6 +14,7 @@ import com.example.veilark.profile.SubscriptionOrigin
 import com.example.veilark.profile.SubscriptionParser
 import com.example.veilark.protocol.TrustTunnelCatalog
 import com.example.veilark.protocol.TrustTunnelCatalogEntry
+import com.example.veilark.protocol.GeoIpRuCatalog
 import com.example.veilark.protocol.TrustTunnelProfile
 import com.example.veilark.storage.EncryptedStore
 import com.example.veilark.storage.MacKeychain
@@ -134,6 +135,8 @@ class VeilarkSession(
   fun geoRuleSetsPresent(): Boolean = BundledPaths.resolve().let {
     it.geoIpRu.isFile && it.geoSiteRu.isFile
   }
+
+  fun geoIpRuPresent(): Boolean = BundledPaths.resolve().geoIpRuJson.isFile
 
   suspend fun installHelper(): Result<Unit> = exclusiveOperation {
     check(status != TunnelStatus.CONNECTED && status != TunnelStatus.CONNECTING) {
@@ -593,9 +596,20 @@ class VeilarkSession(
 
   private fun startSelectedTrustTunnel() {
     val entry = selectedTrustEntry() ?: error(RuntimeMessages.chooseTrust)
+    val prepared = if (routingMode == ProfileSelection.ROUTING_RU_DIRECT) {
+      val paths = BundledPaths.resolve()
+      require(paths.geoIpRuJson.isFile) { RuntimeMessages.geoFilesMissing }
+      TrustTunnelProfile.applyGeoIpRuDirect(
+        entry.config,
+        runCatching { GeoIpRuCatalog.load(paths.geoIpRuJson) }
+          .getOrElse { error(RuntimeMessages.geoIpInvalid) },
+      )
+    } else {
+      TrustTunnelProfile.prepareMacConfig(entry.config)
+    }
     helper.start(
       TunnelEngineKind.TRUST_TUNNEL,
-      TrustTunnelProfile.prepareMacConfig(entry.config),
+      prepared,
     ).onFailure { error(friendlyHelperError(it.message)) }.getOrThrow()
   }
 

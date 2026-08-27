@@ -21,6 +21,7 @@ esac
 
 TRUST_SHA="dbadec0019352f7164adb618c3e076cf902d102870bbb3a7896f784886ef1573"
 GEOIP_SHA="1a8115af741918ff24b37b87d3c6da21eccabc58f1eec059e461dca8bac16ff7"
+GEOIP_JSON_SHA="ad921e489713e5a837417e3a0f5ed5ce07d9f8ffe9aeecf47c13ee397bff0d2b"
 GEOSITE_SHA="c36e157adf86edf7b722b51f3acb93bbb2a7f8083932dae29b4b5ef2c1ced870"
 
 for asset in \
@@ -29,6 +30,7 @@ for asset in \
   "$COMMON/sing-box" \
   "$COMMON/trusttunnel_client" \
   "$COMMON/geo/geoip-ru.srs" \
+  "$COMMON/geo/geoip-ru.json" \
   "$COMMON/geo/geosite-category-ru.srs"; do
   [ -f "$asset" ] || fail "missing $(basename "$asset"). Run scripts/fetch-engines.sh on this Mac."
 done
@@ -41,6 +43,7 @@ done
 echo "$SING_SHA  $COMMON/sing-box" | shasum -a 256 -c -
 echo "$TRUST_SHA  $COMMON/trusttunnel_client" | shasum -a 256 -c -
 echo "$GEOIP_SHA  $COMMON/geo/geoip-ru.srs" | shasum -a 256 -c -
+echo "$GEOIP_JSON_SHA  $COMMON/geo/geoip-ru.json" | shasum -a 256 -c -
 echo "$GEOSITE_SHA  $COMMON/geo/geosite-category-ru.srs" | shasum -a 256 -c -
 
 file "$COMMON/sing-box" | grep -q 'Mach-O' || fail "sing-box is not a Mach-O executable"

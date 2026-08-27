@@ -817,14 +817,23 @@ private fun SingBoxEntryRow(session: VeilarkSession, entry: SingBoxCatalogEntry,
 
 @Composable
 private fun RoutingSection(session: VeilarkSession) {
-  var mode by remember(session.routingMode) { mutableStateOf(session.routingMode) }
+  val singBox = session.engine == TunnelEngineKind.SING_BOX
+  var mode by remember(session.engine, session.routingMode) {
+    mutableStateOf(
+      if (!singBox && session.routingMode == ProfileSelection.ROUTING_MANUAL) {
+        ProfileSelection.ROUTING_ALL
+      } else {
+        session.routingMode
+      },
+    )
+  }
   var directEntries by remember(session.manualDirectEntries) { mutableStateOf(session.manualDirectEntries) }
   var vpnEntries by remember(session.manualVpnEntries) { mutableStateOf(session.manualVpnEntries) }
   var saveMessage by remember { mutableStateOf<String?>(null) }
   var saveError by remember { mutableStateOf<String?>(null) }
   val scope = rememberCoroutineScope()
-  val singBox = session.engine == TunnelEngineKind.SING_BOX
-  val canEdit = singBox && session.status == TunnelStatus.DISCONNECTED && !session.busy
+  val canEdit = session.status == TunnelStatus.DISCONNECTED && !session.busy
+  val geoAvailable = if (singBox) session.geoRuleSetsPresent() else session.geoIpRuPresent()
 
   fun applyMode(next: String) {
     mode = next
@@ -843,25 +852,11 @@ private fun RoutingSection(session: VeilarkSession) {
   ) {
     SectionHeading(Strings.routing, Strings.routingSubtitle)
     if (!singBox) {
-      CapabilityRow(Icons.Outlined.Lock, Strings.trustTunnel, Strings.trustRoutingDescription, Strings.fullTunnel)
-      Surface(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(12.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.32f),
-      ) {
-        Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.Top) {
-          Icon(Icons.Outlined.Info, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-          Spacer(Modifier.width(11.dp))
-          Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
-            Text(Strings.routingUnavailable, fontWeight = FontWeight.SemiBold)
-            Text(Strings.trustRoutingLimit, style = MaterialTheme.typography.bodyMedium)
-          }
-        }
-      }
-      return@Column
+      CapabilityRow(Icons.Outlined.Tune, Strings.trustTunnel, Strings.trustRoutingDescription, Strings.engine)
+    } else {
+      CapabilityRow(Icons.Outlined.Tune, Strings.singBox, Strings.singRoutingDescription, Strings.engine)
     }
 
-    CapabilityRow(Icons.Outlined.Tune, Strings.singBox, Strings.singRoutingDescription, Strings.engine)
     Text(Strings.routingMode, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
     RoutingOption(
       selected = mode == ProfileSelection.ROUTING_ALL,
@@ -872,20 +867,26 @@ private fun RoutingSection(session: VeilarkSession) {
     )
     RoutingOption(
       selected = mode == ProfileSelection.ROUTING_RU_DIRECT,
-      enabled = canEdit && session.geoRuleSetsPresent(),
+      enabled = canEdit && geoAvailable,
       title = Strings.ruDirect,
-      body = if (session.geoRuleSetsPresent()) Strings.ruDirectHint else Strings.geoRuleSetsMissing,
+      body = if (geoAvailable) {
+        if (singBox) Strings.ruDirectHint else Strings.trustRuDirectHint
+      } else {
+        Strings.geoRuleSetsMissing
+      },
       onClick = { applyMode(ProfileSelection.ROUTING_RU_DIRECT) },
     )
-    RoutingOption(
-      selected = mode == ProfileSelection.ROUTING_MANUAL,
-      enabled = canEdit,
-      title = Strings.manualRouting,
-      body = Strings.manualRoutingHint,
-      onClick = { mode = ProfileSelection.ROUTING_MANUAL; saveMessage = null; saveError = null },
-    )
+    if (singBox) {
+      RoutingOption(
+        selected = mode == ProfileSelection.ROUTING_MANUAL,
+        enabled = canEdit,
+        title = Strings.manualRouting,
+        body = Strings.manualRoutingHint,
+        onClick = { mode = ProfileSelection.ROUTING_MANUAL; saveMessage = null; saveError = null },
+      )
+    }
 
-    if (mode == ProfileSelection.ROUTING_MANUAL) {
+    if (singBox && mode == ProfileSelection.ROUTING_MANUAL) {
       OutlinedTextField(
         value = directEntries,
         onValueChange = { directEntries = it; saveMessage = null; saveError = null },
