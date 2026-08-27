@@ -1,32 +1,97 @@
 package app.veilark.macos
 
-import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.focusable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsHoveredAsState
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.List
-import androidx.compose.material.icons.rounded.*
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.CheckCircle
+import androidx.compose.material.icons.outlined.ContentPaste
+import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.ContentCopy
+import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.Description
+import androidx.compose.material.icons.outlined.ErrorOutline
+import androidx.compose.material.icons.outlined.FolderOpen
+import androidx.compose.material.icons.outlined.Home
+import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material.icons.outlined.Lock
+import androidx.compose.material.icons.outlined.NetworkCheck
+import androidx.compose.material.icons.outlined.PowerSettingsNew
+import androidx.compose.material.icons.outlined.Refresh
+import androidx.compose.material.icons.outlined.Route
+import androidx.compose.material.icons.outlined.Speed
+import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.outlined.Shield
+import androidx.compose.material.icons.outlined.Tune
+import androidx.compose.material.icons.outlined.WarningAmber
+import androidx.compose.material.icons.outlined.Wifi
+import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.PlainTooltip
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TooltipBox
+import androidx.compose.material3.TooltipDefaults
+import androidx.compose.material3.rememberTooltipState
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.painter.BitmapPainter
 import androidx.compose.ui.graphics.toComposeImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.isCtrlPressed
+import androidx.compose.ui.input.key.isMetaPressed
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Tray
 import androidx.compose.ui.window.Window
@@ -35,8 +100,8 @@ import androidx.compose.ui.window.rememberWindowState
 import com.example.veilark.engine.TunnelEngineKind
 import com.example.veilark.engine.TunnelStatus
 import com.example.veilark.profile.ProfileSelection
+import com.example.veilark.profile.SingBoxCatalogEntry
 import com.example.veilark.session.LogEntry
-import com.example.veilark.session.LogLevel
 import com.example.veilark.session.VeilarkSession
 import com.example.veilark.theme.VeilarkTheme
 import com.example.veilark.ui.MacClipboard
@@ -46,6 +111,7 @@ import com.example.veilark.update.MacUpdateClient
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.awt.Color as AwtColor
+import java.awt.Dimension
 import java.awt.FileDialog
 import java.awt.Frame
 import java.awt.RenderingHints
@@ -54,18 +120,23 @@ import java.io.File
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
-private enum class Section(val icon: ImageVector) {
-  OVERVIEW(Icons.Rounded.Home),
-  PROFILES(Icons.AutoMirrored.Rounded.List),
-  ROUTING(Icons.Rounded.Route),
-  DIAGNOSTICS(Icons.Rounded.Description),
-  SETTINGS(Icons.Rounded.Settings),
+private enum class MacSection(
+  val icon: ImageVector,
+  val label: String,
+) {
+  OVERVIEW(Icons.Outlined.Home, Strings.overview),
+  PROFILES(Icons.Outlined.Wifi, Strings.profiles),
+  ROUTING(Icons.Outlined.Route, Strings.routing),
+  DIAGNOSTICS(Icons.Outlined.NetworkCheck, Strings.diagnostics),
+  SETTINGS(Icons.Outlined.Settings, Strings.settings),
 }
 
 fun main() = application {
   val session = remember { VeilarkSession.createDefault() }
   val scope = rememberCoroutineScope()
-  var visible by remember { mutableStateOf(true) }
+  var selectedSection by remember { mutableStateOf(MacSection.OVERVIEW) }
+  var tick by remember { mutableStateOf(0) }
+  var windowVisible by remember { mutableStateOf(true) }
   val trayIcon = remember { BitmapPainter(trayBitmap().toComposeImageBitmap()) }
 
   LaunchedEffect(session) {
@@ -75,75 +146,134 @@ fun main() = application {
     }
   }
 
+  fun refresh() {
+    tick += 1
+  }
+
+  fun toggleConnection() {
+    scope.launch {
+      if (session.status == TunnelStatus.CONNECTED || session.status == TunnelStatus.CONNECTING) {
+        session.disconnect()
+      } else {
+        session.connect()
+      }
+      refresh()
+    }
+  }
+
   Tray(
     icon = trayIcon,
     tooltip = Strings.appName,
-    onAction = { visible = true },
+    onAction = { windowVisible = true },
     menu = {
-      Item(Strings.open, onClick = { visible = true })
+      Item(Strings.appName, onClick = { windowVisible = true })
       Item(
-        if (session.status == TunnelStatus.CONNECTED) Strings.disconnect else Strings.connect,
-        enabled = !session.busy,
-        onClick = {
-          if (session.status == TunnelStatus.CONNECTED) session.disconnect()
-          else scope.launch { session.connect() }
+        when (session.status) {
+          TunnelStatus.CONNECTED -> Strings.disconnect
+          TunnelStatus.CONNECTING -> Strings.cancelConnection
+          else -> Strings.connect
         },
+        enabled = !session.busy || session.status == TunnelStatus.CONNECTING,
+        onClick = ::toggleConnection,
       )
       Separator()
+      Item(Strings.profiles, onClick = {
+        selectedSection = MacSection.PROFILES
+        windowVisible = true
+      })
+      Item(Strings.diagnostics, onClick = {
+        selectedSection = MacSection.DIAGNOSTICS
+        windowVisible = true
+      })
+      Separator()
       Item(Strings.quit, onClick = {
-        if (session.status != TunnelStatus.DISCONNECTED) session.disconnect()
-        exitApplication()
+        scope.launch {
+          session.stopForQuit()
+          exitApplication()
+        }
       })
     },
   )
 
-  if (visible) {
+  if (windowVisible) {
     Window(
-      onCloseRequest = { visible = false },
+      onCloseRequest = { windowVisible = false },
       title = Strings.appName,
-      state = rememberWindowState(width = 1080.dp, height = 760.dp),
+      state = rememberWindowState(width = 1_040.dp, height = 720.dp),
     ) {
+      LaunchedEffect(window) {
+        window.minimumSize = Dimension(900, 620)
+      }
       VeilarkTheme {
-        App(session)
+        MacShell(
+          session = session,
+          selectedSection = selectedSection,
+          onSectionSelected = { selectedSection = it },
+          tick = tick,
+          refresh = ::refresh,
+          onToggleConnection = ::toggleConnection,
+        )
       }
     }
   }
 }
 
-private fun trayBitmap(): BufferedImage = BufferedImage(18, 18, BufferedImage.TYPE_INT_ARGB).also { image ->
-  image.createGraphics().run {
-    setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
-    color = AwtColor(0x27, 0x5D, 0x8C)
-    fillOval(2, 2, 14, 14)
-    color = AwtColor.WHITE
-    fillOval(7, 7, 4, 4)
-    dispose()
-  }
+private fun trayBitmap(): BufferedImage {
+  val image = BufferedImage(18, 18, BufferedImage.TYPE_INT_ARGB)
+  val graphics = image.createGraphics()
+  graphics.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
+  graphics.color = AwtColor(0x27, 0x5D, 0x8C)
+  graphics.fillOval(1, 1, 16, 16)
+  graphics.dispose()
+  return image
 }
 
 @Composable
-private fun App(session: VeilarkSession) {
-  var section by remember { mutableStateOf(Section.OVERVIEW) }
-  Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+private fun MacShell(
+  session: VeilarkSession,
+  selectedSection: MacSection,
+  onSectionSelected: (MacSection) -> Unit,
+  tick: Int,
+  refresh: () -> Unit,
+  onToggleConnection: () -> Unit,
+) {
+  tick
+  val shortcutModifier = Modifier.onPreviewKeyEvent { event ->
+    if (event.type != KeyEventType.KeyDown || !(event.isMetaPressed || event.isCtrlPressed)) {
+      return@onPreviewKeyEvent false
+    }
+    val section = when (event.key) {
+      Key.One -> MacSection.OVERVIEW
+      Key.Two -> MacSection.PROFILES
+      Key.Three -> MacSection.ROUTING
+      Key.Four -> MacSection.DIAGNOSTICS
+      Key.Five -> MacSection.SETTINGS
+      else -> null
+    } ?: return@onPreviewKeyEvent false
+    onSectionSelected(section)
+    true
+  }
+
+  Surface(modifier = Modifier.fillMaxSize().then(shortcutModifier)) {
     Row(Modifier.fillMaxSize()) {
-      Sidebar(section) { section = it }
-      VerticalDivider()
-      Column(Modifier.weight(1f).fillMaxHeight()) {
-        Row(
-          Modifier.fillMaxWidth().height(70.dp).padding(horizontal = 28.dp),
-          verticalAlignment = Alignment.CenterVertically,
-        ) {
-          Text(sectionTitle(section), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
-        }
-        HorizontalDivider()
-        AnimatedContent(section, label = "section") { current ->
-          when (current) {
-            Section.OVERVIEW -> Overview(session)
-            Section.PROFILES -> Profiles(session)
-            Section.ROUTING -> Routing(session)
-            Section.DIAGNOSTICS -> Diagnostics(session)
-            Section.SETTINGS -> Settings(session)
-          }
+      MacSidebar(
+        session = session,
+        selectedSection = selectedSection,
+        onSectionSelected = onSectionSelected,
+      )
+      VerticalRule()
+      Box(
+        modifier = Modifier
+          .weight(1f)
+          .fillMaxHeight()
+          .padding(horizontal = 36.dp, vertical = 28.dp),
+      ) {
+        when (selectedSection) {
+          MacSection.OVERVIEW -> OverviewSection(session, onSectionSelected, onToggleConnection)
+          MacSection.PROFILES -> ProfilesSection(session, refresh)
+          MacSection.ROUTING -> RoutingSection(session)
+          MacSection.DIAGNOSTICS -> DiagnosticsSection(session)
+          MacSection.SETTINGS -> SettingsSection(session, refresh)
         }
       }
     }
@@ -151,165 +281,213 @@ private fun App(session: VeilarkSession) {
 }
 
 @Composable
-private fun Sidebar(selected: Section, onSelect: (Section) -> Unit) {
+private fun MacSidebar(
+  session: VeilarkSession,
+  selectedSection: MacSection,
+  onSectionSelected: (MacSection) -> Unit,
+) {
   Surface(
-    Modifier.width(224.dp).fillMaxHeight(),
+    modifier = Modifier.widthIn(min = 220.dp, max = 240.dp).fillMaxHeight(),
     color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.34f),
   ) {
-    Column(Modifier.fillMaxSize().padding(12.dp)) {
+    Column(
+      modifier = Modifier.fillMaxHeight().padding(18.dp),
+      verticalArrangement = Arrangement.spacedBy(5.dp),
+    ) {
       Row(
-        Modifier.padding(12.dp),
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp),
       ) {
-        Surface(shape = CircleShape, color = MaterialTheme.colorScheme.primary) {
-          Icon(Icons.Rounded.Lock, null, Modifier.padding(8.dp).size(18.dp), MaterialTheme.colorScheme.onPrimary)
-        }
-        Text(Strings.appName, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
-      }
-      Spacer(Modifier.height(14.dp))
-      Section.entries.forEach { item ->
-        val background by animateColorAsState(
-          if (item == selected) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent,
-          label = "nav",
+        Icon(
+          imageVector = Icons.Outlined.Shield,
+          contentDescription = null,
+          tint = MaterialTheme.colorScheme.primary,
+          modifier = Modifier.size(25.dp),
         )
-        Surface(
-          Modifier.fillMaxWidth().padding(vertical = 2.dp).clickable { onSelect(item) },
-          color = background,
-          shape = RoundedCornerShape(10.dp),
-        ) {
-          Row(
-            Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-          ) {
-            Icon(item.icon, null, Modifier.size(19.dp))
-            Text(sectionTitle(item), fontWeight = if (item == selected) FontWeight.SemiBold else FontWeight.Normal)
-          }
+        Column {
+          Text(Strings.appName, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+          Text(Strings.macClient, style = MaterialTheme.typography.labelSmall)
         }
+      }
+      Spacer(Modifier.height(16.dp))
+      StatusLine(session.status)
+      Spacer(Modifier.height(12.dp))
+      MacSection.entries.forEach { section ->
+        SidebarItem(
+          section = section,
+          selected = selectedSection == section,
+          onClick = { onSectionSelected(section) },
+        )
       }
       Spacer(Modifier.weight(1f))
-      Text("macOS · 1.0.1-dev", style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(12.dp))
+      HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.7f))
+      Text(
+        Strings.keyboardHint,
+        style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(horizontal = 8.dp, vertical = 10.dp),
+      )
     }
   }
 }
 
 @Composable
-private fun Overview(session: VeilarkSession) {
-  val scope = rememberCoroutineScope()
-  Page {
-    Label(Strings.quickStatus)
-    ConnectionPanel(session) {
-      scope.launch {
-        if (session.status == TunnelStatus.CONNECTED) session.disconnect() else session.connect()
-      }
-    }
-    Label(Strings.networkCore)
-    EngineSelector(session)
-    Label(Strings.selectedProfile)
-    ProfilePicker(session)
-    if (session.lastHealthDetail.isNotBlank()) Notice(Icons.Rounded.Public, session.lastHealthDetail)
-    session.storageWarning?.let { Notice(Icons.Rounded.Warning, it, true) }
-    if (!session.helperReady()) Notice(Icons.Rounded.Build, Strings.helperMissing, true)
-    if (!session.enginePresent()) Notice(Icons.Rounded.Warning, Strings.enginesMissing, true)
-  }
-}
-
-@Composable
-private fun ConnectionPanel(session: VeilarkSession, onToggle: () -> Unit) {
-  val connected = session.status == TunnelStatus.CONNECTED
-  val statusColor by animateColorAsState(
-    when (session.status) {
-      TunnelStatus.CONNECTED -> Color(0xFF2E7D4F)
-      TunnelStatus.FAILED -> MaterialTheme.colorScheme.error
-      TunnelStatus.CONNECTING -> MaterialTheme.colorScheme.primary
-      TunnelStatus.DISCONNECTED -> MaterialTheme.colorScheme.onSurfaceVariant
-    },
-    label = "status",
-  )
+private fun SidebarItem(
+  section: MacSection,
+  selected: Boolean,
+  onClick: () -> Unit,
+) {
+  val colors = MaterialTheme.colorScheme
+  val interaction = remember { MutableInteractionSource() }
+  val hovered by interaction.collectIsHoveredAsState()
+  val focusedState = remember { mutableStateOf(false) }
   Surface(
-    Modifier.fillMaxWidth(),
-    shape = RoundedCornerShape(16.dp),
-    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+    modifier = Modifier
+      .fillMaxWidth()
+      .clip(RoundedCornerShape(9.dp))
+      .clickable(interactionSource = interaction, indication = null, onClick = onClick)
+      .focusable(interactionSource = interaction)
+      .onFocusChanged { focusedState.value = it.isFocused }
+      .semantics {
+        role = Role.Tab
+        this.selected = selected
+        stateDescription = if (selected) Strings.selectedState else Strings.notSelectedState
+      },
+    color = when {
+      selected -> colors.secondaryContainer
+      hovered -> colors.surface.copy(alpha = 0.7f)
+      else -> Color.Transparent
+    },
+    border = if (focusedState.value) BorderStroke(1.dp, colors.primary) else null,
   ) {
     Row(
-      Modifier.fillMaxWidth().padding(22.dp),
+      modifier = Modifier.fillMaxWidth().padding(horizontal = 11.dp, vertical = 9.dp),
       verticalAlignment = Alignment.CenterVertically,
-      horizontalArrangement = Arrangement.spacedBy(18.dp),
+      horizontalArrangement = Arrangement.spacedBy(11.dp),
     ) {
-      Surface(shape = CircleShape, color = statusColor.copy(alpha = 0.13f)) {
-        Icon(
-          if (connected) Icons.Rounded.CheckCircle else Icons.Rounded.PowerSettingsNew,
-          null,
-          Modifier.padding(13.dp).size(28.dp),
-          statusColor,
-        )
-      }
-      Column(Modifier.weight(1f)) {
-        AnimatedContent(session.status, label = "status-copy") {
-          Text(statusTitle(it, session.statusDetail), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
-        }
-        Text(
-          if (connected) engineTitle(session.engine) else profileName(session),
-          style = MaterialTheme.typography.bodyMedium,
-          color = MaterialTheme.colorScheme.onSurfaceVariant,
-          maxLines = 1,
-          overflow = TextOverflow.Ellipsis,
-        )
-      }
-      Button(onClick = onToggle, enabled = !session.busy, modifier = Modifier.width(154.dp)) {
-        Icon(Icons.Rounded.PowerSettingsNew, null, Modifier.size(18.dp))
+      Icon(
+        imageVector = section.icon,
+        contentDescription = null,
+        tint = if (selected) colors.primary else colors.onSurfaceVariant,
+        modifier = Modifier.size(19.dp),
+      )
+      Text(
+        section.label,
+        style = MaterialTheme.typography.labelLarge,
+        color = if (selected) colors.onSecondaryContainer else colors.onSurface,
+        fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+      )
+    }
+  }
+}
+
+@Composable
+private fun OverviewSection(
+  session: VeilarkSession,
+  onSectionSelected: (MacSection) -> Unit,
+  onToggleConnection: () -> Unit,
+) {
+  val scope = rememberCoroutineScope()
+  fun checkHealth() {
+    scope.launch {
+      runCatching { session.checkConnectionHealth() }
+    }
+  }
+  Column(
+    modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
+    verticalArrangement = Arrangement.spacedBy(22.dp),
+  ) {
+    SectionHeading(Strings.overview, Strings.overviewSubtitle)
+    ConnectionPanel(session, onToggleConnection, ::checkHealth)
+    EngineChooser(session)
+    CurrentProfile(session, onSectionSelected)
+    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+      OutlinedButton(onClick = { onSectionSelected(MacSection.PROFILES) }) {
+        Icon(Icons.Outlined.Description, contentDescription = null, modifier = Modifier.size(18.dp))
         Spacer(Modifier.width(8.dp))
-        Text(if (connected) Strings.disconnect else if (session.busy) Strings.connecting else Strings.connect)
+        Text(Strings.openProfiles)
+      }
+      OutlinedButton(onClick = { onSectionSelected(MacSection.DIAGNOSTICS) }) {
+        Icon(Icons.Outlined.NetworkCheck, contentDescription = null, modifier = Modifier.size(18.dp))
+        Spacer(Modifier.width(8.dp))
+        Text(Strings.openDiagnostics)
       }
     }
   }
 }
 
 @Composable
-private fun EngineSelector(session: VeilarkSession) {
-  val enabled = session.status != TunnelStatus.CONNECTED &&
-    session.status != TunnelStatus.CONNECTING &&
-    !session.busy
-  Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-    EngineButton(Strings.trustTunnel, session.engine == TunnelEngineKind.TRUST_TUNNEL, enabled) {
-      session.switchEngine(TunnelEngineKind.TRUST_TUNNEL)
-    }
-    EngineButton(Strings.singBox, session.engine == TunnelEngineKind.SING_BOX, enabled) {
-      session.switchEngine(TunnelEngineKind.SING_BOX)
-    }
-  }
-}
-
-@Composable
-private fun EngineButton(title: String, selected: Boolean, enabled: Boolean, onClick: () -> Unit) {
-  if (selected) Button(onClick, enabled = enabled) {
-    Icon(Icons.Rounded.Lock, null, Modifier.size(17.dp)); Spacer(Modifier.width(8.dp)); Text(title)
-  } else OutlinedButton(onClick, enabled = enabled) {
-    Icon(Icons.Rounded.Public, null, Modifier.size(17.dp)); Spacer(Modifier.width(8.dp)); Text(title)
-  }
-}
-
-@Composable
-private fun ProfilePicker(session: VeilarkSession) {
-  var expanded by remember { mutableStateOf(false) }
-  val candidates = if (session.engine == TunnelEngineKind.SING_BOX) {
-    session.singBoxEntries.map { it.id to it.name }
-  } else session.trustEntries.map { it.id to it.name }
-  Box {
-    OutlinedButton(
-      { expanded = true },
-      enabled = candidates.isNotEmpty() && !session.busy && session.status != TunnelStatus.CONNECTED,
+private fun ConnectionPanel(
+  session: VeilarkSession,
+  onToggleConnection: () -> Unit,
+  onCheckHealth: () -> Unit,
+) {
+  val connected = session.status == TunnelStatus.CONNECTED
+  val connecting = session.status == TunnelStatus.CONNECTING
+  val unavailable = session.busy && !connecting
+  val failed = session.status == TunnelStatus.FAILED
+  val colors = MaterialTheme.colorScheme
+  Surface(
+    modifier = Modifier.fillMaxWidth(),
+    shape = RoundedCornerShape(18.dp),
+    color = if (failed) colors.errorContainer else colors.primaryContainer,
+  ) {
+    Row(
+      modifier = Modifier.fillMaxWidth().padding(22.dp),
+      verticalAlignment = Alignment.CenterVertically,
+      horizontalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-      Text(profileName(session), maxLines = 1, overflow = TextOverflow.Ellipsis)
-    }
-    DropdownMenu(expanded, { expanded = false }) {
-      candidates.forEach { (id, name) ->
-        DropdownMenuItem(
-          text = { Text(name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-          onClick = {
-            if (session.engine == TunnelEngineKind.SING_BOX) session.selectSingBox(id) else session.selectTrust(id)
-            expanded = false
+      Icon(
+        imageVector = when {
+          connected -> Icons.Outlined.CheckCircle
+          failed -> Icons.Outlined.ErrorOutline
+          else -> Icons.Outlined.Shield
+        },
+        contentDescription = null,
+        tint = if (failed) colors.error else colors.primary,
+        modifier = Modifier.size(36.dp),
+      )
+      Column(modifier = Modifier.weight(1f)) {
+        Text(
+          when {
+            connected -> Strings.connected
+            session.status == TunnelStatus.CONNECTING -> Strings.connecting
+            failed -> Strings.failed
+            else -> Strings.disconnected
+          },
+          style = MaterialTheme.typography.titleLarge,
+          fontWeight = FontWeight.SemiBold,
+        )
+        val detail = when {
+          failed && session.statusDetail.isNotBlank() -> session.statusDetail
+          connected -> Strings.engineActive(session.engine)
+          else -> Strings.connectionReady
+        }
+        Text(detail, style = MaterialTheme.typography.bodyMedium)
+      }
+      IconActionButton(
+        icon = Icons.Outlined.Speed,
+        description = Strings.checkHealth,
+        enabled = connected && !session.busy,
+        onClick = onCheckHealth,
+      )
+      Button(onClick = onToggleConnection, enabled = !unavailable) {
+        if (connecting) {
+          CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+          Spacer(Modifier.width(8.dp))
+        }
+        Icon(
+          imageVector = if (connected || connecting) Icons.Outlined.Close else Icons.Outlined.PowerSettingsNew,
+          contentDescription = null,
+          modifier = Modifier.size(18.dp),
+        )
+        Spacer(Modifier.width(8.dp))
+        Text(
+          when {
+            connected -> Strings.disconnect
+            connecting -> Strings.cancelConnection
+            else -> Strings.connect
           },
         )
       }
@@ -318,138 +496,514 @@ private fun ProfilePicker(session: VeilarkSession) {
 }
 
 @Composable
-private fun Profiles(session: VeilarkSession) {
-  val scope = rememberCoroutineScope()
-  var showImport by remember { mutableStateOf(false) }
-  var importText by remember { mutableStateOf("") }
-  var error by remember { mutableStateOf<String?>(null) }
-  var confirmDelete by remember { mutableStateOf(false) }
-  if (confirmDelete) DeleteDialog(profileName(session), { confirmDelete = false }) {
-    error = runCatching { session.deleteSelectedSubscription() }.exceptionOrNull()?.message
-    confirmDelete = false
-  }
-  Column(Modifier.fillMaxSize().padding(28.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-      EngineSelector(session)
-      Spacer(Modifier.weight(1f))
-      Action(
-        Icons.Rounded.Add,
-        Strings.addSubscription,
-        !session.busy && session.status != TunnelStatus.CONNECTED,
-      ) { showImport = !showImport }
-      Action(Icons.Rounded.Refresh, Strings.refreshSubscription, !session.busy && session.status != TunnelStatus.CONNECTED) {
-        scope.launch { error = runCatching { session.refreshSelectedSubscription() }.exceptionOrNull()?.message }
-      }
-      Action(
-        Icons.Rounded.Delete,
-        Strings.deleteSubscription,
-        !session.busy && session.status != TunnelStatus.CONNECTED && profileName(session) != Strings.noSelectedProfile,
-      ) {
-        confirmDelete = true
-      }
+private fun EngineChooser(session: VeilarkSession) {
+  Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
+    Text(Strings.engine, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+      EngineChoice(
+        modifier = Modifier.weight(1f),
+        title = Strings.trustTunnel,
+        subtitle = Strings.trustTunnelSummary,
+        selected = session.engine == TunnelEngineKind.TRUST_TUNNEL,
+        enabled = session.status != TunnelStatus.CONNECTED && !session.busy,
+        icon = Icons.Outlined.Lock,
+        onClick = { session.switchEngine(TunnelEngineKind.TRUST_TUNNEL) },
+      )
+      EngineChoice(
+        modifier = Modifier.weight(1f),
+        title = Strings.singBox,
+        subtitle = Strings.singBoxSummary,
+        selected = session.engine == TunnelEngineKind.SING_BOX,
+        enabled = session.status != TunnelStatus.CONNECTED && !session.busy,
+        icon = Icons.Outlined.Tune,
+        onClick = { session.switchEngine(TunnelEngineKind.SING_BOX) },
+      )
     }
-    AnimatedVisibility(showImport) {
-      ImportPanel(importText, { importText = it }, session, { error = it }) {
-        importText = ""; showImport = false
-      }
-    }
-    error?.let { Notice(Icons.Rounded.Warning, it, true) }
-    Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(22.dp)) {
-      Column(Modifier.weight(1f).fillMaxHeight()) {
-        Label(Strings.profiles); Spacer(Modifier.height(10.dp))
-        LazyColumn(Modifier.fillMaxSize()) {
-          if (session.engine == TunnelEngineKind.SING_BOX) {
-            items(session.singBoxEntries, key = { it.id }) { entry ->
-              SelectRow(
-                entry.name,
-                "${entry.nodes.size} · ${entry.origin.wireName}",
-                entry.id == session.selectedSingBoxId,
-                session.status != TunnelStatus.CONNECTED,
-              ) {
-                session.selectSingBox(entry.id)
-              }
-            }
-          } else items(session.trustEntries, key = { it.id }) { entry ->
-            SelectRow(
-              entry.name,
-              "TrustTunnel · ${entry.origin.wireName}",
-              entry.id == session.selectedTrustId,
-              session.status != TunnelStatus.CONNECTED,
-            ) {
-              session.selectTrust(entry.id)
-            }
-          }
-          if ((session.engine == TunnelEngineKind.SING_BOX && session.singBoxEntries.isEmpty()) ||
-            (session.engine == TunnelEngineKind.TRUST_TUNNEL && session.trustEntries.isEmpty())) item { Empty(Strings.noProfiles) }
-        }
-      }
-      Column(Modifier.weight(1f).fillMaxHeight()) {
-        Label(Strings.servers); Spacer(Modifier.height(10.dp))
-        LazyColumn(Modifier.fillMaxSize()) {
-          if (session.engine == TunnelEngineKind.SING_BOX) {
-            item {
-              NodeRow(
-                Strings.automatic,
-                "urltest",
-                selectedSing(session)?.selectedNodeTag == ProfileSelection.AUTOMATIC_TAG,
-                session.status != TunnelStatus.CONNECTED,
-              ) {
-                session.selectedSingBoxId?.let { session.selectSingBox(it, ProfileSelection.AUTOMATIC_TAG) }
-              }
-            }
-            items(selectedSing(session)?.nodes.orEmpty(), key = { it.tag }) { node ->
-              NodeRow(
-                node.name,
-                node.protocol,
-                selectedSing(session)?.selectedNodeTag == node.tag,
-                session.status != TunnelStatus.CONNECTED,
-              ) {
-                session.selectedSingBoxId?.let { session.selectSingBox(it, node.tag) }
-              }
-            }
-          } else {
-            val selected = session.trustEntries.firstOrNull { it.id == session.selectedTrustId }
-            item {
-              if (selected == null) Empty(Strings.noSelectedProfile)
-              else NodeRow(selected.name, "TrustTunnel", true, false) {}
-            }
-          }
-        }
-      }
+    if (session.status == TunnelStatus.CONNECTED) {
+      Text(Strings.disconnectBeforeEngineSwitch, style = MaterialTheme.typography.labelSmall)
     }
   }
 }
 
 @Composable
-private fun ImportPanel(
-  value: String,
-  onChange: (String) -> Unit,
-  session: VeilarkSession,
-  onError: (String?) -> Unit,
-  onSuccess: () -> Unit,
+private fun EngineChoice(
+  modifier: Modifier,
+  title: String,
+  subtitle: String,
+  selected: Boolean,
+  enabled: Boolean,
+  icon: ImageVector,
+  onClick: () -> Unit,
 ) {
-  val scope = rememberCoroutineScope()
-  Surface(Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp), color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)) {
-    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-      OutlinedTextField(value, onChange, Modifier.fillMaxWidth(), label = { Text(Strings.importHint) }, minLines = 2, maxLines = 5)
-      Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-        Button({
-          scope.launch {
-            val failure = runCatching { session.importText(value) }.exceptionOrNull()
-            onError(failure?.message); if (failure == null) onSuccess()
+  val colors = MaterialTheme.colorScheme
+  Surface(
+    modifier = modifier
+      .clip(RoundedCornerShape(12.dp))
+      .clickable(enabled = enabled, onClick = onClick)
+      .semantics {
+        role = Role.RadioButton
+        this.selected = selected
+        stateDescription = if (selected) Strings.selectedState else Strings.notSelectedState
+      },
+    shape = RoundedCornerShape(12.dp),
+    color = if (selected) colors.secondaryContainer else colors.surface,
+    border = BorderStroke(1.dp, if (selected) colors.primary.copy(alpha = 0.55f) else colors.outlineVariant),
+  ) {
+    Row(
+      modifier = Modifier.fillMaxWidth().padding(13.dp),
+      verticalAlignment = Alignment.CenterVertically,
+      horizontalArrangement = Arrangement.spacedBy(11.dp),
+    ) {
+      Icon(icon, contentDescription = null, tint = if (selected) colors.primary else colors.onSurfaceVariant)
+      Column(modifier = Modifier.weight(1f)) {
+        Text(title, fontWeight = FontWeight.SemiBold)
+        Text(subtitle, style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
+      }
+      if (selected) Icon(Icons.Outlined.CheckCircle, contentDescription = null, tint = colors.primary)
+    }
+  }
+}
+
+@Composable
+private fun CurrentProfile(session: VeilarkSession, onSectionSelected: (MacSection) -> Unit) {
+  val profileName = when (session.engine) {
+    TunnelEngineKind.SING_BOX -> session.singBoxEntries.firstOrNull { it.id == session.selectedSingBoxId }?.name
+    TunnelEngineKind.TRUST_TUNNEL -> session.trustEntries.firstOrNull { it.id == session.selectedTrustId }?.name
+  }
+  Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
+    Text(Strings.activeProfile, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+    if (profileName.isNullOrBlank()) {
+      EmptyState(
+        icon = Icons.Outlined.Description,
+        title = Strings.noProfiles,
+        body = Strings.profileEmptyBody,
+        action = Strings.openProfiles,
+        onAction = { onSectionSelected(MacSection.PROFILES) },
+      )
+    } else {
+      Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(12.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.42f),
+      ) {
+        Row(Modifier.fillMaxWidth().padding(15.dp), verticalAlignment = Alignment.CenterVertically) {
+          Icon(Icons.Outlined.Description, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+          Spacer(Modifier.width(12.dp))
+          Column(modifier = Modifier.weight(1f)) {
+            Text(profileName, fontWeight = FontWeight.SemiBold)
+            Text(Strings.engineActive(session.engine), style = MaterialTheme.typography.bodySmall)
           }
-        }, enabled = value.isNotBlank() && !session.busy) { Text(Strings.importAction) }
-        Action(Icons.Rounded.ContentPaste, Strings.paste) {
-          MacClipboard.readPasteboard()?.let(onChange) ?: onError("Буфер обмена пуст")
+          Icon(Icons.Outlined.CheckCircle, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
         }
-        Action(Icons.Rounded.FolderOpen, Strings.file) {
-          val dialog = FileDialog(null as Frame?, Strings.file, FileDialog.LOAD).also { it.isVisible = true }
-          dialog.file?.let { File(dialog.directory, it) }?.let { file ->
-            scope.launch {
-              val failure = runCatching { session.importFile(file) }.exceptionOrNull()
-              onError(failure?.message); if (failure == null) onSuccess()
+      }
+    }
+  }
+}
+
+@Composable
+private fun ProfilesSection(session: VeilarkSession, refresh: () -> Unit) {
+  val scope = rememberCoroutineScope()
+  var importText by remember { mutableStateOf("") }
+  var importError by remember { mutableStateOf<String?>(null) }
+  Column(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(18.dp)) {
+    SectionHeading(Strings.profiles, Strings.profilesSubtitle)
+    Surface(
+      modifier = Modifier.fillMaxWidth(),
+      shape = RoundedCornerShape(14.dp),
+      color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.32f),
+    ) {
+      Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(11.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+          Icon(Icons.Outlined.Add, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+          Spacer(Modifier.width(9.dp))
+          Text(Strings.addProfile, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+        }
+        OutlinedTextField(
+          value = importText,
+          onValueChange = {
+            importText = it
+            importError = null
+          },
+          modifier = Modifier.fillMaxWidth(),
+          label = { Text(Strings.importHint) },
+          minLines = 1,
+          maxLines = 3,
+          isError = importError != null,
+          supportingText = importError?.let { message ->
+            { Text(message) }
+          },
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+          Button(
+            onClick = {
+              scope.launch {
+                runCatching { session.importText(importText) }
+                  .onSuccess {
+                    importText = ""
+                    importError = null
+                  }
+                  .onFailure { importError = it.message ?: Strings.importFailed }
+                refresh()
+              }
+            },
+            enabled = !session.busy && importText.isNotBlank(),
+          ) {
+            Icon(Icons.Outlined.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(7.dp))
+            Text(Strings.importAction)
+          }
+          IconActionButton(Icons.Outlined.ContentPaste, Strings.paste, !session.busy) {
+            val text = MacClipboard.readPasteboard()
+            if (!text.isNullOrBlank()) importText = text else session.log(Strings.clipboardEmpty)
+            refresh()
+          }
+          IconActionButton(Icons.Outlined.FolderOpen, Strings.file, !session.busy) {
+            val dialog = FileDialog(null as Frame?, Strings.file, FileDialog.LOAD)
+            dialog.isVisible = true
+            dialog.file?.let { selected ->
+              val file = File(dialog.directory, selected)
+              scope.launch {
+                runCatching { session.importFile(file) }
+                  .onFailure { importError = it.message ?: Strings.importFailed }
+                refresh()
+              }
             }
           }
+          if (session.busy) LinearProgressIndicator(modifier = Modifier.weight(1f))
+        }
+      }
+    }
+    EngineChooser(session)
+    ProfileActions(session)
+    ProfileCatalog(session, refresh, Modifier.weight(1f))
+  }
+}
+
+@Composable
+private fun ProfileActions(session: VeilarkSession) {
+  val scope = rememberCoroutineScope()
+  var confirmDelete by remember { mutableStateOf(false) }
+  val sourceUrl = when (session.engine) {
+    TunnelEngineKind.SING_BOX -> session.singBoxEntries.firstOrNull { it.id == session.selectedSingBoxId }?.sourceUrl
+    TunnelEngineKind.TRUST_TUNNEL -> session.trustEntries.firstOrNull { it.id == session.selectedTrustId }?.sourceUrl
+  }
+  val hasSelection = when (session.engine) {
+    TunnelEngineKind.SING_BOX -> session.singBoxEntries.any { it.id == session.selectedSingBoxId }
+    TunnelEngineKind.TRUST_TUNNEL -> session.trustEntries.any { it.id == session.selectedTrustId }
+  }
+  Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+    Text(Strings.profileActions, style = MaterialTheme.typography.labelLarge, modifier = Modifier.weight(1f))
+    IconActionButton(
+      icon = Icons.Outlined.NetworkCheck,
+      description = Strings.checkHealth,
+      enabled = session.status == TunnelStatus.CONNECTED && !session.busy,
+      onClick = {
+        scope.launch { runCatching { session.checkConnectionHealth() } }
+      },
+    )
+    IconActionButton(
+      icon = Icons.Outlined.Refresh,
+      description = Strings.refreshSubscription,
+      enabled = sourceUrl != null && session.status == TunnelStatus.DISCONNECTED && !session.busy,
+      onClick = {
+        scope.launch { runCatching { session.refreshSelectedSubscription() } }
+      },
+    )
+    IconActionButton(
+      icon = Icons.Outlined.Delete,
+      description = Strings.deleteSubscription,
+      enabled = hasSelection && session.status == TunnelStatus.DISCONNECTED && !session.busy,
+      onClick = { confirmDelete = true },
+    )
+  }
+  if (confirmDelete) {
+    androidx.compose.material3.AlertDialog(
+      onDismissRequest = { confirmDelete = false },
+      title = { Text(Strings.deleteSubscription) },
+      text = { Text(Strings.deleteSubscriptionConfirm) },
+      confirmButton = {
+        TextButton(
+          onClick = {
+            runCatching { session.deleteSelectedSubscription() }
+            confirmDelete = false
+          },
+        ) {
+          Text(Strings.deleteSubscription, color = MaterialTheme.colorScheme.error)
+        }
+      },
+      dismissButton = {
+        TextButton(onClick = { confirmDelete = false }) { Text(Strings.cancel) }
+      },
+    )
+  }
+}
+
+@Composable
+private fun ProfileCatalog(session: VeilarkSession, refresh: () -> Unit, modifier: Modifier = Modifier) {
+  val entries = if (session.engine == TunnelEngineKind.SING_BOX) session.singBoxEntries else session.trustEntries
+  if (entries.isEmpty()) {
+    Box(modifier = modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+      EmptyState(Icons.Outlined.Description, Strings.noProfiles, Strings.profileEmptyBody, null, {})
+    }
+    return
+  }
+  LazyColumn(
+    modifier = modifier.fillMaxWidth(),
+    verticalArrangement = Arrangement.spacedBy(7.dp),
+  ) {
+    item { Text(Strings.savedConnections, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold) }
+    if (session.engine == TunnelEngineKind.SING_BOX) {
+      items(session.singBoxEntries, key = { it.id }) { entry -> SingBoxEntryRow(session, entry, refresh) }
+    } else {
+      items(session.trustEntries, key = { it.id }) { entry ->
+        SelectableRow(
+          title = entry.name,
+          subtitle = Strings.trustTunnel,
+          selected = entry.id == session.selectedTrustId,
+          icon = Icons.Outlined.Lock,
+          onClick = { session.selectTrust(entry.id); refresh() },
+        )
+      }
+    }
+  }
+}
+
+@Composable
+private fun SingBoxEntryRow(session: VeilarkSession, entry: SingBoxCatalogEntry, refresh: () -> Unit) {
+  val selected = entry.id == session.selectedSingBoxId
+  Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+    SelectableRow(
+      title = entry.name,
+      subtitle = "${entry.nodes.size} · ${entry.origin.wireName}",
+      selected = selected,
+      icon = Icons.Outlined.Tune,
+      onClick = { session.selectSingBox(entry.id); refresh() },
+    )
+    if (selected) {
+      Text(Strings.servers, style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(start = 13.dp, top = 2.dp))
+      SelectableRow(
+        title = Strings.automatic,
+        selected = entry.selectedNodeTag == ProfileSelection.AUTOMATIC_TAG,
+        indent = true,
+        icon = Icons.Outlined.NetworkCheck,
+        onClick = {
+          session.selectSingBox(entry.id, ProfileSelection.AUTOMATIC_TAG)
+          refresh()
+        },
+      )
+      entry.nodes.forEach { node ->
+        SelectableRow(
+          title = node.name,
+          subtitle = node.protocol,
+          selected = entry.selectedNodeTag == node.tag,
+          indent = true,
+          icon = Icons.Outlined.Wifi,
+          onClick = {
+            session.selectSingBox(entry.id, node.tag)
+            refresh()
+          },
+        )
+      }
+    }
+  }
+}
+
+@Composable
+private fun RoutingSection(session: VeilarkSession) {
+  var mode by remember(session.routingMode) { mutableStateOf(session.routingMode) }
+  var directEntries by remember(session.manualDirectEntries) { mutableStateOf(session.manualDirectEntries) }
+  var vpnEntries by remember(session.manualVpnEntries) { mutableStateOf(session.manualVpnEntries) }
+  var saveMessage by remember { mutableStateOf<String?>(null) }
+  var saveError by remember { mutableStateOf<String?>(null) }
+  val scope = rememberCoroutineScope()
+  val singBox = session.engine == TunnelEngineKind.SING_BOX
+  val canEdit = singBox && session.status == TunnelStatus.DISCONNECTED && !session.busy
+
+  fun applyMode(next: String) {
+    mode = next
+    saveMessage = null
+    saveError = null
+    if (next != ProfileSelection.ROUTING_MANUAL) {
+      runCatching { session.updateRouting(next, directEntries, vpnEntries) }
+        .onSuccess { saveMessage = Strings.routingSaved }
+        .onFailure { error -> saveError = error.message ?: Strings.routingError }
+    }
+  }
+
+  Column(
+    modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
+    verticalArrangement = Arrangement.spacedBy(18.dp),
+  ) {
+    SectionHeading(Strings.routing, Strings.routingSubtitle)
+    if (!singBox) {
+      CapabilityRow(Icons.Outlined.Lock, Strings.trustTunnel, Strings.trustRoutingDescription, Strings.fullTunnel)
+      Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(12.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.32f),
+      ) {
+        Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.Top) {
+          Icon(Icons.Outlined.Info, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+          Spacer(Modifier.width(11.dp))
+          Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+            Text(Strings.routingUnavailable, fontWeight = FontWeight.SemiBold)
+            Text(Strings.trustRoutingLimit, style = MaterialTheme.typography.bodyMedium)
+          }
+        }
+      }
+      return@Column
+    }
+
+    CapabilityRow(Icons.Outlined.Tune, Strings.singBox, Strings.singRoutingDescription, Strings.engine)
+    Text(Strings.routingMode, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+    RoutingOption(
+      selected = mode == ProfileSelection.ROUTING_ALL,
+      enabled = canEdit,
+      title = Strings.fullTunnel,
+      body = Strings.fullTunnelHint,
+      onClick = { applyMode(ProfileSelection.ROUTING_ALL) },
+    )
+    RoutingOption(
+      selected = mode == ProfileSelection.ROUTING_RU_DIRECT,
+      enabled = canEdit && session.geoRuleSetsPresent(),
+      title = Strings.ruDirect,
+      body = if (session.geoRuleSetsPresent()) Strings.ruDirectHint else Strings.geoRuleSetsMissing,
+      onClick = { applyMode(ProfileSelection.ROUTING_RU_DIRECT) },
+    )
+    RoutingOption(
+      selected = mode == ProfileSelection.ROUTING_MANUAL,
+      enabled = canEdit,
+      title = Strings.manualRouting,
+      body = Strings.manualRoutingHint,
+      onClick = { mode = ProfileSelection.ROUTING_MANUAL; saveMessage = null; saveError = null },
+    )
+
+    if (mode == ProfileSelection.ROUTING_MANUAL) {
+      OutlinedTextField(
+        value = directEntries,
+        onValueChange = { directEntries = it; saveMessage = null; saveError = null },
+        enabled = canEdit,
+        modifier = Modifier.fillMaxWidth().heightIn(min = 86.dp),
+        label = { Text(Strings.directRules) },
+        placeholder = { Text(Strings.manualDirectPlaceholder) },
+        minLines = 3,
+      )
+      OutlinedTextField(
+        value = vpnEntries,
+        onValueChange = { vpnEntries = it; saveMessage = null; saveError = null },
+        enabled = canEdit,
+        modifier = Modifier.fillMaxWidth().heightIn(min = 86.dp),
+        label = { Text(Strings.vpnRules) },
+        placeholder = { Text(Strings.manualVpnPlaceholder) },
+        minLines = 3,
+      )
+      Button(
+        onClick = {
+          scope.launch {
+            runCatching { session.updateRouting(ProfileSelection.ROUTING_MANUAL, directEntries, vpnEntries) }
+              .onSuccess { saveMessage = Strings.routingSaved }
+              .onFailure { error -> saveError = error.message ?: Strings.routingError }
+          }
+        },
+        enabled = canEdit && (directEntries.isNotBlank() || vpnEntries.isNotBlank()),
+      ) {
+        Icon(Icons.Outlined.CheckCircle, contentDescription = null, modifier = Modifier.size(18.dp))
+        Spacer(Modifier.width(8.dp))
+        Text(Strings.saveRouting)
+      }
+    }
+
+    if (session.status == TunnelStatus.CONNECTED) {
+      Text(Strings.routingLiveNotice, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+    saveMessage?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary) }
+    saveError?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
+  }
+}
+
+@Composable
+private fun RoutingOption(
+  selected: Boolean,
+  enabled: Boolean,
+  title: String,
+  body: String,
+  onClick: () -> Unit,
+) {
+  val colors = MaterialTheme.colorScheme
+  Surface(
+    modifier = Modifier
+      .fillMaxWidth()
+      .clip(RoundedCornerShape(12.dp))
+      .clickable(enabled = enabled, onClick = onClick)
+      .semantics {
+        role = Role.RadioButton
+        this.selected = selected
+        stateDescription = if (selected) Strings.selectedState else Strings.notSelectedState
+      },
+    color = if (selected) colors.primaryContainer else colors.surfaceVariant.copy(alpha = 0.28f),
+    contentColor = if (enabled) colors.onSurface else colors.onSurface.copy(alpha = 0.54f),
+    border = if (selected) BorderStroke(1.dp, colors.primary.copy(alpha = 0.65f)) else null,
+  ) {
+    Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+      Icon(
+        imageVector = if (selected) Icons.Outlined.CheckCircle else Icons.Outlined.Route,
+        contentDescription = null,
+        tint = if (selected) colors.primary else colors.onSurfaceVariant,
+        modifier = Modifier.size(20.dp),
+      )
+      Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+        Text(title, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium)
+        Text(body, style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
+      }
+    }
+  }
+}
+
+@Composable
+private fun DiagnosticsSection(session: VeilarkSession) {
+  val scope = rememberCoroutineScope()
+  Column(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(15.dp)) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+      SectionHeading(Strings.diagnostics, Strings.diagnosticsSubtitle, Modifier.weight(1f))
+      IconActionButton(
+        Icons.Outlined.NetworkCheck,
+        Strings.checkHealth,
+        session.status == TunnelStatus.CONNECTED && !session.busy,
+      ) { scope.launch { runCatching { session.checkConnectionHealth() } } }
+      IconActionButton(Icons.Outlined.ContentCopy, Strings.copyLogs, session.logs.isNotEmpty()) {
+        MacClipboard.writePasteboard(session.logs.takeLast(100).joinToString("\n") { formatLog(it) })
+      }
+      IconActionButton(Icons.Outlined.Delete, Strings.clearLog, session.logs.isNotEmpty()) {
+        session.clearLogs()
+      }
+    }
+    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+      StatusMetric(Strings.tunnelStatus, session.statusLabel())
+      StatusMetric(Strings.helperStatus, if (session.helperReady()) Strings.ready else Strings.notInstalled)
+      StatusMetric(
+        Strings.engineStatus,
+        if (session.enginePresent(TunnelEngineKind.SING_BOX) && session.enginePresent(TunnelEngineKind.TRUST_TUNNEL)) Strings.ready else Strings.missing,
+      )
+    }
+    if (session.lastHealthDetail.isNotBlank()) {
+      Text("${Strings.healthDetail}: ${session.lastHealthDetail}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+    session.storageWarning?.let {
+      Text("${Strings.storageWarning}: $it", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+    }
+    Surface(
+      modifier = Modifier.fillMaxWidth().heightIn(min = 280.dp, max = 520.dp),
+      shape = RoundedCornerShape(12.dp),
+      color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.22f),
+    ) {
+      if (session.logs.isEmpty()) {
+        EmptyState(Icons.Outlined.NetworkCheck, Strings.technicalLogEmpty, Strings.logAppearsAfterAction, null, {})
+      } else {
+        LazyColumn(
+          modifier = Modifier.fillMaxSize().padding(12.dp),
+          verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+          items(session.logs.takeLast(100)) { entry -> LogRow(entry) }
         }
       }
     }
@@ -457,236 +1011,319 @@ private fun ImportPanel(
 }
 
 @Composable
-private fun Routing(session: VeilarkSession) {
-  var mode by remember { mutableStateOf(session.routingMode) }
-  var direct by remember { mutableStateOf(session.manualDirectEntries) }
-  var vpn by remember { mutableStateOf(session.manualVpnEntries) }
-  var message by remember { mutableStateOf<String?>(null) }
-  Page {
-    Notice(Icons.Rounded.Info, Strings.trustRoutingLimit)
-    RouteChoice(Strings.fullTunnel, Strings.fullTunnelHint, mode == ProfileSelection.ROUTING_ALL) { mode = ProfileSelection.ROUTING_ALL }
-    RouteChoice(Strings.ruDirect, Strings.ruDirectHint, mode == ProfileSelection.ROUTING_RU_DIRECT, session.geoRuleSetsPresent()) {
-      mode = ProfileSelection.ROUTING_RU_DIRECT
-    }
-    RouteChoice(Strings.manualRouting, Strings.manualRoutingHint, mode == ProfileSelection.ROUTING_MANUAL) {
-      mode = ProfileSelection.ROUTING_MANUAL
-    }
-    AnimatedVisibility(mode == ProfileSelection.ROUTING_MANUAL) {
-      Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-        OutlinedTextField(direct, { direct = it }, Modifier.weight(1f), label = { Text(Strings.directRules) }, minLines = 5)
-        OutlinedTextField(vpn, { vpn = it }, Modifier.weight(1f), label = { Text(Strings.vpnRules) }, minLines = 5)
-      }
-    }
-    Button({
-      val failure = runCatching { session.updateRouting(mode, direct, vpn) }.exceptionOrNull()
-      message = failure?.message ?: Strings.routingSaved
-    }, enabled = session.status != TunnelStatus.CONNECTED && !session.busy) { Text(Strings.save) }
-    message?.let { Notice(if (it == Strings.routingSaved) Icons.Rounded.CheckCircle else Icons.Rounded.Warning, it, it != Strings.routingSaved) }
-  }
-}
-
-@Composable
-private fun Diagnostics(session: VeilarkSession) {
-  Column(Modifier.fillMaxSize().padding(28.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-      Label(Strings.log); Spacer(Modifier.weight(1f))
-      Action(Icons.Rounded.ContentCopy, Strings.copyLog, session.logs.isNotEmpty()) {
-        MacClipboard.writePasteboard(formatLogs(session.logs))
-      }
-      Action(Icons.Rounded.ClearAll, Strings.clearLog, session.logs.isNotEmpty()) { session.clearLogs() }
-    }
-    HorizontalDivider()
-    LazyColumn(Modifier.fillMaxSize()) {
-      if (session.logs.isEmpty()) item { Empty(Strings.technicalLogEmpty) }
-      items(session.logs.asReversed()) { LogRow(it) }
-    }
-  }
-}
-
-@Composable
-private fun Settings(session: VeilarkSession) {
+private fun SettingsSection(session: VeilarkSession, refresh: () -> Unit) {
   val scope = rememberCoroutineScope()
-  var error by remember { mutableStateOf<String?>(null) }
+  var helperBusy by remember { mutableStateOf(false) }
+  var helperError by remember { mutableStateOf<String?>(null) }
   var update by remember { mutableStateOf<MacUpdate?>(null) }
-  var updateStatus by remember { mutableStateOf<String?>(null) }
   var updateBusy by remember { mutableStateOf(false) }
-  Page {
-    Label(Strings.installComponents)
-    Setting(Icons.Rounded.Build, "VPN helper", if (session.helperReady()) Strings.ready else Strings.notInstalled,
-      if (session.helperReady()) null else Strings.installHelper) {
-      scope.launch { error = session.installHelper().exceptionOrNull()?.message }
+  var updateStatus by remember { mutableStateOf<String?>(null) }
+  var updateError by remember { mutableStateOf<String?>(null) }
+  Column(
+    modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
+    verticalArrangement = Arrangement.spacedBy(16.dp),
+  ) {
+    SectionHeading(Strings.settings, Strings.settingsSubtitle)
+    SettingsRow(Icons.Outlined.Tune, Strings.singBox, Strings.singBoxVersion, true)
+    SettingsRow(Icons.Outlined.Lock, Strings.trustTunnel, Strings.trustTunnelVersion, true)
+    SettingsRow(Icons.Outlined.Shield, Strings.privilegedHelper, if (session.helperReady()) Strings.installed else Strings.notInstalled, session.helperReady())
+    if (!session.helperReady()) {
+      OutlinedButton(
+        onClick = {
+          scope.launch {
+            helperBusy = true
+            helperError = null
+            runCatching { session.installHelper().getOrThrow() }
+              .onFailure { helperError = it.message ?: Strings.helperInstallFailed }
+            helperBusy = false
+            refresh()
+          }
+        },
+        enabled = !helperBusy && !session.busy && session.status == TunnelStatus.DISCONNECTED,
+      ) {
+        if (helperBusy) {
+          CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+        } else {
+          Icon(Icons.Outlined.Lock, contentDescription = null, modifier = Modifier.size(18.dp))
+        }
+        Spacer(Modifier.width(8.dp))
+        Text(Strings.installHelper)
+      }
+      if (session.status != TunnelStatus.DISCONNECTED) {
+        Text(
+          Strings.disconnectBeforeHelperInstall,
+          style = MaterialTheme.typography.bodySmall,
+          color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+      }
+      helperError?.let {
+        Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+      }
     }
-    Setting(Icons.Rounded.Public, "sing-box", "1.13.19 · stable")
-    Setting(Icons.Rounded.Lock, "TrustTunnel", "1.0.49 · stable")
-    HorizontalDivider()
-    Label(Strings.updateChannel)
-    Setting(
-      Icons.Rounded.Refresh,
-      "Veilark OTA",
-      if (MacUpdateClient.configured) "Ed25519 · SHA-256 · Gatekeeper" else Strings.updatesUnavailable,
-      if (MacUpdateClient.configured && !updateBusy) Strings.checkUpdates else null,
-    ) {
-      scope.launch {
-        updateBusy = true
-        val result = runCatching { MacUpdateClient.check() }
-        update = result.getOrNull()
-        error = result.exceptionOrNull()?.message
-        updateStatus = if (result.isSuccess && update == null) Strings.noUpdates else null
-        updateBusy = false
+    SettingsRow(
+      Icons.Outlined.Info,
+      Strings.updateChannel,
+      if (MacUpdateClient.configured) Strings.updateChannelVerified else Strings.updateChannelNotReady,
+      MacUpdateClient.configured,
+    )
+    if (MacUpdateClient.configured) {
+      OutlinedButton(
+        onClick = {
+          scope.launch {
+            updateBusy = true
+            updateStatus = null
+            updateError = null
+            runCatching { MacUpdateClient.check() }
+              .onSuccess { available ->
+                update = available
+                if (available == null) updateStatus = Strings.noUpdates
+              }
+              .onFailure { updateError = it.message ?: Strings.updateCheckFailed }
+            updateBusy = false
+          }
+        },
+        enabled = !updateBusy,
+      ) {
+        if (updateBusy) {
+          CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+        } else {
+          Icon(Icons.Outlined.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
+        }
+        Spacer(Modifier.width(8.dp))
+        Text(Strings.checkUpdates)
       }
     }
     update?.let { available ->
-      Setting(
-        Icons.Rounded.SystemUpdate,
-        "Veilark ${available.version}",
-        available.notes.ifBlank { "Signed macOS update" },
-        if (!updateBusy) Strings.downloadUpdate else null,
+      Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(12.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.32f),
       ) {
-        scope.launch {
-          updateBusy = true
-          val result = runCatching { MacUpdateClient.download(available) }
-          error = result.exceptionOrNull()?.message
-          result.getOrNull()?.let(MacUpdateClient::openInstaller)
-          updateBusy = false
+        Row(
+          modifier = Modifier.fillMaxWidth().padding(16.dp),
+          verticalAlignment = Alignment.CenterVertically,
+          horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+          Icon(Icons.Outlined.Description, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+          Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            Text("Veilark ${available.version}", fontWeight = FontWeight.SemiBold)
+            Text(
+              available.notes.ifBlank { Strings.signedUpdateReady },
+              style = MaterialTheme.typography.bodySmall,
+              color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+          }
+          Button(
+            onClick = {
+              scope.launch {
+                updateBusy = true
+                updateError = null
+                runCatching { MacUpdateClient.download(available) }
+                  .onSuccess(MacUpdateClient::openInstaller)
+                  .onFailure { updateError = it.message ?: Strings.updateDownloadFailed }
+                updateBusy = false
+              }
+            },
+            enabled = !updateBusy,
+          ) {
+            Text(Strings.downloadUpdate)
+          }
         }
       }
     }
-    updateStatus?.let { Notice(Icons.Rounded.CheckCircle, it) }
-    error?.let { Notice(Icons.Rounded.Warning, it, true) }
-  }
-}
-
-@Composable
-private fun Page(content: @Composable ColumnScope.() -> Unit) = Column(
-  Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(28.dp),
-  verticalArrangement = Arrangement.spacedBy(20.dp),
-  content = content,
-)
-
-@Composable private fun Label(text: String) = Text(text, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-
-@Composable
-private fun Action(icon: ImageVector, description: String, enabled: Boolean = true, onClick: () -> Unit) = IconButton(
-  onClick,
-  enabled = enabled,
-  modifier = Modifier.semantics { contentDescription = description },
-) { Icon(icon, null) }
-
-@Composable
-private fun Notice(icon: ImageVector, text: String, warning: Boolean = false) = Row(
-  Modifier.fillMaxWidth(),
-  verticalAlignment = Alignment.Top,
-  horizontalArrangement = Arrangement.spacedBy(10.dp),
-) {
-  Icon(icon, null, Modifier.size(19.dp), if (warning) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary)
-  Text(text, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-}
-
-@Composable
-private fun RouteChoice(title: String, subtitle: String, selected: Boolean, enabled: Boolean = true, onClick: () -> Unit) {
-  Surface(
-    Modifier.fillMaxWidth().clickable(enabled = enabled, onClick = onClick),
-    shape = RoundedCornerShape(12.dp),
-    color = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface,
-    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-  ) {
-    Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-      RadioButton(selected, onClick, enabled = enabled)
-      Spacer(Modifier.width(10.dp))
-      Column { Text(title, fontWeight = FontWeight.Medium); Text(subtitle, style = MaterialTheme.typography.bodySmall) }
+    updateStatus?.let {
+      Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
     }
+    updateError?.let {
+      Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+    }
+    SettingsRow(Icons.Outlined.Info, Strings.about, Strings.aboutDescription, true)
   }
 }
 
 @Composable
-private fun SelectRow(title: String, subtitle: String, selected: Boolean, enabled: Boolean, onClick: () -> Unit) {
-  Surface(
-    Modifier.fillMaxWidth().clickable(enabled = enabled, onClick = onClick),
-    color = if (selected) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent,
-    shape = RoundedCornerShape(10.dp),
-  ) {
-    Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-      Icon(if (selected) Icons.Rounded.CheckCircle else Icons.Rounded.Public, null, Modifier.size(19.dp))
-      Column(Modifier.weight(1f)) {
-        Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Medium)
-        Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+private fun SectionHeading(title: String, subtitle: String, modifier: Modifier = Modifier) {
+  Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(5.dp)) {
+    Text(title, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.SemiBold)
+    Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+  }
+}
+
+@Composable
+private fun StatusLine(status: TunnelStatus) {
+  val connected = status == TunnelStatus.CONNECTED
+  val failed = status == TunnelStatus.FAILED
+  val color = when {
+    connected -> MaterialTheme.colorScheme.primary
+    failed -> MaterialTheme.colorScheme.error
+    else -> MaterialTheme.colorScheme.onSurfaceVariant
+  }
+  Row(modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    Surface(modifier = Modifier.size(8.dp), shape = RoundedCornerShape(50), color = color) {}
+    Text(
+      when {
+        connected -> Strings.connected
+        status == TunnelStatus.CONNECTING -> Strings.connecting
+        failed -> Strings.failed
+        else -> Strings.disconnected
+      },
+      style = MaterialTheme.typography.labelMedium,
+      color = color,
+    )
+  }
+}
+
+@Composable
+private fun StatusMetric(label: String, value: String) {
+  Column(modifier = Modifier.widthIn(min = 120.dp).padding(horizontal = 2.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+    Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    Text(value, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
+  }
+}
+
+@Composable
+private fun CapabilityRow(icon: ImageVector, title: String, body: String, state: String) {
+  Surface(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.32f)) {
+    Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.Top) {
+      Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+      Spacer(Modifier.width(12.dp))
+      Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(title, fontWeight = FontWeight.SemiBold)
+        Text(body, style = MaterialTheme.typography.bodyMedium)
       }
+      Text(state, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
   }
 }
 
 @Composable
-private fun NodeRow(title: String, subtitle: String, selected: Boolean, enabled: Boolean, onClick: () -> Unit) = Row(
-  Modifier.fillMaxWidth().clickable(enabled = enabled, onClick = onClick).padding(10.dp),
-  verticalAlignment = Alignment.CenterVertically,
-  horizontalArrangement = Arrangement.spacedBy(10.dp),
-) {
-  Surface(Modifier.size(8.dp), shape = CircleShape, color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant) {}
-  Column { Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis); Text(subtitle, style = MaterialTheme.typography.labelSmall) }
+private fun SettingsRow(icon: ImageVector, title: String, value: String, enabled: Boolean) {
+  Row(modifier = Modifier.fillMaxWidth().padding(vertical = 7.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+    Icon(icon, contentDescription = null, tint = if (enabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
+    Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+      Text(title, fontWeight = FontWeight.SemiBold)
+      Text(value, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+    Icon(imageVector = if (enabled) Icons.Outlined.CheckCircle else Icons.Outlined.WarningAmber, contentDescription = null, tint = if (enabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
+  }
 }
 
 @Composable
-private fun Setting(icon: ImageVector, title: String, subtitle: String, action: String? = null, onAction: () -> Unit = {}) {
-  Row(Modifier.fillMaxWidth().padding(vertical = 5.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-    Icon(icon, null, Modifier.size(22.dp), MaterialTheme.colorScheme.primary)
-    Column(Modifier.weight(1f)) { Text(title, fontWeight = FontWeight.Medium); Text(subtitle, style = MaterialTheme.typography.bodySmall) }
-    if (action != null) OutlinedButton(onAction) { Text(action) }
+private fun SelectableRow(
+  title: String,
+  subtitle: String? = null,
+  selected: Boolean,
+  indent: Boolean = false,
+  icon: ImageVector,
+  onClick: () -> Unit,
+) {
+  val colors = MaterialTheme.colorScheme
+  val interaction = remember { MutableInteractionSource() }
+  val hovered by interaction.collectIsHoveredAsState()
+  val focusedState = remember { mutableStateOf(false) }
+  Surface(
+    modifier = Modifier
+      .fillMaxWidth()
+      .padding(start = if (indent) 17.dp else 0.dp)
+      .clip(RoundedCornerShape(10.dp))
+      .clickable(interactionSource = interaction, indication = null, onClick = onClick)
+      .focusable(interactionSource = interaction)
+      .onFocusChanged { focusedState.value = it.isFocused }
+      .semantics {
+        role = Role.RadioButton
+        this.selected = selected
+        stateDescription = if (selected) Strings.selectedState else Strings.notSelectedState
+      },
+    color = when {
+      selected -> colors.primaryContainer
+      hovered -> colors.surfaceVariant.copy(alpha = 0.55f)
+      else -> Color.Transparent
+    },
+    border = if (focusedState.value) BorderStroke(1.dp, colors.primary) else null,
+  ) {
+    Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(11.dp)) {
+      Icon(icon, contentDescription = null, tint = if (selected) colors.primary else colors.onSurfaceVariant, modifier = Modifier.size(18.dp))
+      Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Text(title, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal)
+        if (!subtitle.isNullOrBlank()) Text(subtitle, style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
+      }
+      if (selected) Icon(Icons.Outlined.CheckCircle, contentDescription = null, tint = colors.primary, modifier = Modifier.size(18.dp))
+    }
+  }
+}
+
+@Composable
+private fun EmptyState(icon: ImageVector, title: String, body: String, action: String?, onAction: () -> Unit) {
+  Column(modifier = Modifier.fillMaxWidth().padding(vertical = 28.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(28.dp))
+    Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+    Text(body, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    if (action != null) TextButton(onClick = onAction) { Text(action) }
+  }
+}
+
+@Composable
+@OptIn(ExperimentalMaterial3Api::class)
+private fun IconActionButton(icon: ImageVector, description: String, enabled: Boolean = true, onClick: () -> Unit) {
+  TooltipBox(
+    positionProvider = TooltipDefaults.rememberPlainTooltipPositionProvider(),
+    tooltip = { PlainTooltip { Text(description) } },
+    state = rememberTooltipState(),
+  ) {
+    IconButton(onClick = onClick, enabled = enabled) {
+      Icon(icon, contentDescription = description)
+    }
   }
 }
 
 @Composable
 private fun LogRow(entry: LogEntry) {
-  val color = when (entry.level) {
-    LogLevel.INFO -> MaterialTheme.colorScheme.onSurface
-    LogLevel.WARNING -> Color(0xFF9A6200)
-    LogLevel.ERROR -> MaterialTheme.colorScheme.error
-  }
-  Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-    Text(LOG_TIME.format(entry.at), style = MaterialTheme.typography.labelSmall)
-    Text(entry.component, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary, modifier = Modifier.width(92.dp))
-    Column(Modifier.weight(1f)) {
-      Text(entry.message, style = MaterialTheme.typography.bodySmall, color = color)
-      entry.code?.let { Text(it, style = MaterialTheme.typography.labelSmall) }
+  Row(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+    Text(formatTime(entry), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+      Text(entry.message, style = MaterialTheme.typography.bodySmall)
+      Text(
+        buildString {
+          append(entry.level.name)
+          append(" · ")
+          append(entry.component)
+          entry.code?.let { append(" · "); append(it) }
+        },
+        style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+      )
     }
   }
-  HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f))
 }
 
-@Composable
-private fun DeleteDialog(name: String, dismiss: () -> Unit, confirm: () -> Unit) = AlertDialog(
-  onDismissRequest = dismiss,
-  title = { Text(Strings.deleteSubscription) },
-  text = { Text(name) },
-  confirmButton = { TextButton(confirm) { Text(Strings.deleteSubscription, color = MaterialTheme.colorScheme.error) } },
-  dismissButton = { TextButton(dismiss) { Text("Cancel") } },
-)
+private fun formatTime(entry: LogEntry): String = TIME_FORMAT.format(entry.at.atZone(ZoneId.systemDefault()))
 
-@Composable
-private fun Empty(text: String) = Column(Modifier.fillMaxWidth().padding(vertical = 40.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-  Icon(Icons.Rounded.Info, null); Spacer(Modifier.height(8.dp)); Text(text, color = MaterialTheme.colorScheme.onSurfaceVariant)
+private fun formatLog(entry: LogEntry): String = buildString {
+  append(formatTime(entry)); append("  "); append(entry.level.name); append("  ")
+  append(entry.component); entry.code?.let { append("  "); append(it) }
+  append("  "); append(entry.message)
 }
 
-private fun selectedSing(session: VeilarkSession) = session.singBoxEntries.firstOrNull { it.id == session.selectedSingBoxId }
-private fun profileName(session: VeilarkSession): String = when (session.engine) {
-  TunnelEngineKind.SING_BOX -> selectedSing(session)?.name
-  TunnelEngineKind.TRUST_TUNNEL -> session.trustEntries.firstOrNull { it.id == session.selectedTrustId }?.name
-} ?: Strings.noSelectedProfile
-
-private fun engineTitle(engine: TunnelEngineKind) = if (engine == TunnelEngineKind.SING_BOX) Strings.singBox else Strings.trustTunnel
-private fun statusTitle(status: TunnelStatus, detail: String) = when (status) {
+private fun VeilarkSession.statusLabel(): String = when (status) {
   TunnelStatus.CONNECTED -> Strings.connected
   TunnelStatus.CONNECTING -> Strings.connecting
-  TunnelStatus.FAILED -> detail.ifBlank { Strings.failed }
+  TunnelStatus.FAILED -> Strings.failed
   TunnelStatus.DISCONNECTED -> Strings.disconnected
 }
-private fun sectionTitle(section: Section) = when (section) {
-  Section.OVERVIEW -> Strings.overview
-  Section.PROFILES -> Strings.profiles
-  Section.ROUTING -> Strings.routing
-  Section.DIAGNOSTICS -> Strings.diagnostics
-  Section.SETTINGS -> Strings.settings
+
+@Composable
+private fun VerticalRule() {
+  Box(
+    modifier = Modifier
+      .fillMaxHeight()
+      .width(1.dp)
+      .padding(0.dp),
+  ) {
+    Surface(
+      modifier = Modifier.fillMaxSize(),
+      color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f),
+    ) {}
+  }
 }
-private fun formatLogs(logs: List<LogEntry>) = logs.joinToString("\n") {
-  "${LOG_TIME.format(it.at)} [${it.level}] ${it.component}${it.code?.let { code -> "/$code" }.orEmpty()}: ${it.message}"
-}
-private val LOG_TIME = DateTimeFormatter.ofPattern("HH:mm:ss").withZone(ZoneId.systemDefault())
+
+private val TIME_FORMAT = DateTimeFormatter.ofPattern("HH:mm:ss")

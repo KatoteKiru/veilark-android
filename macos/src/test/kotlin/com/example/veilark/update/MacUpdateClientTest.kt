@@ -2,12 +2,29 @@ package com.example.veilark.update
 
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.security.KeyPairGenerator
 import java.security.Signature
 import java.util.Base64
 
 class MacUpdateClientTest {
+  @Test
+  fun treatsOnlyGreaterBuildAsAvailableAndNeverInstallsIt() {
+    val current = MacUpdate(
+      version = "1.0.1",
+      build = MacUpdateClient.CURRENT_BUILD,
+      architecture = "universal",
+      url = "https://updates.example.com/Veilark-1.0.1.dmg",
+      sha256 = "c".repeat(64),
+      notes = "Current release",
+    )
+    assertFalse(MacUpdateClient.isNewer(current))
+    assertFalse(MacUpdateClient.isNewer(current.copy(build = MacUpdateClient.CURRENT_BUILD - 1)))
+    assertTrue(MacUpdateClient.isNewer(current.copy(build = MacUpdateClient.CURRENT_BUILD + 1)))
+  }
+
   @Test
   fun verifiesSignedMacManifest() {
     val pair = KeyPairGenerator.getInstance("Ed25519").generateKeyPair()

@@ -618,7 +618,7 @@ class SubscriptionParserTest {
   }
 
   @Test
-  fun migrateSingBoxForMacRewritesLocalDnsAndDropsIpv6Tun() {
+  fun migrateSingBoxForMacRewritesLocalDnsAndPreservesIpv6Tun() {
     val raw = org.json.JSONObject()
       .put(
         "dns",
@@ -652,8 +652,9 @@ class SubscriptionParserTest {
     assertEquals("direct", dns.getString("detour"))
     assertEquals("en0", dns.getString("bind_interface"))
     val tun = migrated.getJSONArray("inbounds").getJSONObject(0)
-    assertEquals(1, tun.getJSONArray("address").length())
+    assertEquals(2, tun.getJSONArray("address").length())
     assertEquals("172.19.0.1/30", tun.getJSONArray("address").getString(0))
+    assertEquals("fdfe:dcba:9876::1/126", tun.getJSONArray("address").getString(1))
     assertEquals("system", tun.getString("stack"))
     assertFalse(tun.getBoolean("strict_route"))
     assertTrue(
@@ -672,6 +673,43 @@ class SubscriptionParserTest {
     val rules = migrated.getJSONObject("route").getJSONArray("rules")
     assertEquals("sniff", rules.getJSONObject(0).getString("action"))
     assertEquals("hijack-dns", rules.getJSONObject(1).getString("action"))
+  }
+
+  @Test
+  fun macMigrationPreservesConfiguredBootstrapDnsAndExistingExclusions() {
+    val raw = org.json.JSONObject()
+      .put(
+        "dns",
+        org.json.JSONObject().put(
+          "servers",
+          org.json.JSONArray().put(
+            org.json.JSONObject()
+              .put("type", "udp")
+              .put("tag", "bootstrap-dns")
+              .put("server", "9.9.9.9")
+              .put("server_port", 5353),
+          ),
+        ),
+      )
+      .put(
+        "inbounds",
+        org.json.JSONArray().put(
+          org.json.JSONObject()
+            .put("type", "tun")
+            .put("address", org.json.JSONArray().put("fd00::1/126"))
+            .put("route_exclude_address", org.json.JSONArray().put("198.51.100.0/24")),
+        ),
+      )
+      .put("outbounds", org.json.JSONArray().put(org.json.JSONObject().put("type", "direct")))
+      .toString()
+
+    val migrated = org.json.JSONObject(SubscriptionParser.migrateSingBoxForMac(raw, "en0"))
+    val dns = migrated.getJSONObject("dns").getJSONArray("servers").getJSONObject(0)
+    assertEquals("9.9.9.9", dns.getString("server"))
+    assertEquals(5353, dns.getInt("server_port"))
+    val tun = migrated.getJSONArray("inbounds").getJSONObject(0)
+    assertEquals("fd00::1/126", tun.getJSONArray("address").getString(0))
+    assertTrue(tun.getJSONArray("route_exclude_address").toString().contains("198.51.100.0/24"))
   }
 
 }

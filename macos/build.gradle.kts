@@ -130,24 +130,20 @@ fun File.markBundledEnginesExecutable() {
   }
 }
 
-val verifyBundledAssets by tasks.registering {
+val verifyBundledAssets by tasks.registering(Exec::class) {
   dependsOn(compileHelper)
-  doLast {
-    val required = listOf(
-      file("packaging/common/veilark-helper"),
-      file("packaging/common/sing-box"),
-      file("packaging/common/trusttunnel_client"),
-      file("packaging/common/geo/geoip-ru.srs"),
-      file("packaging/common/geo/geosite-category-ru.srs"),
-    )
-    val missing = required.filterNot(File::isFile)
-    check(missing.isEmpty()) {
-      "Missing required macOS package assets: ${missing.joinToString { it.name }}. Run scripts/fetch-engines.sh first."
-    }
-    required.take(3).forEach { binary ->
-      check(binary.canExecute()) { "Bundled executable is not executable: ${binary.name}" }
-    }
-  }
+  onlyIf { isMacOs }
+  commandLine("bash", file("scripts/verify-bundled-assets.sh").absolutePath)
+}
+
+val verifyPackagedDmg by tasks.registering(Exec::class) {
+  onlyIf { isMacOs }
+  commandLine("bash", file("scripts/verify-packaged-dmg.sh").absolutePath)
+}
+
+tasks.matching { it.name == "packageDmg" }.configureEach {
+  dependsOn(verifyBundledAssets)
+  finalizedBy(verifyPackagedDmg)
 }
 
 tasks.matching {

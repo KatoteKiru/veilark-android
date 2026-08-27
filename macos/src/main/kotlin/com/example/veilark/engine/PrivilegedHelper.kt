@@ -28,18 +28,37 @@ data class EnginePaths(
   )
 }
 
-class PrivilegedHelper(private val paths: EnginePaths) {
-  fun installed(): Boolean = installedHelper().isFile &&
+/**
+ * Small boundary around the platform-specific privileged helper.
+ *
+ * Keeping the lifecycle code dependent on this interface lets JVM tests exercise
+ * cancellation, state recovery and persistence without pretending to create a
+ * macOS TUN device.
+ */
+interface TunnelController {
+  fun installed(): Boolean
+  fun enginePresent(kind: TunnelEngineKind): Boolean
+  fun install(): Result<Unit>
+  fun start(kind: TunnelEngineKind, config: String): Result<Unit>
+  fun stop(): Result<Unit>
+  fun status(): String
+  fun lastLog(): String
+  fun tunFailed(): Boolean
+  fun outboundUnresolved(): Boolean
+}
+
+class PrivilegedHelper(private val paths: EnginePaths) : TunnelController {
+  override fun installed(): Boolean = installedHelper().isFile &&
     installedSingBox.isFile &&
     installedTrustTunnel.isFile &&
     versionFile.takeIf { it.isFile }?.readText()?.trim() == VERSION
 
-  fun enginePresent(kind: TunnelEngineKind): Boolean = when (kind) {
+  override fun enginePresent(kind: TunnelEngineKind): Boolean = when (kind) {
     TunnelEngineKind.SING_BOX -> paths.singBox.isFile
     TunnelEngineKind.TRUST_TUNNEL -> paths.trustTunnel.isFile
   }
 
-  fun install(): Result<Unit> = runCatching {
+  override fun install(): Result<Unit> = runCatching {
     listOf(paths.helper, paths.singBox, paths.trustTunnel).forEach { source ->
       require(source.canonicalFile.isFile) { "Не найден компонент: ${source.name}" }
     }
@@ -63,7 +82,7 @@ class PrivilegedHelper(private val paths: EnginePaths) {
     check(process.waitFor() == 0) { output.ifBlank { "Не удалось установить VPN helper" } }
   }
 
-  fun start(kind: TunnelEngineKind, config: String): Result<Unit> = runCatching {
+  override fun start(kind: TunnelEngineKind, config: String): Result<Unit> = runCatching {
     paths.runtimeDir.mkdirs()
     val configFile = paths.configFile(kind)
     val temp = File(configFile.parentFile, ".${configFile.name}.tmp")
@@ -84,18 +103,18 @@ class PrivilegedHelper(private val paths: EnginePaths) {
     invoke("start", engineName(kind), configFile.absolutePath)
   }
 
-  fun stop(): Result<Unit> = runCatching { invoke("stop") }
+  override fun stop(): Result<Unit> = runCatching { invoke("stop") }
 
-  fun status(): String = runCatching { invoke("status") }.getOrDefault("disconnected")
+  override fun status(): String = runCatching { invoke("status") }.getOrDefault("disconnected")
 
-  fun lastLog(): String = runCatching { engineLog.readText() }.getOrDefault("")
+  override fun lastLog(): String = runCatching { engineLog.readText() }.getOrDefault("")
 
-  fun tunFailed(): Boolean {
+  override fun tunFailed(): Boolean {
     val log = lastLog()
     return TUN_FAILURES.any { it in log }
   }
 
-  fun outboundUnresolved(): Boolean {
+  override fun outboundUnresolved(): Boolean {
     val log = lastLog()
     return "empty result" in log ||
       Regex("""outbound connection to :\d+""").containsMatchIn(log)

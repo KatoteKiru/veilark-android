@@ -37,7 +37,7 @@ object MacUpdateClient {
     val manifestUrl = validateHttps(UpdateChannel.MANIFEST_URL)
     val payload = fetch(manifestUrl, MAX_MANIFEST_BYTES).toString(Charsets.UTF_8)
     val update = parseAndVerify(payload, UpdateChannel.PUBLIC_KEY)
-    update.takeIf { it.build > CURRENT_BUILD }
+    update.takeIf(::isNewer)
   }
 
   suspend fun download(update: MacUpdate): File = withContext(Dispatchers.IO) {
@@ -117,6 +117,9 @@ object MacUpdateClient {
   ).joinToString("\n") { value ->
     "${value.toByteArray(Charsets.UTF_8).size}:$value"
   }.toByteArray(Charsets.UTF_8)
+
+  /** A signed manifest is advisory; it never installs an update on its own. */
+  internal fun isNewer(update: MacUpdate): Boolean = update.build > CURRENT_BUILD
 
   private fun fetch(uri: URI, limit: Int): ByteArray {
     var current = uri

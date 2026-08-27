@@ -6,6 +6,8 @@ VENDOR="$ROOT/vendor"
 COMMON="$ROOT/packaging/common"
 mkdir -p "$VENDOR" "$COMMON"
 
+# Versions and digests below are release inputs, not user overrides. A build
+# must be reproducible and must not silently package a beta from the environment.
 SING_BOX_VERSION="1.13.19"
 case "$(uname -m)" in
   arm64)
@@ -22,7 +24,7 @@ case "$(uname -m)" in
     ;;
 esac
 SING_BOX_URL="https://github.com/SagerNet/sing-box/releases/download/v${SING_BOX_VERSION}/sing-box-${SING_BOX_VERSION}-darwin-${SING_BOX_ARCH}.tar.gz"
-TRUST_VERSION="${TRUST_TUNNEL_VERSION:-1.0.49}"
+TRUST_VERSION="1.0.49"
 TRUST_URL="https://github.com/TrustTunnel/TrustTunnelClient/releases/download/v${TRUST_VERSION}/trusttunnel_client-v${TRUST_VERSION}-macos-universal.tar.gz"
 TRUST_ARCHIVE_SHA256="f2dab732d17a885dcc4c81831fa4b263db250f5bea8a151416b518e936979c64"
 GEOIP_COMMIT="b9c5e675b4d5359d4b47f4434fa7ae77e9991306"
@@ -31,12 +33,21 @@ GEOIP_URL="https://raw.githubusercontent.com/SagerNet/sing-geoip/${GEOIP_COMMIT}
 GEOSITE_URL="https://raw.githubusercontent.com/SagerNet/sing-geosite/${GEOSITE_COMMIT}/geosite-category-ru.srs"
 GEOIP_SHA256="1a8115af741918ff24b37b87d3c6da21eccabc58f1eec059e461dca8bac16ff7"
 GEOSITE_SHA256="c36e157adf86edf7b722b51f3acb93bbb2a7f8083932dae29b4b5ef2c1ced870"
+SING_BOX_BINARY_SHA256_ARM64="5b75c1dec19488675f725adc7a6e3a7301a553117af835dc47669b1fa918976b"
+SING_BOX_BINARY_SHA256_AMD64="078164e43464f2282ae526151411320582c3e60a0294cec24a627edf205305a6"
+TRUST_BINARY_SHA256="dbadec0019352f7164adb618c3e076cf902d102870bbb3a7896f784886ef1573"
 
 verify_sha256() {
   local expected="$1"
   local file="$2"
   printf '%s  %s\n' "$expected" "$file" | shasum -a 256 -c -
 }
+
+if [ "$SING_BOX_ARCH" = "arm64" ]; then
+  SING_BOX_BINARY_SHA256="$SING_BOX_BINARY_SHA256_ARM64"
+else
+  SING_BOX_BINARY_SHA256="$SING_BOX_BINARY_SHA256_AMD64"
+fi
 
 curl -fsSL "$SING_BOX_URL" -o "$VENDOR/sing-box.tgz"
 verify_sha256 "$SING_BOX_ARCHIVE_SHA256" "$VENDOR/sing-box.tgz"
@@ -47,6 +58,7 @@ SING_BOX_BINARY="$(find "$VENDOR/sing-box-extract" -type f -name 'sing-box' -per
 test -n "$SING_BOX_BINARY"
 cp "$SING_BOX_BINARY" "$COMMON/sing-box"
 chmod 755 "$COMMON/sing-box"
+verify_sha256 "$SING_BOX_BINARY_SHA256" "$COMMON/sing-box"
 
 curl -fsSL "$TRUST_URL" -o "$VENDOR/trusttunnel.tgz"
 verify_sha256 "$TRUST_ARCHIVE_SHA256" "$VENDOR/trusttunnel.tgz"
@@ -57,6 +69,7 @@ TRUST_BINARY="$(find "$VENDOR/trusttunnel-extract" -type f \( -name 'trusttunnel
 test -n "$TRUST_BINARY"
 cp "$TRUST_BINARY" "$COMMON/trusttunnel_client"
 chmod 755 "$COMMON/trusttunnel_client"
+verify_sha256 "$TRUST_BINARY_SHA256" "$COMMON/trusttunnel_client"
 
 mkdir -p "$COMMON/geo"
 curl -fsSL "$GEOIP_URL" -o "$COMMON/geo/geoip-ru.srs"
@@ -77,12 +90,14 @@ cat > "$VENDOR/BUNDLED_UPSTREAM.json" <<EOF
     "version": "${SING_BOX_VERSION}",
     "url": "${SING_BOX_URL}",
     "archiveSha256": "${SING_BOX_ARCHIVE_SHA256}",
+    "binarySha256": "${SING_BOX_BINARY_SHA256}",
     "license": "GPL-3.0-or-later"
   },
   "trusttunnel_client": {
     "version": "${TRUST_VERSION}",
     "url": "${TRUST_URL}",
     "archiveSha256": "${TRUST_ARCHIVE_SHA256}",
+    "binarySha256": "${TRUST_BINARY_SHA256}",
     "license": "Apache-2.0"
   },
   "geoip-ru": {

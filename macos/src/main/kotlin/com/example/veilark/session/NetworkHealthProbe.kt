@@ -14,8 +14,12 @@ data class NetworkHealth(
   val detail: String,
 )
 
-object NetworkHealthProbe {
-  suspend fun check(): NetworkHealth = withContext(Dispatchers.IO) {
+fun interface ConnectionHealthChecker {
+  suspend fun check(): NetworkHealth
+}
+
+object NetworkHealthProbe : ConnectionHealthChecker {
+  override suspend fun check(): NetworkHealth = withContext(Dispatchers.IO) {
     val dnsOk = runCatching { InetAddress.getByName("example.com") }.isSuccess
     val successes = coroutineScope {
       ENDPOINTS.map { endpoint ->
@@ -25,15 +29,15 @@ object NetworkHealthProbe {
     when {
       successes.isNotEmpty() && dnsOk -> NetworkHealth(
         reachable = true,
-        detail = "DNS и HTTPS доступны",
+        detail = RuntimeMessages.healthDnsHttpsOk,
       )
       successes.isNotEmpty() -> NetworkHealth(
         reachable = true,
-        detail = "HTTPS доступен; системный DNS требует проверки",
+        detail = RuntimeMessages.healthHttpsOnly,
       )
       else -> NetworkHealth(
         reachable = false,
-        detail = if (dnsOk) "DNS доступен, HTTPS не отвечает" else "DNS и HTTPS не отвечают",
+        detail = if (dnsOk) RuntimeMessages.healthDnsOnly else RuntimeMessages.healthUnavailable,
       )
     }
   }

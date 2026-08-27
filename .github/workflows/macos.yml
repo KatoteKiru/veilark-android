@@ -32,7 +32,9 @@ jobs:
           cache: gradle
           cache-dependency-path: macos/**/*.gradle*
       - name: Prepare scripts
-        run: chmod +x gradlew scripts/fetch-engines.sh
+        run: chmod +x gradlew scripts/fetch-engines.sh scripts/verify-bundled-assets.sh scripts/verify-packaged-dmg.sh
+      - name: Assert Apple Silicon runner
+        run: test "$(uname -m)" = arm64
       - name: Type-check privileged helper
         run: swiftc -warnings-as-errors -typecheck helper/veilark-helper.swift
       - name: Unit tests
@@ -42,7 +44,7 @@ jobs:
       - name: Package development DMG
         run: ./gradlew --no-daemon packageDmg
       - name: Verify bundled asset inventory
-        run: shasum -a 256 -c vendor/BUNDLED_SHA256SUMS
+        run: ./scripts/verify-bundled-assets.sh
       - name: Upload unsigned development artifact
         uses: actions/upload-artifact@v4
         with:
