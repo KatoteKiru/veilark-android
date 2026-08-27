@@ -45,7 +45,7 @@ private func log(_ message: String) {
     }
     guard let handle = try? FileHandle(forWritingTo: logURL) else { return }
     defer { try? handle.close() }
-    try? handle.seekToEnd()
+    _ = try? handle.seekToEnd()
     try? handle.write(contentsOf: data)
 }
 
@@ -135,7 +135,13 @@ private func sha256(_ url: URL) -> String {
     defer { try? handle.close() }
     var digest = SHA256()
     while true {
-        guard let data = try? handle.read(upToCount: 1024 * 1024), let data, !data.isEmpty else { break }
+        let data: Data
+        do {
+            data = try handle.read(upToCount: 1024 * 1024) ?? Data()
+        } catch {
+            fail("cannot hash update image: \(error)")
+        }
+        guard !data.isEmpty else { break }
         digest.update(data: data)
     }
     return digest.finalize().map { String(format: "%02x", $0) }.joined()
@@ -291,7 +297,7 @@ private func install(_ source: URL, over target: URL) {
     guard elevated.status == 0 else { fail("administrator update failed: \(elevated.output)") }
 }
 
-let options = parseOptions()
+private let options = parseOptions()
 log("START version=\(options.expectedVersion)")
 verifyManifestSignature(options)
 validateOwnedRegularFile(options.dmg)
