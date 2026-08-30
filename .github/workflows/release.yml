@@ -16,7 +16,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
-      VEILARK_OSS_KEYSTORE: ${{ runner.temp }}/veilark-oss-release.jks
       VEILARK_OSS_STORE_PASSWORD: ${{ secrets.VEILARK_OSS_STORE_PASSWORD }}
       VEILARK_OSS_KEY_ALIAS: ${{ secrets.VEILARK_OSS_KEY_ALIAS }}
       VEILARK_OSS_KEY_PASSWORD: ${{ secrets.VEILARK_OSS_KEY_PASSWORD }}
@@ -42,11 +41,14 @@ jobs:
       - name: Restore release key
         env:
           KEYSTORE_B64: ${{ secrets.VEILARK_OSS_KEYSTORE_B64 }}
+          VEILARK_OSS_KEYSTORE: ${{ runner.temp }}/veilark-oss-release.jks
         run: |
           test -n "$KEYSTORE_B64"
           umask 077
           printf '%s' "$KEYSTORE_B64" | base64 --decode > "$VEILARK_OSS_KEYSTORE"
       - name: Test and build signed OSS release
+        env:
+          VEILARK_OSS_KEYSTORE: ${{ runner.temp }}/veilark-oss-release.jks
         run: ./gradlew testOssDebugUnitTest lintOssRelease assembleOssRelease --no-daemon
       - name: Verify identity, signer and access-material policy
         shell: bash
