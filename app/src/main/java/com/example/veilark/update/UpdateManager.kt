@@ -309,11 +309,12 @@ object UpdateManager {
     } else {
       archiveSigning.signingCertificateHistory.orEmpty().map(::certificateDigest).toSet()
     }
-    val signerAccepted = if (installedSigning.hasMultipleSigners()) {
-      installedCurrent.isNotEmpty() && archiveCurrent == installedCurrent
-    } else {
-      installedCurrent.size == 1 && installedCurrent.single() in archiveHistory
-    }
+    val signerAccepted = signingLineageAccepts(
+      installedCurrent = installedCurrent,
+      installedHasMultipleSigners = installedSigning.hasMultipleSigners(),
+      archiveCurrent = archiveCurrent,
+      archiveHistory = archiveHistory,
+    )
     requireArchive(file, signerAccepted) {
       "APK подписан неизвестным ключом"
     }
@@ -323,6 +324,17 @@ object UpdateManager {
     MessageDigest.getInstance("SHA-256")
       .digest(signature.toByteArray())
       .joinToString("") { "%02X".format(it) }
+
+  internal fun signingLineageAccepts(
+    installedCurrent: Set<String>,
+    installedHasMultipleSigners: Boolean,
+    archiveCurrent: Set<String>,
+    archiveHistory: Set<String>,
+  ): Boolean = if (installedHasMultipleSigners) {
+    installedCurrent.isNotEmpty() && archiveCurrent == installedCurrent
+  } else {
+    installedCurrent.size == 1 && installedCurrent.single() in archiveHistory
+  }
 
   private inline fun requireArchive(file: File, condition: Boolean, lazyMessage: () -> String) {
     if (!condition) {

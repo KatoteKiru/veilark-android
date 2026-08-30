@@ -42,4 +42,62 @@ class UpdateManagerTest {
     assertTrue(payload.startsWith("17:veilark-update-v2\n"))
     assertTrue(payload.endsWith("49:Trust split\nOTA внутри приложения\n"))
   }
+
+  @Test
+  fun acceptsPrivateOtaWhenSignatureSchemeChangesButCertificateIsStable() {
+    val legacyPrivateSigner = "PRIVATE-LEGACY-SIGNER"
+
+    assertTrue(
+      UpdateManager.signingLineageAccepts(
+        installedCurrent = setOf(legacyPrivateSigner),
+        installedHasMultipleSigners = false,
+        archiveCurrent = setOf(legacyPrivateSigner),
+        archiveHistory = setOf(legacyPrivateSigner),
+      ),
+    )
+  }
+
+  @Test
+  fun rejectsOssSignerForPrivateInstallation() {
+    assertFalse(
+      UpdateManager.signingLineageAccepts(
+        installedCurrent = setOf("PRIVATE-SIGNER"),
+        installedHasMultipleSigners = false,
+        archiveCurrent = setOf("OSS-SIGNER"),
+        archiveHistory = setOf("OSS-SIGNER"),
+      ),
+    )
+  }
+
+  @Test
+  fun acceptsDeclaredPrivateSigningRotation() {
+    assertTrue(
+      UpdateManager.signingLineageAccepts(
+        installedCurrent = setOf("OLD-PRIVATE-SIGNER"),
+        installedHasMultipleSigners = false,
+        archiveCurrent = setOf("NEW-PRIVATE-SIGNER"),
+        archiveHistory = setOf("OLD-PRIVATE-SIGNER", "NEW-PRIVATE-SIGNER"),
+      ),
+    )
+  }
+
+  @Test
+  fun multipleSignerInstallRequiresExactCurrentSet() {
+    assertTrue(
+      UpdateManager.signingLineageAccepts(
+        installedCurrent = setOf("A", "B"),
+        installedHasMultipleSigners = true,
+        archiveCurrent = setOf("A", "B"),
+        archiveHistory = setOf("A", "B"),
+      ),
+    )
+    assertFalse(
+      UpdateManager.signingLineageAccepts(
+        installedCurrent = setOf("A", "B"),
+        installedHasMultipleSigners = true,
+        archiveCurrent = setOf("A"),
+        archiveHistory = setOf("A", "B"),
+      ),
+    )
+  }
 }

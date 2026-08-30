@@ -1,9 +1,62 @@
+import java.net.URI
+import java.util.Base64
 import java.util.Properties
+import org.gradle.api.DefaultTask
+import org.gradle.api.provider.Property
+import org.gradle.api.tasks.Input
+import org.gradle.api.tasks.TaskAction
 
 plugins {
   alias(libs.plugins.android.application)
   alias(libs.plugins.compose.compiler)
   alias(libs.plugins.kotlin.serialization)
+}
+
+abstract class ValidatePrivateOtaRelease : DefaultTask() {
+  @get:Input
+  abstract val applicationId: Property<String>
+
+  @get:Input
+  abstract val manifestUrl: Property<String>
+
+  @get:Input
+  abstract val otaHost: Property<String>
+
+  @get:Input
+  abstract val otaPort: Property<Int>
+
+  @get:Input
+  abstract val publicKey: Property<String>
+
+  @TaskAction
+  fun validate() {
+    require(applicationId.get() == PRIVATE_OTA_APPLICATION_ID) {
+      "Private OTA release applicationId must remain $PRIVATE_OTA_APPLICATION_ID"
+    }
+    val manifestUri = runCatching { URI(manifestUrl.get()) }
+      .getOrElse { throw IllegalArgumentException("Private OTA manifest URL is invalid", it) }
+    require(
+      manifestUri.scheme.equals("https", ignoreCase = true) &&
+        manifestUri.host == otaHost.get() &&
+        manifestUri.port == otaPort.get() &&
+        manifestUri.userInfo == null &&
+        manifestUri.query == null &&
+        manifestUri.fragment == null &&
+        manifestUri.path == "/veilark/manifest.json"
+    ) {
+      "Private OTA manifest URL, host and port must describe the pinned HTTPS channel"
+    }
+    val decodedPublicKey = runCatching { Base64.getDecoder().decode(publicKey.get()) }
+      .getOrElse { throw IllegalArgumentException("Private OTA public key is invalid", it) }
+    require(decodedPublicKey.size == ED25519_X509_PUBLIC_KEY_SIZE) {
+      "Private OTA public key must be an Ed25519 X.509 key"
+    }
+  }
+
+  companion object {
+    private const val PRIVATE_OTA_APPLICATION_ID = "uk.senyasenyavski.veilark"
+    private const val ED25519_X509_PUBLIC_KEY_SIZE = 44
+  }
 }
 
 val veilarkAbis = providers.gradleProperty("veilarkAbis")
@@ -164,6 +217,22 @@ androidComponents {
     if (veilarkCoreCanaryRequested.get()) {
       variantBuilder.enable = false
     }
+  }
+}
+
+val validatePrivateOtaRelease by tasks.registering(ValidatePrivateOtaRelease::class) {
+  group = "verification"
+  description = "Fails closed when the private OTA release identity is incomplete or changed"
+  applicationId.set(privateApplicationId)
+  manifestUrl.set(privateOtaManifestUrl)
+  otaHost.set(privateOtaHost)
+  otaPort.set(privateOtaPort)
+  publicKey.set(privateOtaPublicKey)
+}
+
+tasks.configureEach {
+  if (name == "prePrivateReleaseBuild") {
+    dependsOn(validatePrivateOtaRelease)
   }
 }
 
