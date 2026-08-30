@@ -5,6 +5,7 @@ import android.Manifest
 import android.content.Intent
 import android.content.SharedPreferences
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.net.VpnService
 import android.os.Build
 import android.os.Bundle
@@ -1229,6 +1230,19 @@ class MainActivity : ComponentActivity() {
               TunnelDiagnostics.run()
             }
           },
+          onOpenSubscriptionAccount = {
+            val uri = TelegramBotLink.validate(BuildConfig.TELEGRAM_BOT_URL)
+            if (uri == null) {
+              false
+            } else {
+              runCatching {
+                startActivity(
+                  Intent(Intent.ACTION_VIEW, Uri.parse(uri.toASCIIString()))
+                    .addCategory(Intent.CATEGORY_BROWSABLE),
+                )
+              }.isSuccess
+            }
+          },
           onCheckUpdate = {
             updating = true
             updateStatus = getString(R.string.update_checking)
@@ -1288,6 +1302,10 @@ class MainActivity : ComponentActivity() {
                 newApplicationMode,
                 packages,
               )
+              if (profileEngine == ProfileEngine.TRUST_TUNNEL) {
+                // Validate Android's mutually exclusive allow/disallow plan before any stop/write.
+                applicationPolicy.forTrustTunnel(packageName)
+              }
               if (profileEngine == ProfileEngine.SING_BOX) {
                 if (connectionState != ConnectionState.Disconnected &&
                   connectionState != ConnectionState.Failed
@@ -1321,8 +1339,21 @@ class MainActivity : ComponentActivity() {
                 vpnRoutes = newVpnRoutes.trim()
                 dpiMode = newDpiMode
               } else {
-                // Validate Android's mutually exclusive allow/disallow plan before persisting it.
-                applicationPolicy.forTrustTunnel(packageName)
+                require(
+                  newRoutingMode == ProfileSelection.ROUTING_ALL ||
+                    newRoutingMode == ProfileSelection.ROUTING_RU_DIRECT,
+                ) { getString(R.string.trust_routing_mode_unsupported) }
+                if (connectionState != ConnectionState.Disconnected &&
+                  connectionState != ConnectionState.Failed
+                ) {
+                  TrustTunnelManager.stop(this)
+                }
+                check(trustProfiles.any { it.id == selectedTrustId }) {
+                  getString(R.string.trust_profile_not_found)
+                }
+                routingMode = newRoutingMode
+                directRoutes = ""
+                vpnRoutes = ""
               }
               applicationMode = newApplicationMode
               selectedApplications = packages
@@ -1335,13 +1366,15 @@ class MainActivity : ComponentActivity() {
                   .putString("direct_routes", directRoutes)
                   .putString("vpn_routes", vpnRoutes)
                   .putString("dpi_mode", dpiMode)
+              } else {
+                routingEditor.putString("routing_mode", routingMode)
               }
               check(routingEditor.commit()) { getString(R.string.routing_save_failed) }
               importError = null
             }.onFailure {
               importError = it.userMessage(R.string.routing_apply_failed)
               TechnicalLogStore.error("ROUTING", "Routing settings rejected")
-            }
+            }.isSuccess
           },
           onUpdate = {
             val update = availableUpdate

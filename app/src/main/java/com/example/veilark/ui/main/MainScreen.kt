@@ -24,10 +24,14 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -70,6 +74,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -82,6 +88,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -98,16 +105,17 @@ import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.launch
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.example.veilark.theme.VeilarkTheme
@@ -197,11 +205,12 @@ fun MainScreen(
   onSwitchProfile: () -> Unit = {},
   onRefreshLatency: () -> Unit = {},
   onOpenRouting: () -> Unit = {},
-  onApplyRouting: (String, String, String, String, String, Set<String>) -> Unit =
-    { _, _, _, _, _, _ -> },
+  onApplyRouting: (String, String, String, String, String, Set<String>) -> Boolean =
+    { _, _, _, _, _, _ -> true },
   onCopyDiagnostic: () -> Unit = {},
   onClearTechnicalLogs: () -> Unit = {},
   onRunDiagnostics: () -> Unit = {},
+  onOpenSubscriptionAccount: () -> Boolean = { false },
   onCheckUpdate: () -> Unit = {},
   onUpdate: () -> Unit = {},
   onConnect: () -> Unit = {},
@@ -216,6 +225,16 @@ fun MainScreen(
   var importSubmitted by remember { mutableStateOf(false) }
   var observedImporting by remember { mutableStateOf(false) }
   var importAttempted by remember { mutableStateOf(false) }
+  val snackbarHostState = remember { SnackbarHostState() }
+  val coroutineScope = rememberCoroutineScope()
+  val subscriptionBotOpenFailed = stringResource(R.string.subscription_bot_open_failed)
+  val openSubscriptionAccount = {
+    if (!onOpenSubscriptionAccount()) {
+      coroutineScope.launch { snackbarHostState.showSnackbar(subscriptionBotOpenFailed) }
+    }
+  }
+  val routingSavedMessage = stringResource(R.string.routing_saved)
+  val routingSavedReconnectMessage = stringResource(R.string.routing_saved_reconnect)
   val clipboard = LocalClipboardManager.current
   val activeSubscriptions = remember(
     trustTunnelActive,
@@ -265,6 +284,7 @@ fun MainScreen(
       AboutScreen(
         onBack = { showAbout = false },
         onOpenDocument = { legalDocument = it },
+        onOpenSubscriptionAccount = openSubscriptionAccount,
       )
     } else {
       LegalDocumentScreen(
@@ -325,8 +345,20 @@ fun MainScreen(
       installedApplications = installedApplications,
       trustTunnelActive = trustTunnelActive,
       onApply = { route, direct, vpn, apps, dpi, packages ->
-        onApplyRouting(route, direct, vpn, apps, dpi, packages)
-        showRouting = false
+        val reconnectRequired = connectionState != ConnectionState.Disconnected &&
+          connectionState != ConnectionState.Failed
+        if (onApplyRouting(route, direct, vpn, apps, dpi, packages)) {
+          showRouting = false
+          coroutineScope.launch {
+            snackbarHostState.showSnackbar(
+              if (reconnectRequired) {
+                routingSavedReconnectMessage
+              } else {
+                routingSavedMessage
+              },
+            )
+          }
+        }
       },
       onDismiss = { showRouting = false },
     )
@@ -335,6 +367,7 @@ fun MainScreen(
   Scaffold(
     modifier = modifier.fillMaxSize(),
     containerColor = MaterialTheme.colorScheme.background,
+    snackbarHost = { SnackbarHost(snackbarHostState) },
     topBar = {
       TopAppBar(
         title = {
@@ -458,6 +491,7 @@ fun MainScreen(
             }
           },
           onDeleteSubscription = onDeleteSubscription,
+          onOpenSubscriptionAccount = openSubscriptionAccount,
           onRefreshLatency = onRefreshLatency,
           onSelectNode = {
             onSelectNode(it)
@@ -923,6 +957,7 @@ private fun EngineModeButton(
 private fun AboutScreen(
   onBack: () -> Unit,
   onOpenDocument: (LegalDocument) -> Unit,
+  onOpenSubscriptionAccount: () -> Unit,
 ) {
   val uriHandler = LocalUriHandler.current
   val privacyPolicyUrl = stringResource(R.string.privacy_policy_url)
@@ -965,6 +1000,32 @@ private fun AboutScreen(
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
           )
+        }
+      }
+      item {
+        Surface(
+          modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onOpenSubscriptionAccount),
+          shape = RoundedCornerShape(16.dp),
+          color = MaterialTheme.colorScheme.secondaryContainer,
+        ) {
+          Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+          ) {
+            Text(
+              text = stringResource(R.string.subscription_get_or_renew),
+              style = MaterialTheme.typography.titleSmall,
+              fontWeight = FontWeight.SemiBold,
+              color = MaterialTheme.colorScheme.onSecondaryContainer,
+            )
+            Text(
+              text = stringResource(R.string.subscription_bot_note),
+              style = MaterialTheme.typography.bodySmall,
+              color = MaterialTheme.colorScheme.onSecondaryContainer,
+            )
+          }
         }
       }
       item {
@@ -1258,6 +1319,7 @@ private fun ProfileCard(
   onPasteSubscription: () -> Unit,
   onScanSubscriptionQr: () -> Unit,
   onDeleteSubscription: (String) -> Unit,
+  onOpenSubscriptionAccount: () -> Unit,
   onRefreshLatency: () -> Unit,
   onSelectNode: (String) -> Unit,
   onSelectSubscription: (String) -> Unit,
@@ -1320,7 +1382,7 @@ private fun ProfileCard(
       Column {
         ListItem(
           modifier = Modifier
-            .clickable(onClick = onToggleNodes)
+            .clickable(role = Role.Button, onClick = onToggleNodes)
             .semantics {
               stateDescription = expansionStateDescription
             },
@@ -1400,6 +1462,7 @@ private fun ProfileCard(
         onSelectSubscription = onSelectSubscription,
         onSelectNode = onSelectNode,
         onRequestDelete = { pendingDeletionId = it },
+        onOpenSubscriptionAccount = onOpenSubscriptionAccount,
       )
     }
   }
@@ -1428,6 +1491,7 @@ private fun ConnectionPickerSheet(
   onSelectSubscription: (String) -> Unit,
   onSelectNode: (String) -> Unit,
   onRequestDelete: (String) -> Unit,
+  onOpenSubscriptionAccount: () -> Unit,
 ) {
   val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
@@ -1463,7 +1527,7 @@ private fun ConnectionPickerSheet(
         modifier = Modifier
           .fillMaxWidth()
           .padding(horizontal = 18.dp, vertical = 12.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
+        horizontalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterHorizontally),
       ) {
         CompactIconAction(
           glyph = ActionGlyph.Add,
@@ -1501,6 +1565,24 @@ private fun ConnectionPickerSheet(
           onClick = onRefreshLatency,
         )
       }
+
+      TextButton(
+        onClick = onOpenSubscriptionAccount,
+        modifier = Modifier
+          .align(Alignment.CenterHorizontally)
+          .padding(bottom = 8.dp),
+      ) {
+        Text(stringResource(R.string.subscription_get_or_renew))
+      }
+      Text(
+        text = stringResource(R.string.subscription_bot_note),
+        modifier = Modifier
+          .align(Alignment.CenterHorizontally)
+          .padding(start = 24.dp, end = 24.dp, bottom = 8.dp),
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        textAlign = TextAlign.Center,
+      )
 
       HorizontalDivider()
 
@@ -1932,7 +2014,14 @@ private fun NodeChoice(
   onClick: () -> Unit,
 ) {
   Surface(
-    modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
+    modifier = Modifier
+      .fillMaxWidth()
+      .heightIn(min = 56.dp)
+      .selectable(
+        selected = selected,
+        role = Role.RadioButton,
+        onClick = onClick,
+      ),
     shape = RoundedCornerShape(18.dp),
     color = if (selected) {
       MaterialTheme.colorScheme.secondaryContainer
@@ -1985,7 +2074,15 @@ private fun RoutingSettingsDialog(
   onApply: (String, String, String, String, String, Set<String>) -> Unit,
   onDismiss: () -> Unit,
 ) {
-  var route by remember(routingMode) { mutableStateOf(routingMode) }
+  var route by remember(routingMode, trustTunnelActive) {
+    mutableStateOf(
+      if (trustTunnelActive && routingMode == ProfileSelection.ROUTING_MANUAL) {
+        ProfileSelection.ROUTING_ALL
+      } else {
+        routingMode
+      },
+    )
+  }
   var direct by remember(directRoutes) { mutableStateOf(directRoutes) }
   var vpn by remember(vpnRoutes) { mutableStateOf(vpnRoutes) }
   var appMode by remember(applicationMode) { mutableStateOf(applicationMode) }
@@ -2011,7 +2108,11 @@ private fun RoutingSettingsDialog(
     properties = DialogProperties(usePlatformDefaultWidth = false),
   ) {
     Box(
-      modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp, vertical = 20.dp),
+      modifier = Modifier
+        .fillMaxSize()
+        .windowInsetsPadding(WindowInsets.safeDrawing)
+        .imePadding()
+        .padding(12.dp),
       contentAlignment = Alignment.Center,
     ) {
       Surface(
@@ -2048,23 +2149,29 @@ private fun RoutingSettingsDialog(
             contentPadding = PaddingValues(horizontal = 20.dp, vertical = 16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
           ) {
-            if (!trustTunnelActive) {
             item { SettingsSectionTitle(stringResource(R.string.traffic)) }
-              item {
-                SettingChoice(
-                  title = stringResource(R.string.all_traffic_vpn),
-                  selected = route == ProfileSelection.ROUTING_ALL,
-                  onClick = { route = ProfileSelection.ROUTING_ALL },
-                )
-              }
-              item {
-                SettingChoice(
-                  title = stringResource(R.string.russia_direct),
-                  subtitle = stringResource(R.string.russia_direct_description),
-                  selected = route == ProfileSelection.ROUTING_RU_DIRECT,
-                  onClick = { route = ProfileSelection.ROUTING_RU_DIRECT },
-                )
-              }
+            item {
+              SettingChoice(
+                title = stringResource(R.string.all_traffic_vpn),
+                selected = route == ProfileSelection.ROUTING_ALL,
+                onClick = { route = ProfileSelection.ROUTING_ALL },
+              )
+            }
+            item {
+              SettingChoice(
+                title = stringResource(R.string.russia_direct),
+                subtitle = stringResource(
+                  if (trustTunnelActive) {
+                    R.string.trust_russia_direct_description
+                  } else {
+                    R.string.russia_direct_description
+                  },
+                ),
+                selected = route == ProfileSelection.ROUTING_RU_DIRECT,
+                onClick = { route = ProfileSelection.ROUTING_RU_DIRECT },
+              )
+            }
+            if (!trustTunnelActive) {
               item {
                 SettingChoice(
                   title = stringResource(R.string.custom_rules),
@@ -2330,7 +2437,14 @@ private fun SettingChoice(
   onClick: () -> Unit,
 ) {
   Surface(
-    modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
+    modifier = Modifier
+      .fillMaxWidth()
+      .heightIn(min = 56.dp)
+      .selectable(
+        selected = selected,
+        role = Role.RadioButton,
+        onClick = onClick,
+      ),
     shape = RoundedCornerShape(16.dp),
     color = if (selected) {
       MaterialTheme.colorScheme.secondaryContainer
@@ -2485,7 +2599,11 @@ private fun ImportDialog(
     properties = DialogProperties(usePlatformDefaultWidth = false),
   ) {
     Box(
-      modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp, vertical = 24.dp),
+      modifier = Modifier
+        .fillMaxSize()
+        .windowInsetsPadding(WindowInsets.safeDrawing)
+        .imePadding()
+        .padding(12.dp),
       contentAlignment = Alignment.Center,
     ) {
       Surface(

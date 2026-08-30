@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import base64
 import hashlib
+import hmac
 import json
 import os
 from pathlib import Path
@@ -23,6 +24,7 @@ OTA_DIR = ROOT / "build" / "ota"
 UPLOAD_CHUNK_SIZE = 256 * 1024
 UPLOAD_ATTEMPTS = 8
 MAX_RELEASE_NOTES_LENGTH = 500
+MAX_MANIFEST_SIZE = 128 * 1024
 
 
 def canonical_payload_v2(fields: list[str]) -> bytes:
@@ -47,14 +49,56 @@ def read_env(path: Path) -> dict[str, str]:
     return result
 
 
+class PinnedHostKeyPolicy(paramiko.MissingHostKeyPolicy):
+    def __init__(self, expected_sha256: str) -> None:
+        self.expected_sha256 = expected_sha256
+
+    def missing_host_key(
+        self,
+        client: paramiko.SSHClient,
+        hostname: str,
+        key: paramiko.PKey,
+    ) -> None:
+        actual = "SHA256:" + base64.b64encode(
+            hashlib.sha256(key.asbytes()).digest()
+        ).decode("ascii").rstrip("=")
+        if not hmac.compare_digest(actual, self.expected_sha256):
+            raise paramiko.SSHException(
+                f"SSH host key mismatch for {hostname}: expected pinned fingerprint"
+            )
+
+
 def connect_node(env: dict[str, str]) -> paramiko.SSHClient:
-    host = env.get("OTA_SSH_HOST") or env.get("NETHERLANDS_NEW_HOST")
-    user = env.get("OTA_SSH_USER") or env.get("NETHERLANDS_NEW_USER")
-    password = env.get("OTA_SSH_PASSWORD") or env.get("NETHERLANDS_NEW_PASSWORD")
-    if not host or not user or not password:
-        raise ValueError("SSH environment is missing OTA or Netherlands-new credentials")
+    host = (
+        os.environ.get("OTA_SSH_HOST")
+        or env.get("OTA_SSH_HOST")
+        or env.get("NETHERLANDS_NEW_HOST")
+        or env.get("NETHERLANDS_HOST")
+    )
+    user = (
+        os.environ.get("OTA_SSH_USER")
+        or env.get("OTA_SSH_USER")
+        or env.get("NETHERLANDS_NEW_USER")
+        or env.get("NETHERLANDS_USER")
+    )
+    password = (
+        os.environ.get("OTA_SSH_PASSWORD")
+        or env.get("OTA_SSH_PASSWORD")
+        or env.get("NETHERLANDS_NEW_PASSWORD")
+        or env.get("NETHERLANDS_PASSWORD")
+    )
+    host_key_sha256 = (
+        os.environ.get("OTA_SSH_HOST_KEY_SHA256")
+        or env.get("OTA_SSH_HOST_KEY_SHA256")
+    )
+    if not host or not user or not password or not host_key_sha256:
+        raise ValueError(
+            "SSH environment is missing OTA credentials or pinned host key fingerprint"
+        )
+    if re.fullmatch(r"SHA256:[A-Za-z0-9+/]{43}", host_key_sha256) is None:
+        raise ValueError("OTA_SSH_HOST_KEY_SHA256 is invalid")
     client = paramiko.SSHClient()
-    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    client.set_missing_host_key_policy(PinnedHostKeyPolicy(host_key_sha256))
     client.connect(
         host,
         username=user,
@@ -174,6 +218,31 @@ def remote_sha256(client: paramiko.SSHClient, path: str) -> str:
     if errors or stdout.channel.recv_exit_status() != 0 or not digest:
         return ""
     return digest[0].upper()
+
+
+def fetch_verified_live_manifest(origin: str, public_key) -> dict[str, object]:
+    request = Request(
+        f"{origin}/veilark/manifest.json",
+        headers={"Cache-Control": "no-cache"},
+        method="GET",
+    )
+    with urlopen(request, timeout=20) as response:
+        raw = response.read(MAX_MANIFEST_SIZE + 1)
+    if len(raw) > MAX_MANIFEST_SIZE:
+        raise RuntimeError("Live OTA manifest is too large")
+    manifest = json.loads(raw)
+    fields = [
+        "veilark-update-v2",
+        str(manifest["versionCode"]),
+        str(manifest["versionName"]),
+        str(manifest["apkUrl"]),
+        str(manifest["sha256"]),
+        str(manifest["size"]),
+        str(manifest["notes"]),
+    ]
+    signature = base64.b64decode(str(manifest["signatureV2"]), validate=True)
+    public_key.verify(signature, canonical_payload_v2(fields))
+    return manifest
 
 
 def upload_resumable(
@@ -328,6 +397,13 @@ def main() -> None:
 
     if args.server_env is None:
         raise ValueError("--server-env is required when publishing")
+    live_manifest = fetch_verified_live_manifest(origin, private_key.public_key())
+    live_version_code = int(live_manifest["versionCode"])
+    if args.version_code <= live_version_code:
+        raise RuntimeError(
+            f"OTA versionCode must increase monotonically: live={live_version_code}, "
+            f"requested={args.version_code}"
+        )
     env = read_env(args.server_env.resolve())
     remote_dir = args.remote_dir.rstrip("/")
     remote_apk = f"{remote_dir}/{apk_name}"

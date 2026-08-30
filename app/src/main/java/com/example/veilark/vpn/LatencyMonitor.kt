@@ -10,147 +10,312 @@ import io.nekohasekai.libbox.LogIterator
 import io.nekohasekai.libbox.OutboundGroupIterator
 import io.nekohasekai.libbox.StatusMessage
 import io.nekohasekai.libbox.StringIterator
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
-object LatencyMonitor : CommandClientHandler {
+object LatencyMonitor {
   private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
   private var client: CommandClient? = null
+  private var connectJob: Job? = null
+  private var connectTimeoutJob: Job? = null
   private var reconnectJob: Job? = null
+  private var standaloneClient: CommandClient? = null
+  private var standaloneJob: Job? = null
+  private var checkingTimeout: Job? = null
   private var reconnectAttempts = 0
+  private var clientGeneration = 0L
+  private var refreshGeneration = 0L
   private var shouldRun = false
+  private var initialRefreshPending = false
   private val mutableLatencies = MutableStateFlow<Map<String, Int>>(emptyMap())
   val latencies = mutableLatencies.asStateFlow()
   private val mutableAutomaticSelection = MutableStateFlow<String?>(null)
   val automaticSelection = mutableAutomaticSelection.asStateFlow()
   private val mutableChecking = MutableStateFlow(false)
   val checking = mutableChecking.asStateFlow()
-  private var checkingTimeout: Job? = null
 
-  @Synchronized
   fun start() {
-    shouldRun = true
-    reconnectJob?.cancel()
-    reconnectJob = null
-    if (client != null) return
-    connect()
+    val shouldConnect = synchronized(this) {
+      shouldRun = true
+      initialRefreshPending = true
+      reconnectJob?.cancel()
+      reconnectJob = null
+      client == null && connectJob?.isActive != true
+    }
+    if (shouldConnect) requestConnect()
   }
 
-  private fun connect() {
+  fun stop() {
+    val clientsToClose = synchronized(this) {
+      shouldRun = false
+      initialRefreshPending = false
+      clientGeneration += 1L
+      refreshGeneration += 1L
+      connectJob?.cancel()
+      connectJob = null
+      connectTimeoutJob?.cancel()
+      connectTimeoutJob = null
+      reconnectJob?.cancel()
+      reconnectJob = null
+      standaloneJob?.cancel()
+      standaloneJob = null
+      checkingTimeout?.cancel()
+      checkingTimeout = null
+      reconnectAttempts = 0
+      mutableLatencies.value = emptyMap()
+      mutableAutomaticSelection.value = null
+      mutableChecking.value = false
+      listOfNotNull(client, standaloneClient).distinct().also {
+        client = null
+        standaloneClient = null
+      }
+    }
+    closeClientsAsync(clientsToClose)
+  }
+
+  fun refresh() {
+    val request = synchronized(this) {
+      if (!shouldRun) return
+      val oldClient = standaloneClient
+      standaloneClient = null
+      standaloneJob?.cancel()
+      standaloneJob = null
+      checkingTimeout?.cancel()
+      checkingTimeout = null
+      mutableChecking.value = true
+      (++refreshGeneration) to oldClient
+    }
+    val generation = request.first
+    val oldClient = request.second
+    oldClient?.let { closeClientsAsync(listOf(it)) }
+    val job = scope.launch(start = CoroutineStart.LAZY) {
+      runStandaloneRefresh(generation)
+    }
+    val admitted = synchronized(this) {
+      if (!latencyCallbackAccepted(generation, refreshGeneration, shouldRun)) false
+      else {
+        standaloneJob = job
+        true
+      }
+    }
+    if (admitted) job.start() else job.cancel()
+  }
+
+  private fun requestConnect() {
+    val generation = synchronized(this) {
+      if (!shouldRun || client != null || connectJob?.isActive == true) return
+      ++clientGeneration
+    }
+    val job = scope.launch(start = CoroutineStart.LAZY) {
+      connect(generation)
+    }
+    val admitted = synchronized(this) {
+      if (!latencyCallbackAccepted(generation, clientGeneration, shouldRun) || client != null) {
+        false
+      } else {
+        connectJob = job
+        true
+      }
+    }
+    if (admitted) job.start() else job.cancel()
+  }
+
+  private suspend fun connect(generation: Long) {
     val options = CommandClientOptions().apply {
       addCommand(Libbox.CommandGroup)
       addCommand(Libbox.CommandLog)
     }
-    val newClient = CommandClient(this, options)
-    client = newClient
+    val newClient = CommandClient(GenerationHandler(generation), options)
+    val admitted = synchronized(this) {
+      if (!latencyCallbackAccepted(generation, clientGeneration, shouldRun) || client != null) false
+      else {
+        client = newClient
+        true
+      }
+    }
+    if (!admitted) {
+      closeClientsAsync(listOf(newClient))
+      return
+    }
+
+    val timeout = scope.launch {
+      delay(CONNECT_TIMEOUT_MS)
+      val stillConnecting = synchronized(this@LatencyMonitor) {
+        latencyCallbackAccepted(generation, clientGeneration, shouldRun) &&
+          client === newClient && connectJob?.isActive == true
+      }
+      if (stillConnecting) {
+        runCatching { newClient.disconnect() }
+        handleDisconnected(generation, "command channel connect timeout")
+      }
+    }
+    synchronized(this) {
+      if (latencyCallbackAccepted(generation, clientGeneration, shouldRun)) {
+        connectTimeoutJob = timeout
+      } else {
+        timeout.cancel()
+      }
+    }
     try {
       newClient.connect()
     } catch (failure: Throwable) {
-      if (client === newClient) client = null
-      throw failure
-    }
-  }
-
-  @Synchronized
-  fun stop() {
-    shouldRun = false
-    reconnectJob?.cancel()
-    reconnectJob = null
-    reconnectAttempts = 0
-    runCatching { client?.disconnect() }
-    client = null
-    mutableLatencies.value = emptyMap()
-    mutableAutomaticSelection.value = null
-    mutableChecking.value = false
-    checkingTimeout?.cancel()
-    checkingTimeout = null
-  }
-
-  fun refresh() {
-    mutableChecking.value = true
-    runCatching { Libbox.newStandaloneCommandClient().urlTest("auto") }
-      .onFailure { mutableChecking.value = false }
-    checkingTimeout?.cancel()
-    checkingTimeout = scope.launch {
-      delay(10_000)
-      mutableChecking.value = false
-    }
-  }
-
-  override fun connected() {
-    synchronized(this) {
-      reconnectAttempts = 0
-      reconnectJob?.cancel()
-      reconnectJob = null
-    }
-    TechnicalLogStore.info("CORE", "sing-box technical log channel connected")
-    refresh()
-  }
-
-  override fun disconnected(message: String?) {
-    if (shouldRun) {
-      TechnicalLogStore.warning(
-        "CORE",
-        "sing-box technical log channel closed: ${message ?: "no reason"}",
-      )
-    }
-    synchronized(this) {
-      client = null
-      if (!shouldRun || VeilarkVpnService.state.value != ConnectionState.Connected) return
-      if (reconnectJob?.isActive == true) return
-      val delayMillis = RECONNECT_DELAYS_MS[
-        reconnectAttempts.coerceAtMost(RECONNECT_DELAYS_MS.lastIndex)
-      ]
-      reconnectAttempts++
-      reconnectJob = scope.launch {
-        delay(delayMillis)
-        synchronized(this@LatencyMonitor) {
-          reconnectJob = null
-          if (shouldRun &&
-            client == null &&
-            VeilarkVpnService.state.value == ConnectionState.Connected
-          ) {
-            runCatching { connect() }
-              .onFailure { disconnected(it.message) }
-          }
+      handleDisconnected(generation, failure.message)
+      closeClientsAsync(listOf(newClient))
+    } finally {
+      timeout.cancel()
+      synchronized(this) {
+        if (latencyCallbackAccepted(generation, clientGeneration, shouldRun)) {
+          connectTimeoutJob = null
+          connectJob = null
         }
       }
     }
   }
 
-  override fun writeGroups(message: OutboundGroupIterator?) {
+  private suspend fun runStandaloneRefresh(generation: Long) {
+    val newClient = Libbox.newStandaloneCommandClient()
+    val admitted = synchronized(this) {
+      if (!latencyCallbackAccepted(generation, refreshGeneration, shouldRun)) false
+      else {
+        standaloneClient = newClient
+        true
+      }
+    }
+    if (!admitted) {
+      closeClientsAsync(listOf(newClient))
+      return
+    }
+    val timeout = scope.launch {
+      delay(REFRESH_TIMEOUT_MS)
+      val stillActive = synchronized(this@LatencyMonitor) {
+        latencyCallbackAccepted(generation, refreshGeneration, shouldRun) &&
+          standaloneClient === newClient
+      }
+      if (stillActive) {
+        runCatching { newClient.disconnect() }
+        synchronized(this@LatencyMonitor) {
+          if (latencyCallbackAccepted(generation, refreshGeneration, shouldRun)) {
+            mutableChecking.value = false
+          }
+        }
+      }
+    }
+    synchronized(this) {
+      if (latencyCallbackAccepted(generation, refreshGeneration, shouldRun)) {
+        checkingTimeout = timeout
+      } else {
+        timeout.cancel()
+      }
+    }
+    try {
+      newClient.urlTest("auto")
+    } catch (_: Throwable) {
+      synchronized(this) {
+        if (latencyCallbackAccepted(generation, refreshGeneration, shouldRun)) {
+          mutableChecking.value = false
+        }
+      }
+    } finally {
+      timeout.cancel()
+      runCatching { newClient.disconnect() }
+      synchronized(this) {
+        if (latencyCallbackAccepted(generation, refreshGeneration, shouldRun)) {
+          standaloneClient = null
+          standaloneJob = null
+          checkingTimeout = null
+        }
+      }
+    }
+  }
+
+  private fun handleConnected(generation: Long) {
+    val shouldRefresh = synchronized(this) {
+      if (!latencyCallbackAccepted(generation, clientGeneration, shouldRun)) return
+      reconnectAttempts = 0
+      reconnectJob?.cancel()
+      reconnectJob = null
+      initialRefreshPending.also { initialRefreshPending = false }
+    }
+    TechnicalLogStore.info("CORE", "sing-box technical log channel connected")
+    // The command channel is auxiliary. Reconnecting it must not repeatedly
+    // run an all-node url-test or add avoidable radio/CPU work to a healthy VPN.
+    if (shouldRefresh) refresh()
+  }
+
+  private fun handleDisconnected(generation: Long, message: String?) {
+    val reconnectDelay = synchronized(this) {
+      if (!latencyCallbackAccepted(generation, clientGeneration, shouldRun)) return
+      client = null
+      connectJob = null
+      connectTimeoutJob?.cancel()
+      connectTimeoutJob = null
+      if (VeilarkVpnService.state.value != ConnectionState.Connected) return
+      if (reconnectJob?.isActive == true) return
+      RECONNECT_DELAYS_MS[
+        reconnectAttempts.coerceAtMost(RECONNECT_DELAYS_MS.lastIndex)
+      ].also { reconnectAttempts++ }
+    }
+    TechnicalLogStore.warning(
+      "CORE",
+      "sing-box technical log channel closed: ${message ?: "no reason"}",
+    )
+    val job = scope.launch(start = CoroutineStart.LAZY) {
+      delay(reconnectDelay)
+      val reconnect = synchronized(this@LatencyMonitor) {
+        reconnectJob = null
+        shouldRun && client == null &&
+          VeilarkVpnService.state.value == ConnectionState.Connected
+      }
+      if (reconnect) requestConnect()
+    }
+    val admitted = synchronized(this) {
+      if (!shouldRun || client != null || reconnectJob?.isActive == true) false
+      else {
+        reconnectJob = job
+        true
+      }
+    }
+    if (admitted) job.start() else job.cancel()
+  }
+
+  private fun handleGroups(generation: Long, message: OutboundGroupIterator?) {
     if (message == null) return
     val delays = mutableMapOf<String, Int>()
+    var automaticSelection: String? = null
     while (message.hasNext()) {
       val group = message.next()
-      if (group.tag == "auto") mutableAutomaticSelection.value = group.selected
+      if (group.tag == "auto") automaticSelection = group.selected
       val items = group.items
       while (items.hasNext()) {
         val item = items.next()
         if (item.urlTestDelay > 0) delays[item.tag] = item.urlTestDelay
       }
     }
-    mutableLatencies.value = delays
-    mutableChecking.value = false
-    checkingTimeout?.cancel()
-    checkingTimeout = null
+    synchronized(this) {
+      if (!latencyCallbackAccepted(generation, clientGeneration, shouldRun)) return
+      automaticSelection?.let { mutableAutomaticSelection.value = it }
+      mutableLatencies.value = delays
+      mutableChecking.value = false
+      checkingTimeout?.cancel()
+      checkingTimeout = null
+    }
   }
 
-  override fun clearLogs() = Unit
-  override fun initializeClashMode(modeList: StringIterator, currentMode: String) = Unit
-  override fun setDefaultLogLevel(level: Int) = Unit
-  override fun updateClashMode(newMode: String) = Unit
-  override fun writeConnectionEvents(events: ConnectionEvents?) = Unit
-  override fun writeLogs(messageList: LogIterator?) {
+  private fun handleLogs(generation: Long, messageList: LogIterator?) {
     if (messageList == null) return
     while (messageList.hasNext()) {
       val entry = messageList.next()
+      val accepted = synchronized(this) {
+        latencyCallbackAccepted(generation, clientGeneration, shouldRun)
+      }
+      if (!accepted) return
       when (entry.level) {
         0, 1, 2 -> TechnicalLogStore.error("CORE", entry.message)
         3 -> TechnicalLogStore.warning("CORE", entry.message)
@@ -160,7 +325,34 @@ object LatencyMonitor : CommandClientHandler {
       }
     }
   }
-  override fun writeStatus(message: StatusMessage) = Unit
+
+  private fun closeClientsAsync(clients: List<CommandClient>) {
+    if (clients.isEmpty()) return
+    scope.launch {
+      clients.forEach { runCatching { it.disconnect() } }
+    }
+  }
+
+  private class GenerationHandler(private val generation: Long) : CommandClientHandler {
+    override fun connected() = handleConnected(generation)
+    override fun disconnected(message: String?) = handleDisconnected(generation, message)
+    override fun writeGroups(message: OutboundGroupIterator?) = handleGroups(generation, message)
+    override fun writeLogs(messageList: LogIterator?) = handleLogs(generation, messageList)
+    override fun clearLogs() = Unit
+    override fun initializeClashMode(modeList: StringIterator, currentMode: String) = Unit
+    override fun setDefaultLogLevel(level: Int) = Unit
+    override fun updateClashMode(newMode: String) = Unit
+    override fun writeConnectionEvents(events: ConnectionEvents?) = Unit
+    override fun writeStatus(message: StatusMessage) = Unit
+  }
 
   private val RECONNECT_DELAYS_MS = longArrayOf(1_500L, 3_000L, 6_000L, 12_000L, 30_000L)
+  private const val CONNECT_TIMEOUT_MS = 8_000L
+  private const val REFRESH_TIMEOUT_MS = 10_000L
 }
+
+internal fun latencyCallbackAccepted(
+  callbackGeneration: Long,
+  activeGeneration: Long,
+  shouldRun: Boolean,
+): Boolean = shouldRun && callbackGeneration == activeGeneration

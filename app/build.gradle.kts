@@ -1,48 +1,9 @@
-import org.gradle.api.DefaultTask
-import org.gradle.api.file.ConfigurableFileCollection
-import org.gradle.api.file.DirectoryProperty
-import org.gradle.api.provider.Property
-import org.gradle.api.tasks.Input
-import org.gradle.api.tasks.InputFiles
-import org.gradle.api.tasks.OutputDirectory
-import org.gradle.api.tasks.TaskAction
 import java.util.Properties
 
 plugins {
   alias(libs.plugins.android.application)
   alias(libs.plugins.compose.compiler)
   alias(libs.plugins.kotlin.serialization)
-}
-
-abstract class GenerateEmbeddedTrustProfiles : DefaultTask() {
-  @get:Input
-  abstract val distributionConfigured: Property<Boolean>
-
-  @get:InputFiles
-  abstract val sourceFiles: ConfigurableFileCollection
-
-  @get:OutputDirectory
-  abstract val outputDirectory: DirectoryProperty
-
-  @TaskAction
-  fun generate() {
-    require(distributionConfigured.get()) {
-      "Private distribution is not configured. Copy private.properties.example to " +
-        "private.properties and provide two TrustTunnel sources plus OTA settings."
-    }
-    val clientLink = Regex(""""client_link"\s*:\s*"([^"\\]+)"""")
-    val links = sourceFiles.files.sortedBy { it.name }.map { source ->
-      require(source.isFile) { "Missing embedded TrustTunnel source: $source" }
-      clientLink.find(source.readText(Charsets.UTF_8))
-        ?.groupValues
-        ?.get(1)
-        ?.takeIf { it.startsWith("tt://") }
-        ?: error("Invalid embedded TrustTunnel source: $source")
-    }
-    val output = outputDirectory.file("builtin_trust_profiles.txt").get().asFile
-    output.parentFile.mkdirs()
-    output.writeText(links.joinToString(separator = "\n", postfix = "\n"), Charsets.UTF_8)
-  }
 }
 
 val veilarkAbis = providers.gradleProperty("veilarkAbis")
@@ -76,21 +37,12 @@ fun quotedBuildConfig(value: String): String =
   "\"${value.replace("\\", "\\\\").replace("\"", "\\\"")}\""
 
 val privateApplicationId = privateProperty("applicationId") ?: "app.veilark.private"
-val embeddedTrustSources = listOfNotNull(
-  privateProperty("trustSource1"),
-  privateProperty("trustSource2"),
-).map(rootProject::file)
 val privateOtaManifestUrl = privateProperty("otaManifestUrl").orEmpty()
 val privateOtaHost = privateProperty("otaHost").orEmpty()
 val privateOtaPort = privateProperty("otaPort")?.toIntOrNull() ?: -1
 val privateOtaPublicKey = privateProperty("otaPublicKey").orEmpty()
-val privateRetiredTrustHost = privateProperty("retiredTrustHost").orEmpty()
-val privateDistributionConfigured =
-  embeddedTrustSources.size == 2 &&
-    privateOtaManifestUrl.isNotBlank() &&
-    privateOtaHost.isNotBlank() &&
-    privateOtaPort in 1..65535 &&
-    privateOtaPublicKey.isNotBlank()
+val telegramBotUrl = privateProperty("telegramBotUrl")
+  ?: "https://t.me/senyavpn_bot?start=client_android"
 
 val ossKeystorePath = providers.environmentVariable("VEILARK_OSS_KEYSTORE").orNull
 val ossKeystorePassword = providers.environmentVariable("VEILARK_OSS_STORE_PASSWORD").orNull
@@ -102,15 +54,6 @@ val ossSigningConfigured = listOf(
   ossKeyAlias,
   ossKeyPassword,
 ).all { !it.isNullOrBlank() }
-
-val generatedTrustAssets = layout.buildDirectory.dir("generated/veilark/trust-assets").get().asFile
-val generateEmbeddedTrustProfiles = tasks.register<GenerateEmbeddedTrustProfiles>(
-  "generateEmbeddedTrustProfiles",
-) {
-  distributionConfigured.set(privateDistributionConfigured)
-  sourceFiles.from(embeddedTrustSources)
-  outputDirectory.set(generatedTrustAssets)
-}
 
 android {
     namespace = "com.example.veilark"
@@ -135,9 +78,10 @@ android {
     defaultConfig {
         minSdk = 29
         targetSdk = 36
-        versionCode = 42
-        versionName = "0.8.0-rc15"
+        versionCode = 47
+        versionName = "0.8.0-rc20"
         buildConfigField("boolean", "VEILARK_CORE_ENABLED", "false")
+        buildConfigField("String", "TELEGRAM_BOT_URL", quotedBuildConfig(telegramBotUrl))
         ndk {
             abiFilters += veilarkAbis
         }
@@ -164,30 +108,21 @@ android {
       create("private") {
         dimension = "distribution"
         applicationId = privateApplicationId
-        signingConfig = signingConfigs.getByName("debug")
-        buildConfigField("boolean", "EMBEDDED_TRUST_PROFILES", "true")
         buildConfigField("boolean", "SELF_UPDATE_ENABLED", "true")
         buildConfigField("String", "OTA_MANIFEST_URL", quotedBuildConfig(privateOtaManifestUrl))
         buildConfigField("String", "OTA_HOST", quotedBuildConfig(privateOtaHost))
         buildConfigField("int", "OTA_PORT", privateOtaPort.toString())
         buildConfigField("String", "OTA_PUBLIC_KEY", quotedBuildConfig(privateOtaPublicKey))
-        buildConfigField(
-          "String",
-          "RETIRED_TRUST_HOST",
-          quotedBuildConfig(privateRetiredTrustHost),
-        )
       }
       create("oss") {
         dimension = "distribution"
         applicationId = "app.veilark.android"
         versionNameSuffix = "-oss"
-        buildConfigField("boolean", "EMBEDDED_TRUST_PROFILES", "false")
         buildConfigField("boolean", "SELF_UPDATE_ENABLED", "false")
         buildConfigField("String", "OTA_MANIFEST_URL", quotedBuildConfig(""))
         buildConfigField("String", "OTA_HOST", quotedBuildConfig(""))
         buildConfigField("int", "OTA_PORT", "-1")
         buildConfigField("String", "OTA_PUBLIC_KEY", quotedBuildConfig(""))
-        buildConfigField("String", "RETIRED_TRUST_HOST", quotedBuildConfig(""))
         if (ossSigningConfigured) {
           signingConfig = signingConfigs.getByName("ossRelease")
         }
@@ -209,7 +144,6 @@ android {
         excludes += "/META-INF/{AL2.0,LGPL2.1}"
       }
     }
-    sourceSets.getByName("private").assets.directories.add(generatedTrustAssets.absolutePath)
 }
 
 androidComponents {
@@ -230,19 +164,6 @@ androidComponents {
     if (veilarkCoreCanaryRequested.get()) {
       variantBuilder.enable = false
     }
-  }
-}
-
-tasks.configureEach {
-  if (
-    name.contains("Private") && (
-      (name.startsWith("merge") && name.endsWith("Assets")) ||
-        name.contains("Lint", ignoreCase = true) ||
-        name.startsWith("assemble") ||
-        name.startsWith("bundle")
-      )
-  ) {
-    dependsOn(generateEmbeddedTrustProfiles)
   }
 }
 
@@ -298,7 +219,8 @@ dependencies {
   implementation(libs.androidx.lifecycle.viewmodel.navigation3)
   implementation(libs.kotlinx.coroutines.android)
 
-  // Stable sing-box 1.13.19, reproducibly built for arm64-v8a and armeabi-v7a.
+  // Stable production sing-box core. The canary flavor keeps a distinct
+  // application id but deliberately uses the same verified core artifact.
   implementation(files("libs/libbox.aar"))
 
   // Official TrustTunnel Android client built from the upstream source.

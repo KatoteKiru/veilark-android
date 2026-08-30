@@ -12,6 +12,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import java.io.File
 import java.time.Instant
+import java.util.concurrent.atomic.AtomicInteger
 
 data class TechnicalLogEntry(
   val timestamp: Long,
@@ -27,6 +28,7 @@ object TechnicalLogStore {
   private val mutableEntries = MutableStateFlow<List<TechnicalLogEntry>>(emptyList())
   val entries = mutableEntries.asStateFlow()
   private val writes = Channel<WriteCommand>(capacity = 256)
+  private val droppedWrites = AtomicInteger()
   private val lock = Any()
   @Volatile
   private var logFile: File? = null
@@ -74,7 +76,9 @@ object TechnicalLogStore {
       if (updated.takeLast(2).let { it.size == 2 && sameEvent(it[0], it[1]) }) return
       mutableEntries.value = updated
     }
-    writes.trySend(WriteCommand.Append(entry))
+    if (writes.trySend(WriteCommand.Append(entry)).isFailure) {
+      droppedWrites.incrementAndGet()
+    }
   }
 
   private fun startWriter() {
@@ -86,6 +90,7 @@ object TechnicalLogStore {
         when (val first = writes.receive()) {
           WriteCommand.Clear -> logFile?.delete()
           is WriteCommand.Append -> {
+            appendOverflowMarker(batch)
             batch += first.entry
             val deadline = System.nanoTime() + WRITE_BATCH_WINDOW_MS * 1_000_000
             while (batch.size < WRITE_BATCH_SIZE) {
@@ -99,12 +104,28 @@ object TechnicalLogStore {
                 is WriteCommand.Append -> batch += next.entry
               }
             }
+            appendOverflowMarker(batch)
             flush(batch)
             batch.clear()
           }
         }
       }
     }
+  }
+
+  private fun appendOverflowMarker(batch: MutableList<TechnicalLogEntry>) {
+    val dropped = droppedWrites.getAndSet(0)
+    if (dropped == 0) return
+    val marker = TechnicalLogEntry(
+      timestamp = Instant.now().toEpochMilli(),
+      level = "WARN",
+      component = "LOG",
+      message = "Persistence queue overflow: $dropped event(s) were not written",
+    )
+    synchronized(lock) {
+      mutableEntries.value = (mutableEntries.value + marker).takeLast(MAX_ENTRIES)
+    }
+    batch += marker
   }
 
   private fun flush(batch: List<TechnicalLogEntry>) {

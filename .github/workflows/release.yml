@@ -16,6 +16,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
+      VEILARK_OSS_KEYSTORE: ${{ runner.temp }}/veilark-oss-release.jks
       VEILARK_OSS_STORE_PASSWORD: ${{ secrets.VEILARK_OSS_STORE_PASSWORD }}
       VEILARK_OSS_KEY_ALIAS: ${{ secrets.VEILARK_OSS_KEY_ALIAS }}
       VEILARK_OSS_KEY_PASSWORD: ${{ secrets.VEILARK_OSS_KEY_PASSWORD }}
@@ -26,27 +27,46 @@ jobs:
           distribution: temurin
           java-version: "17"
       - uses: gradle/actions/setup-gradle@v4
+      - name: Validate release tag
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-rc[0-9]+)?-oss$ ]]; then
+            echo "Tag must match vX.Y.Z-oss or vX.Y.Z-rcN-oss"
+            exit 1
+          fi
+          if git rev-parse --verify --quiet "refs/tags/$RELEASE_TAG"; then
+            echo "Refusing to overwrite existing tag: $RELEASE_TAG"
+            exit 1
+          fi
       - name: Restore release key
         env:
           KEYSTORE_B64: ${{ secrets.VEILARK_OSS_KEYSTORE_B64 }}
         run: |
           test -n "$KEYSTORE_B64"
-          printf '%s' "$KEYSTORE_B64" | base64 --decode > "$RUNNER_TEMP/veilark-oss-release.jks"
-          echo "VEILARK_OSS_KEYSTORE=$RUNNER_TEMP/veilark-oss-release.jks" >> "$GITHUB_ENV"
+          umask 077
+          printf '%s' "$KEYSTORE_B64" | base64 --decode > "$VEILARK_OSS_KEYSTORE"
       - name: Test and build signed OSS release
-        run: ./gradlew testOssDebugUnitTest lintOssRelease assembleOssRelease --no-daemon --no-configuration-cache
-      - name: Validate release tag
-        env:
-          RELEASE_TAG: ${{ inputs.tag }}
-        run: |
-          case "$RELEASE_TAG" in v*) ;; *) echo "Tag must start with v"; exit 1;; esac
-      - name: Verify and checksum APK
+        run: ./gradlew testOssDebugUnitTest lintOssRelease assembleOssRelease --no-daemon
+      - name: Verify identity, signer and access-material policy
         shell: bash
         run: |
+          set -euo pipefail
           APK=app/build/outputs/apk/oss/release/app-oss-release.apk
           test -f "$APK"
           APKSIGNER=$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -1)
-          "$APKSIGNER" verify --verbose --print-certs "$APK"
+          AAPT=$(find "$ANDROID_HOME/build-tools" -name aapt -type f | sort -V | tail -1)
+          SIGNING_REPORT=$($APKSIGNER verify --verbose --print-certs "$APK")
+          printf '%s\n' "$SIGNING_REPORT"
+          SIGNER_SHA256=$(printf '%s\n' "$SIGNING_REPORT" | sed -n 's/.*certificate SHA-256 digest: //p' | head -1)
+          test "$SIGNER_SHA256" = "8fc1db1fe13f7226af20076026e9e753de15626b2c4b9ddc4bd8974a03af3763"
+          BADGING=$($AAPT dump badging "$APK")
+          printf '%s\n' "$BADGING" | grep -F "package: name='app.veilark.android'"
+          if printf '%s\n' "$BADGING" | grep -q 'application-debuggable'; then
+            echo "Release APK must not be debuggable"
+            exit 1
+          fi
+          python3 scripts/scan_android_artifact.py "$APK"
           sha256sum "$APK" | tee "$APK.sha256"
       - name: Publish GitHub release
         env:

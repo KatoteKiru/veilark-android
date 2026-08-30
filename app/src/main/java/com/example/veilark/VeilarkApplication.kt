@@ -5,7 +5,7 @@ import io.nekohasekai.libbox.Libbox
 import io.nekohasekai.libbox.SetupOptions
 import com.example.veilark.protocol.TrustTunnelManager
 import com.example.veilark.diagnostics.TechnicalLogStore
-import com.example.veilark.protocol.BuiltInTrustProfiles
+import com.example.veilark.protocol.BuiltInTrustProfileMigration
 import com.example.veilark.profile.NetworkProfileMigration
 import com.example.veilark.profile.SecureProfileStore
 import java.io.File
@@ -16,6 +16,7 @@ class VeilarkApplication : Application() {
     super.onCreate()
     TechnicalLogStore.initialize(this)
     SecureProfileStore.migrateLegacy(this)
+    BuiltInTrustProfileMigration.migrate(this)
     runCatching { NetworkProfileMigration.migrateStored(this) }
     runCatching { NetworkProfileMigration.recoverStableDefaults(this) }
     runCatching { NetworkProfileMigration.reconcileStoredSettings(this) }
@@ -28,7 +29,6 @@ class VeilarkApplication : Application() {
         "TrustTunnel initialization failed: ${it.javaClass.simpleName}",
       )
     }
-    runCatching { BuiltInTrustProfiles.install(this) }
     runCatching {
       Libbox.setLocale(Locale.getDefault().toLanguageTag().replace("-", "_"))
       Libbox.setup(

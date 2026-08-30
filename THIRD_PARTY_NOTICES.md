@@ -32,6 +32,17 @@ through `VpnService.Builder` and preserves two Android lifecycle fixes. Both
 native ABIs are rebuilt from the pinned upstream source and dependency recipes;
 the exact build record and hashes are documented in the provenance file.
 
+## sing-geoip RU rule set
+
+- project: <https://github.com/SagerNet/sing-geoip>
+- exact source commit and hashes: `vendor/geoip-ru/UPSTREAM.json`
+- license: GPL-3.0-or-later
+- packaged derived asset: `app/src/main/assets/rules/geoip-ru.json`
+
+The packaged JSON is deterministically derived from the pinned SRS with the
+pinned sing-box tool. Its source hash, derived hash and IPv4/IPv6 counts are
+recorded so a rule update cannot silently change the routing dataset.
+
 ## Other dependencies
 
 The application uses AndroidX, Jetpack Compose, CameraX, ML Kit barcode

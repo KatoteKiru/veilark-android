@@ -2,6 +2,29 @@
 
 All notable changes to the public distribution are documented here.
 
+## 0.8.0-rc19
+
+- hardened TrustTunnel start/stop lifecycle so rejected foreground-service
+  starts, routing failures and timeouts always reach a terminal state;
+- fenced TrustTunnel callbacks by session so late or duplicate native events
+  cannot fail a newer connection;
+- released TrustTunnel network callbacks and its service executor after a
+  completed session, including reliable start-stop-start registration;
+- bounded and cancelled manual endpoint checks to prevent stale background
+  probes after a new request or engine stop;
+- moved sing-box command-channel connects and URL tests to bounded IO work and
+  ignored late latency/log callbacks after stop;
+- moved sing-box native shutdown off the Android service main thread and kept
+  teardown idempotent.
+
+## 0.8.0-rc16-oss
+
+- added TrustTunnel `Russia direct` routing using the pinned offline IPv4/IPv6
+  network set;
+- applied TrustTunnel routing dynamically at every connection start without
+  duplicating the network set in saved profiles;
+- kept TrustTunnel application rules and sing-box-only domain routing separate.
+
 ## 0.8.0-rc15-oss
 
 - added an offline `Russia direct` mode for sing-box: Russian domains and IP

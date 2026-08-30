@@ -1,0 +1,424 @@
+warning: in the working copy of 'platform/android/lib/src/main/java/com/adguard/trusttunnel/AppNotifier.kt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'platform/android/lib/src/main/java/com/adguard/trusttunnel/VpnService.kt', LF will be replaced by CRLF the next time Git touches it
+diff --git a/platform/android/lib/build.gradle.kts b/platform/android/lib/build.gradle.kts
+index de771a6..3aeb729 100644
+--- a/platform/android/lib/build.gradle.kts
++++ b/platform/android/lib/build.gradle.kts
+@@ -7,6 +7,9 @@ plugins {
+ 
+ version = "1.1.4"
+ 
++val veilarkReproCFlags = providers.environmentVariable("VEILARK_REPRO_CFLAGS").orNull
++val veilarkReproLinkerFlags = providers.environmentVariable("VEILARK_REPRO_LINKER_FLAGS").orNull
++
+ android {
+     namespace = "com.adguard.trusttunnel"
+     compileSdk = 35
+@@ -26,6 +29,13 @@ android {
+                 targets += "trusttunnel_android"
+                 arguments += "-DANDROID_STL=c++_static"
+                 arguments += "-DCMAKE_BUILD_TYPE=RelWithDebInfo"
++                veilarkReproCFlags?.takeIf(String::isNotBlank)?.let { flags ->
++                    arguments += "-DCMAKE_C_FLAGS=$flags"
++                    arguments += "-DCMAKE_CXX_FLAGS=$flags"
++                }
++                veilarkReproLinkerFlags?.takeIf(String::isNotBlank)?.let { flags ->
++                    arguments += "-DCMAKE_SHARED_LINKER_FLAGS=$flags"
++                }
+             }
+         }
+     }
+diff --git a/platform/android/lib/src/main/java/com/adguard/trusttunnel/AppNotifier.kt b/platform/android/lib/src/main/java/com/adguard/trusttunnel/AppNotifier.kt
+index 78f02bf..c98ce80 100644
+--- a/platform/android/lib/src/main/java/com/adguard/trusttunnel/AppNotifier.kt
++++ b/platform/android/lib/src/main/java/com/adguard/trusttunnel/AppNotifier.kt
+@@ -1,6 +1,6 @@
+ package com.adguard.trusttunnel
+ 
+ interface AppNotifier {
+-    fun onStateChanged(state: Int);
++    fun onStateChanged(state: Int, sessionId: Long);
+     fun onConnectionInfo(info: String);
+-}
+\ No newline at end of file
++}
+diff --git a/platform/android/lib/src/main/java/com/adguard/trusttunnel/VpnService.kt b/platform/android/lib/src/main/java/com/adguard/trusttunnel/VpnService.kt
+index d09f185..7d583bf 100644
+--- a/platform/android/lib/src/main/java/com/adguard/trusttunnel/VpnService.kt
++++ b/platform/android/lib/src/main/java/com/adguard/trusttunnel/VpnService.kt
+@@ -17,6 +17,7 @@ import com.adguard.trusttunnel.log.LoggerManager
+ import com.adguard.trusttunnel.utils.NetworkUtils
+ import com.adguard.trusttunnel.utils.concurrent.thread.ThreadManager
+ import java.io.File
++import java.util.concurrent.atomic.AtomicLong
+ 
+ class VpnService : android.net.VpnService(), VpnClientListener {
+ 
+@@ -28,6 +29,8 @@ class VpnService : android.net.VpnService(), VpnClientListener {
+         private lateinit var connectivityManager: ConnectivityManager
+         private lateinit var networkRequest: NetworkRequest
+         private lateinit var networkCallback: NetworkUtils.Companion.NetworkCollector
++        @Volatile
++        private var networkManagerStarted = false
+         private var connectionInfoFile: PersistentRingBuffer? = null
+         private var currentStartId: Int = -1
+ 
+@@ -36,9 +39,11 @@ class VpnService : android.net.VpnService(), VpnClientListener {
+         private var configStorage: VpnConfigStorage? = null
+         // The last VpnState observed by `onStateChanged`
+         private var lastState: Int = 0
++        private var lastSessionId: Long = 0L
+         private const val ACTION_START = "Start"
+         private const val ACTION_STOP  = "Stop"
+         private const val PARAM_CONFIG = "Config Extra"
++        private const val PARAM_SESSION_ID = "Session ID Extra"
+         private const val NOTIFICATION_ID = 1
+         private val IPV4_NON_ROUTABLE = listOf("0.0.0.0/8", "224.0.0.0/3")
+         private val ADGUARD_DNS_SERVERS = listOf("46.243.231.30", "46.243.231.31", "2a10:50c0::2:ff", "2a10:50c0::1:ff")
+@@ -48,34 +53,39 @@ class VpnService : android.net.VpnService(), VpnClientListener {
+             return configStorage ?: VpnConfigStorage(context).also { configStorage = it }
+         }
+ 
+-        private fun start(context: Context, intent: Intent, config: String?) {
++        private fun start(context: Context, intent: Intent, config: String?, sessionId: Long): Boolean =
+             try {
+                 if (!isPrepared(context)) {
+                     LOG.warn("VPN is not prepared, can't manipulate the service")
+-                    return
+-                }
+-                config?.apply {
+-                    getConfigStorage(context).save(config)
+-                    intent.putExtra(PARAM_CONFIG, config)
++                    false
++                } else {
++                    config?.apply {
++                        getConfigStorage(context).save(config)
++                        intent.putExtra(PARAM_CONFIG, config)
++                    }
++                    intent.putExtra(PARAM_SESSION_ID, sessionId)
++                    context.startForegroundService(intent)
++                    true
+                 }
+-                context.startForegroundService(intent)
+             } catch (e: Exception) {
+                 LOG.error("Error occurred while service starting", e)
++                false
+             }
+-        }
+ 
+-        fun stop(context: Context) {
++        fun stop(context: Context, sessionId: Long): Boolean {
+             getConfigStorage(context).clear()
+-            start(context, ACTION_STOP, null)
++            return start(context, ACTION_STOP, null, sessionId)
+         }
+-        fun start(context: Context, config: String?) = start(context, ACTION_START, config)
+-        private fun start(context: Context, action: String, config: String?) = start(context, getIntent(context, action), config)
++        fun start(context: Context, config: String?, sessionId: Long): Boolean =
++            start(context, ACTION_START, config, sessionId)
++        private fun start(context: Context, action: String, config: String?, sessionId: Long): Boolean =
++            start(context, getIntent(context, action), config, sessionId)
+ 
+         fun updateExclusions(exclusions: List<String>): Boolean =
+             vpnClient?.updateExclusions(exclusions) ?: false
+ 
+         fun startNetworkManager(context: Context) = synchronized(NETWORK_MANAGER_SYNC) {
+-            if (::networkCallback.isInitialized) {
++            if (networkManagerStarted) {
+                 // Avoid double initialization
+                 return
+             }
+@@ -92,14 +102,32 @@ class VpnService : android.net.VpnService(), VpnClientListener {
+ 
+             networkCallback = NetworkUtils.Companion.NetworkCollector()
+             connectivityManager.registerNetworkCallback(networkRequest, networkCallback)
++            networkManagerStarted = true
++        }
++
++        fun stopNetworkManager() = synchronized(NETWORK_MANAGER_SYNC) {
++            if (!networkManagerStarted) {
++                return
++            }
++            try {
++                connectivityManager.unregisterNetworkCallback(networkCallback)
++            } catch (e: Exception) {
++                LOG.warn("Failed to unregister network callback: $e")
++            } finally {
++                networkCallback.clear()
++                networkManagerStarted = false
++            }
+         }
+ 
+         private fun startNetworkNotifications(vpnClient: VpnClient?) = synchronized(NETWORK_MANAGER_SYNC) {
++            check(networkManagerStarted) { "Network manager is not started" }
+             networkCallback.startNotifying(vpnClient)
+         }
+ 
+         private fun stopNetworkNotifications() = synchronized(NETWORK_MANAGER_SYNC) {
+-            networkCallback.stopNotifying()
++            if (networkManagerStarted) {
++                networkCallback.stopNotifying()
++            }
+         }
+ 
+         fun isPrepared(context: Context): Boolean {
+@@ -120,7 +148,7 @@ class VpnService : android.net.VpnService(), VpnClientListener {
+             connectionInfoFile = PersistentRingBuffer(file)
+             appNotifier = notifier
+             // Notify current state
+-            appNotifier?.onStateChanged(lastState)
++            appNotifier?.onStateChanged(lastState, lastSessionId)
+             // Notify all query logs
+             connectionInfoFile?.apply {
+                 val records = readAll()
+@@ -137,6 +165,9 @@ class VpnService : android.net.VpnService(), VpnClientListener {
+ 
+     private var state = State.Stopped
+     private val singleThread = ThreadManager.create("vpn-service", 1)
++    private val lastDisconnectedSessionId = AtomicLong(Long.MIN_VALUE)
++    @Volatile
++    private var currentSessionId = 0L
+     @Volatile
+     private var certificateVerificator: CertificateVerificator? = null
+ 
+@@ -144,6 +175,7 @@ class VpnService : android.net.VpnService(), VpnClientListener {
+     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+         if (intent == null) {
+             LOG.info("Received a null intent, doing nothing")
++            notifyDisconnectedOnce(currentSessionId)
+             stopSelf()
+             return START_NOT_STICKY
+         }
+@@ -160,69 +192,78 @@ class VpnService : android.net.VpnService(), VpnClientListener {
+         singleThread.execute {
+             try {
+                 currentStartId = startId
++                val sessionId = intent.getLongExtra(PARAM_SESSION_ID, 0L)
++                currentSessionId = sessionId
+                 val action = intent.action
+                 val config = intent.getStringExtra(PARAM_CONFIG)
+                 LOG.info("Start executing action=$action flags=$flags startId=$startId")
+                 when (action) {
+-                    ACTION_START    -> processStarting(config, startId)
+-                    ACTION_STOP     -> close(startId)
++                    ACTION_START    -> processStarting(config, startId, sessionId)
++                    ACTION_STOP     -> close(startId, sessionId)
+                     else            -> {
+                         startNetworkManager(applicationContext)
+                         LOG.info("System-triggered start (Always-On VPN), loading persisted config")
+                         val persistedConfig = getConfigStorage(applicationContext).load()
+-                        processStarting(persistedConfig, startId)
++                        processStarting(persistedConfig, startId, sessionId)
+                     }
+                 }
+ 
+                 LOG.info("Command $action for the VPN has been executed")
+             } catch (e: Exception) {
+                 LOG.error("Error while executing command", e)
++                failStarting(startId, currentSessionId)
+             }
+         }
+ 
+         return START_NOT_STICKY
+     }
+ 
+-    private fun processStarting(configStr: String?, startId: Int) {
++    private fun processStarting(configStr: String?, startId: Int, sessionId: Long) {
+         if (state == State.Started) {
+             LOG.info("VPN service has already been started, do nothing")
+             return
+         }
++        startNetworkManager(applicationContext)
+         if (configStr == null) {
+             LOG.error("Failed to get the Vpn Interface config settings")
+-            return failStarting(startId)
++            return failStarting(startId, sessionId)
+         }
+         val config = VpnServiceConfig.parseToml(configStr)
+         if (config == null) {
+             LOG.error("Failed to parse Vpn Interface config")
+-            return failStarting(startId)
++            return failStarting(startId, sessionId)
+         }
+ 
+         try {
+             certificateVerificator = CertificateVerificator()
+         } catch (e: Exception) {
+             LOG.error("Failed to create certificate verifier: $e")
+-            return failStarting(startId)
++            return failStarting(startId, sessionId)
+         }
+ 
+         LOG.info("VPN is starting...")
+-        val vpnTunInterface = createTunInterface(config) ?: return failStarting(startId)
++        val vpnTunInterface = createTunInterface(config) ?: return failStarting(startId, sessionId)
+         // This is required to save startId and pass it to `closeIfLast` in case of DISCONNECTED state event
+         val service = this
+         val proxyClientListener = object : VpnClientListener by service {
+             override fun onStateChanged(state: Int) {
++                var forwardState = true
+                 try {
+                     val state = VpnState.getByCode(state)
+                     LOG.info("VpnService onStateChanged: ${state.name}")
+                     if (state == VpnState.DISCONNECTED) {
++                        forwardState = false
+                         singleThread.execute {
+-                            service.closeIfLast(startId)
++                            service.closeIfLast(startId, sessionId)
+                         }
++                        service.notifyDisconnectedOnce(sessionId)
+                     }
+                 } catch (e: Exception) {
+                     LOG.warn("Failed to process unknown VPN state $state: $e")
+                 }
+-                service.onStateChanged(state)
++                if (forwardState) {
++                    service.onStateChanged(state, sessionId)
++                }
+             }
+         }
+         vpnClient = VpnClient(configStr, proxyClientListener)
+@@ -230,13 +271,13 @@ class VpnService : android.net.VpnService(), VpnClientListener {
+         startNetworkNotifications(vpnClient)
+         if (vpnClient?.start(vpnTunInterface) != true) {
+             LOG.error("Failed to start Vpn client");
+-            return failStarting(startId)
++            return failStarting(startId, sessionId)
+         }
+ 
+         state = State.Started
+     }
+ 
+-    private fun failStarting(startId: Int) {
++    private fun failStarting(startId: Int, sessionId: Long) {
+         if (vpnClient != null) {
+             stopNetworkNotifications()
+             vpnClient?.stop()
+@@ -244,13 +285,13 @@ class VpnService : android.net.VpnService(), VpnClientListener {
+             vpnClient = null
+         }
+         state = State.Stopped
++        notifyDisconnectedOnce(sessionId)
+         stopSelf(startId)
+-        onStateChanged(VpnState.DISCONNECTED.code)
+     }
+ 
+     override fun onRevoke() = singleThread.execute {
+         LOG.info("Revoking the VPN service")
+-        close()
++        close(sessionId = currentSessionId)
+     }
+ 
+     private fun createTunInterface(config: VpnServiceConfig): ParcelFileDescriptor? {
+@@ -336,12 +377,12 @@ class VpnService : android.net.VpnService(), VpnClientListener {
+      * @return true if the service has been closed successfully
+      *         false if the service hasn't been stopped because startId is too old
+      */
+-    private fun closeIfLast(startId: Int): Boolean {
++    private fun closeIfLast(startId: Int, sessionId: Long): Boolean {
+         if (startId < currentStartId) {
+             return false
+         }
+ 
+-        return close(startId)
++        return close(startId, sessionId)
+     }
+ 
+     /**
+@@ -350,9 +391,10 @@ class VpnService : android.net.VpnService(), VpnClientListener {
+      * @return true if the service has been closed successfully
+      *         false if something is wrong with closing or the service has already been closed
+      */
+-    private fun close(startId: Int? = null): Boolean {
++    private fun close(startId: Int? = null, sessionId: Long = currentSessionId): Boolean {
+         if (state != State.Started) {
+             LOG.info("VPN service is not running, stopping the foreground service")
++            notifyDisconnectedOnce(sessionId)
+             if (startId != null) {
+                 stopSelf(startId)
+             } else {
+@@ -367,17 +409,44 @@ class VpnService : android.net.VpnService(), VpnClientListener {
+         vpnClient?.stop()
+         vpnClient?.close()
+         vpnClient = null
++        state = State.Stopped
++        notifyDisconnectedOnce(sessionId)
+         if (startId != null) {
+             stopSelf(startId)
+         } else {
+             stopSelf()
+         }
+-        state = State.Stopped
+-
+         LOG.info("VPN service closed!")
+         return true
+     }
+ 
++    private fun notifyDisconnectedOnce(sessionId: Long) {
++        while (true) {
++            val previous = lastDisconnectedSessionId.get()
++            if (sessionId <= previous) return
++            if (lastDisconnectedSessionId.compareAndSet(previous, sessionId)) break
++        }
++        onStateChanged(VpnState.DISCONNECTED.code, sessionId)
++    }
++
++    override fun onDestroy() {
++        try {
++            if (state == State.Started) {
++                stopNetworkNotifications()
++                vpnClient?.stop()
++                vpnClient?.close()
++                vpnClient = null
++                state = State.Stopped
++            }
++            notifyDisconnectedOnce(currentSessionId)
++        } catch (e: Exception) {
++            LOG.error("Failed to close VPN service during destruction", e)
++        } finally {
++            singleThread.shutdownNow()
++            super.onDestroy()
++        }
++    }
++
+     /** An enum to represent the VPN service states */
+     enum class State {
+         Started, Stopped
+@@ -402,9 +471,12 @@ class VpnService : android.net.VpnService(), VpnClientListener {
+         return verificator.verifyCertificate(certificate, rawChain)
+     }
+ 
+-    override fun onStateChanged(state: Int) = eventsSync.execute {
++    override fun onStateChanged(state: Int) = onStateChanged(state, currentSessionId)
++
++    private fun onStateChanged(state: Int, sessionId: Long) = eventsSync.execute {
+         lastState = state
+-        appNotifier?.onStateChanged(state)
++        lastSessionId = sessionId
++        appNotifier?.onStateChanged(state, sessionId)
+     }
+ 
+     override fun onConnectionInfo(info: String) = eventsSync.execute {
+diff --git a/platform/android/lib/src/main/java/com/adguard/trusttunnel/utils/NetworkUtils.kt b/platform/android/lib/src/main/java/com/adguard/trusttunnel/utils/NetworkUtils.kt
+index ff68265..02801f8 100644
+--- a/platform/android/lib/src/main/java/com/adguard/trusttunnel/utils/NetworkUtils.kt
++++ b/platform/android/lib/src/main/java/com/adguard/trusttunnel/utils/NetworkUtils.kt
+@@ -27,6 +27,11 @@ class NetworkUtils {
+                 vpnClient = null
+             }
+ 
++            fun clear() {
++                vpnClient = null
++                availableNetworks.clear()
++            }
++
+             data class SystemDns (
+                 val servers: List<String>,
+                 val bootstraps: List<String>?
+@@ -180,4 +185,4 @@ class NetworkUtils {
+             return null
+         }
+     }
+-}
+\ No newline at end of file
++}
