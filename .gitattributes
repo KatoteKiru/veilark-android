@@ -9,3 +9,4 @@
 *.aar binary
 *.png binary
 *.webp binary
+app/src/main/assets/rules/geoip-ru.json text eol=lf

@@ -25,6 +25,7 @@ UPLOAD_CHUNK_SIZE = 256 * 1024
 UPLOAD_ATTEMPTS = 8
 MAX_RELEASE_NOTES_LENGTH = 500
 MAX_MANIFEST_SIZE = 128 * 1024
+OTA_PACKAGE_ID = "uk.senyasenyavski.veilark"
 
 
 def canonical_payload_v2(fields: list[str]) -> bytes:
@@ -319,6 +320,10 @@ def main() -> None:
         raise FileNotFoundError(apk)
     if args.version_code < 1 or not args.version_name:
         raise ValueError("Invalid version")
+    if args.expected_package != OTA_PACKAGE_ID:
+        raise ValueError(
+            f"OTA channel accepts only the installed Veilark package: {OTA_PACKAGE_ID}"
+        )
     notes = args.notes.strip()
     if not notes or len(notes) > MAX_RELEASE_NOTES_LENGTH:
         raise ValueError("Release notes must contain 1-500 characters")
