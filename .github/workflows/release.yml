@@ -50,6 +50,8 @@ jobs:
         run: ./gradlew testOssDebugUnitTest lintOssRelease assembleOssRelease --no-daemon
       - name: Verify identity, signer and access-material policy
         shell: bash
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
         run: |
           set -euo pipefail
           APK=app/build/outputs/apk/oss/release/app-oss-release.apk
@@ -62,6 +64,8 @@ jobs:
           test "$SIGNER_SHA256" = "8fc1db1fe13f7226af20076026e9e753de15626b2c4b9ddc4bd8974a03af3763"
           BADGING=$($AAPT dump badging "$APK")
           printf '%s\n' "$BADGING" | grep -F "package: name='app.veilark.android'"
+          VERSION_NAME=$(printf '%s\n' "$BADGING" | sed -n "s/.*versionName='\([^']*\)'.*/\1/p" | head -1)
+          test "$RELEASE_TAG" = "v$VERSION_NAME"
           if printf '%s\n' "$BADGING" | grep -q 'application-debuggable'; then
             echo "Release APK must not be debuggable"
             exit 1
