@@ -1,5 +1,6 @@
 package com.example.veilark.protocol
 
+import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.adguard.trusttunnel.VpnServiceConfig
 import org.junit.Assert.assertEquals
@@ -27,6 +28,22 @@ class TrustTunnelImportInstrumentedTest {
     assertTrue("has_ipv6 = false" in profile.config)
     assertFalse("anti_dpi = false" in profile.config)
     assertNotNull(VpnServiceConfig.parseToml(profile.config))
+  }
+
+  @Test
+  fun compilesGeoIpRuCidrsAsNativeDirectExclusions() {
+    val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+    val cidrs = TrustTunnelGeoRouting.ruCidrs(context)
+    assertEquals(10_859, cidrs.size)
+    assertTrue(cidrs.any { it == "2.56.24.0/22" })
+    assertTrue(cidrs.any { it == "2a14:cf00::/29" })
+
+    val base = TrustTunnelProfile.compile(LOCALHOST_FIXTURE)
+    assertTrue("exclusions = []" in base.config)
+    val effective = TrustTunnelProfile.withDirectCidrs(base.config, cidrs)
+    assertTrue("vpn_mode = \"general\"" in effective)
+    assertTrue("exclusions = [\"2.56.24.0/22\"" in effective)
+    assertNotNull(VpnServiceConfig.parseToml(effective))
   }
 
   companion object {

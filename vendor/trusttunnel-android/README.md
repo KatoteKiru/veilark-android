@@ -9,17 +9,27 @@ vendored into Veilark.
 - Upstream repository: `https://github.com/TrustTunnel/TrustTunnelClient.git`
 - Tag: `v1.1.4`
 - Commit: `7da863b1b947d22a3131d94dcc7c80b0240b6e97`
-- Patch: `patches/0001-android-per-app-routing.patch`
+- Patches: `patches/0001-android-per-app-routing.patch` and
+  `patches/0002-android-lifecycle-hardening.patch`
 - Installed AAR: `app/libs/trusttunnel-client.aar`
 - Installed AAR SHA-256:
-  `3BC3B2D39915305B8F18AD3D33E805054EB3C21FFBD2B0D554CCD48A08DB40D8`
+  `3F442054AF06297C9E6103FACB34508B420C2E28F198CB6EE6958546679B2944`
 
 The patch preserves two Veilark Android lifecycle requirements:
 
 - Android 14+ starts the service with `FOREGROUND_SERVICE_TYPE_SPECIAL_USE`,
   matching Veilark's host manifest;
 - an early connection failure stops the foreground service even if the native
-  client never reached `Started`.
+  client never reached `Started`, and always reports `DISCONNECTED`;
+- native general-mode exclusions can be updated after `CONNECTED`, avoiding a
+  large Geo-IP policy during Android TUN creation.
+
+The lifecycle patch additionally makes service admission observable, emits one
+terminal `DISCONNECTED` event for every early stop, unregisters and clears the
+physical-network collector between sessions, and shuts down the service-owned
+executor during destruction. Start/stop and state callbacks carry the lifecycle
+attempt ID, so late events from an older native client cannot terminalize a
+newer session.
 
 It also applies Android `VpnService.Builder` application routing immediately
 before the TUN is established:
@@ -51,3 +61,10 @@ pwsh -File vendor/trusttunnel-android/scripts/build-adapter.ps1 `
 The final artifact is a full source build. No native library from the previous
 1.0.49 AAR is retained. Exact toolchain, dependency commits, ABI hashes, and
 verification results are recorded in `UPSTREAM.json`.
+
+Absolute source/build roots are remapped for Clang and Rust. GNU SHA-1 BuildIds
+still drifted while all remaining ELF sections were byte-identical, so the
+recipe uses `-Wl,--build-id=none`. Android tombstones therefore require manual
+matching by Veilark version and the per-ABI SHA-256 values in `UPSTREAM.json`.
+The corresponding unstripped libraries are retained in
+`build/release/rc19/trusttunnel-client-1.1.4-native-symbols.zip`.

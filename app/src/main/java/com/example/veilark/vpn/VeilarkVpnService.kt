@@ -14,7 +14,9 @@ import android.net.NetworkCapabilities
 import android.net.NetworkRequest
 import android.net.VpnService
 import android.os.Build
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import android.os.ParcelFileDescriptor
 import android.os.Process
 import android.system.OsConstants
@@ -59,6 +61,7 @@ import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.NetworkInterface
 import java.security.KeyStore
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.io.encoding.Base64
 import kotlin.io.encoding.ExperimentalEncodingApi
 import io.nekohasekai.libbox.NetworkInterface as BoxNetworkInterface
@@ -85,7 +88,10 @@ class VeilarkVpnService :
   CommandServerHandler {
 
   private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+  private val teardownScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+  private val mainHandler = Handler(Looper.getMainLooper())
   private val startupLock = Any()
+  private val teardownRequested = AtomicBoolean(false)
   private val connectivity by lazy {
     getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
   }
@@ -121,6 +127,10 @@ class VeilarkVpnService :
       stopSelf()
       return START_NOT_STICKY
     }
+
+    // A new start is admitted only after the process-wide owner observed the
+    // previous terminal fence, which means its resource teardown has finished.
+    teardownRequested.set(false)
 
     activeProfileName = readActiveProfileName()
     connectionStartedAtMillis = 0L
@@ -257,24 +267,10 @@ class VeilarkVpnService :
   }
 
   override fun onDestroy() {
-    val (ownsAttempt, stoppingAttempt, settlingJob) = synchronized(startupLock) {
-      startupAttempt += 1
-      Triple(ownsLifecycleAttempt(), lifecycleAttempt, startupJob)
-    }
-    settlingJob?.cancel()
-    synchronized(startupLock) { closeResources() }
-    if (ownsAttempt) {
-      if (mutableState.value == ConnectionState.Connecting ||
-        mutableState.value == ConnectionState.Connected
-      ) {
-        mutableState.value = ConnectionState.Disconnected
-      }
-      if (settlingJob?.isCompleted == false) {
-        settlingJob.invokeOnCompletion { finishTeardown(stoppingAttempt) }
-      } else {
-        finishTeardown(stoppingAttempt)
-      }
-    }
+    // Normal shutdown reaches here after the IO teardown. If Android destroys
+    // the service directly, start the same idempotent cleanup without blocking
+    // the service main thread on native close calls.
+    beginTeardown(delayStop = false, stopServiceWhenDone = false)
     scope.cancel()
     super.onDestroy()
   }
@@ -736,23 +732,40 @@ class VeilarkVpnService :
   }
 
   private fun shutdown(delayStop: Boolean = false) {
+    beginTeardown(delayStop = delayStop, stopServiceWhenDone = true)
+  }
+
+  private fun beginTeardown(
+    delayStop: Boolean,
+    stopServiceWhenDone: Boolean,
+  ) {
+    if (!teardownRequested.compareAndSet(false, true)) return
     val (ownsAttempt, stoppingAttempt, settlingJob) = synchronized(startupLock) {
       startupAttempt += 1
       Triple(ownsLifecycleAttempt(), lifecycleAttempt, startupJob)
     }
     settlingJob?.cancel()
-    synchronized(startupLock) { closeResources() }
-    if (ownsAttempt) {
-      mutableState.value = if (delayStop) ConnectionState.Failed else ConnectionState.Disconnected
-      if (settlingJob?.isCompleted == false) {
-        settlingJob.invokeOnCompletion { finishTeardown(stoppingAttempt) }
-      } else {
-        finishTeardown(stoppingAttempt)
+    teardownScope.launch {
+      try {
+        synchronized(startupLock) { closeResources() }
+      } finally {
+        mainHandler.post {
+          if (ownsAttempt) {
+            mutableState.value = if (delayStop) {
+              ConnectionState.Failed
+            } else {
+              ConnectionState.Disconnected
+            }
+            finishTeardown(stoppingAttempt)
+          }
+          if (!delayStop) TechnicalLogStore.info("SING-BOX", "Tunnel stopped")
+          if (stopServiceWhenDone) {
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            stopSelf()
+          }
+        }
       }
     }
-    if (!delayStop) TechnicalLogStore.info("SING-BOX", "Tunnel stopped")
-    stopForeground(STOP_FOREGROUND_REMOVE)
-    stopSelf()
   }
 
   private fun publishState(state: ConnectionState) {
@@ -823,6 +836,7 @@ class VeilarkVpnService :
   }
 
   private fun closeResources() {
+    EndpointLatencyProbe.stop()
     LatencyMonitor.stop()
     runCatching { commandServer?.closeService() }
     runCatching { commandServer?.close() }
@@ -950,6 +964,7 @@ class VeilarkVpnService :
       attempt: LifecycleAttempt,
     ) {
       NativeRuntimeState.requireLibbox()
+      EndpointLatencyProbe.stop()
       activeLifecycleAttempt = attempt
       mutableStopped.value = false
       mutableState.value = ConnectionState.Connecting

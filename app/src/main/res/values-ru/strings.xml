@@ -7,6 +7,9 @@
     <string name="automatic">Автоматически</string>
     <string name="automatic_node_description">Самый быстрый доступный узел</string>
     <string name="subscription_add">Добавить подписку по ссылке или из файла</string>
+    <string name="subscription_get_or_renew">Открыть Telegram-бот Veilark</string>
+    <string name="subscription_bot_note">Получение и продление подписки — в боте Veilark. Оплата скоро появится.</string>
+    <string name="subscription_bot_open_failed">Не удалось открыть Telegram-бот Veilark. Откройте @senyavpn_bot вручную.</string>
     <string name="subscription_paste">Вставить ссылку подписки из буфера обмена</string>
     <string name="subscription_scan_qr">Добавить подписку по QR-коду</string>
     <string name="subscription_refresh">Обновить выбранную подписку</string>
@@ -92,6 +95,8 @@
     <string name="kill_switch">Защита при обрыве</string>
     <string name="enabled_value">Включена</string>
     <string name="trust_full_tunnel">Полный туннель через TrustTunnel</string>
+    <string name="trust_russia_direct_description">Российские сети IPv4/IPv6 идут напрямую, остальной трафик — через TrustTunnel</string>
+    <string name="trust_routing_mode_unsupported">TrustTunnel поддерживает только полный туннель или режим «Россия напрямую». Свои доменные правила доступны в sing-box.</string>
     <string name="protection">Защита</string>
     <string name="close_routing">Закрыть настройки маршрутизации</string>
     <string name="custom_rules_description">Укажите, что направлять напрямую или через VPN</string>
@@ -99,7 +104,7 @@
     <string name="routes_input_hint">Домены и сети через пробел или с новой строки</string>
     <string name="always_vpn">Всегда через VPN</string>
     <string name="vpn_routes_priority">Эти правила имеют приоритет над прямыми</string>
-    <string name="trust_app_rules_note">Для TrustTunnel доступны правила по приложениям. Android применяет их при создании VPN-интерфейса, поэтому изменение вступит в силу при следующем подключении. Доменные и IP-правила доступны в sing-box.</string>
+    <string name="trust_app_rules_note">Для TrustTunnel доступны правила по приложениям и обход российских IP-сетей. Android применяет изменения при создании VPN-интерфейса, поэтому после изменения настроек переподключитесь. Свои доменные правила доступны в sing-box.</string>
     <string name="apps_only_vpn">Только выбранные через VPN</string>
     <string name="apps_bypass_vpn">Выбранные без VPN</string>
     <string name="nothing_selected">Ничего не выбрано</string>
@@ -171,6 +176,8 @@
     <string name="subscription_switch_failed">Не удалось переключить подписку</string>
     <string name="subscription_delete_failed">Не удалось удалить подписку</string>
     <string name="routing_save_failed">Не удалось сохранить маршрутизацию приложений</string>
+    <string name="routing_saved">Маршрутизация сохранена</string>
+    <string name="routing_saved_reconnect">Маршрутизация сохранена. Переподключитесь, чтобы применить её.</string>
     <string name="routing_apply_failed">Не удалось применить маршрутизацию</string>
     <string name="stage_idle">Ожидание</string>
     <string name="stage_config">Проверка профиля</string>

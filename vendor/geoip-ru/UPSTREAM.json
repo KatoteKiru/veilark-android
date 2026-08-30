@@ -1,0 +1,21 @@
+{
+  "schema": 1,
+  "source": {
+    "repository": "https://github.com/SagerNet/sing-geoip",
+    "commit": "b9c5e675b4d5359d4b47f4434fa7ae77e9991306",
+    "url": "https://raw.githubusercontent.com/SagerNet/sing-geoip/b9c5e675b4d5359d4b47f4434fa7ae77e9991306/geoip-ru.srs",
+    "license": "GPL-3.0-or-later",
+    "srs_sha256": "1a8115af741918ff24b37b87d3c6da21eccabc58f1eec059e461dca8bac16ff7"
+  },
+  "derivation": {
+    "tool": "sing-box 1.13.19 rule-set decompile",
+    "json_sha256": "ad921e489713e5a837417e3a0f5ed5ce07d9f8ffe9aeecf47c13ee397bff0d2b",
+    "canonical_token_sha256": "e8f53102eab91db9fb6329d79a1dd528564818dfe603018a9261138334bcbc1d"
+  },
+  "contents": {
+    "cidr_count": 10859,
+    "ipv4_count": 8681,
+    "ipv6_count": 2178
+  },
+  "packaged_path": "app/src/main/assets/rules/geoip-ru.json"
+}
