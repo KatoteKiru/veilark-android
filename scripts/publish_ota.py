@@ -153,8 +153,12 @@ def verify_local_apk(
         )
     signer_report = run_android_tool(signer, "verify", "--verbose", "--print-certs", str(apk))
     normalized = signer_report.lower()
-    if "verified using v2 scheme (apk signature scheme v2): true" not in normalized:
-        raise RuntimeError("APK Signature Scheme v2 verification failed")
+    whole_file_signatures = (
+        "verified using v2 scheme (apk signature scheme v2): true",
+        "verified using v3 scheme (apk signature scheme v3): true",
+    )
+    if not any(marker in normalized for marker in whole_file_signatures):
+        raise RuntimeError("APK Signature Scheme v2/v3 verification failed")
     if f"certificate sha-256 digest: {expected_signer_sha256.lower()}" not in normalized:
         raise RuntimeError("APK signer does not match the established OTA signer")
 
