@@ -49,7 +49,7 @@ jobs:
       - name: Test and build signed OSS release
         env:
           VEILARK_OSS_KEYSTORE: ${{ runner.temp }}/veilark-oss-release.jks
-        run: ./gradlew testOssDebugUnitTest lintOssRelease assembleOssRelease --no-daemon
+        run: ./gradlew testOssDebugUnitTest lintOssRelease assembleOssRelease --no-daemon --no-configuration-cache
       - name: Verify identity, signer and access-material policy
         shell: bash
         env:

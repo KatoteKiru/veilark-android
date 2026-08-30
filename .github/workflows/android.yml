@@ -22,7 +22,7 @@ jobs:
       - name: Verify Gradle wrapper
         uses: gradle/actions/wrapper-validation@v4
       - name: Test, lint and assemble OSS
-        run: ./gradlew testOssDebugUnitTest lintOssRelease assembleOssDebug assembleOssDebugAndroidTest --no-daemon
+        run: ./gradlew testOssDebugUnitTest lintOssRelease assembleOssDebug assembleOssDebugAndroidTest --no-daemon --no-configuration-cache
       - name: Upload installable debug APK
         uses: actions/upload-artifact@v4
         with:
