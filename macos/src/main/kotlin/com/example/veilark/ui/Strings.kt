@@ -30,6 +30,7 @@ object Strings {
   val file get() = if (russian) "Файл" else "File"
   val profiles get() = if (russian) "Профили" else "Profiles"
   val getOrRenewSubscription get() = if (russian) "Получить / продлить подписку" else "Get / renew subscription"
+  val support get() = if (russian) "Поддержка" else "Support"
   val telegramOpenFailed get() = if (russian) "Не удалось открыть Telegram. Откройте @senyavpn_bot вручную." else "Could not open Telegram. Open @senyavpn_bot manually."
   val log get() = if (russian) "Журнал" else "Log"
   val overview get() = if (russian) "Обзор" else "Overview"

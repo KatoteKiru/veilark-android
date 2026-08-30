@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -631,6 +632,20 @@ private fun ProfilesSection(session: VeilarkSession, refresh: () -> Unit) {
       ) {
         Text(Strings.getOrRenewSubscription)
       }
+      Spacer(Modifier.width(8.dp))
+      TextButton(
+        onClick = {
+          subscriptionBotError = if (
+            TelegramBotLink.openConfigured(TelegramBotLink.Destination.SUPPORT)
+          ) {
+            null
+          } else {
+            Strings.telegramOpenFailed
+          }
+        },
+      ) {
+        Text(Strings.support)
+      }
     }
     subscriptionBotError?.let { message ->
       Text(
@@ -785,7 +800,12 @@ private fun ProfileCatalog(session: VeilarkSession, refresh: () -> Unit, modifie
   ) {
     item { Text(Strings.savedConnections, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold) }
     if (session.engine == TunnelEngineKind.SING_BOX) {
-      items(session.singBoxEntries, key = { it.id }) { entry -> SingBoxEntryRow(session, entry, refresh) }
+      // Keep the subscription header and its nodes as separate lazy items.
+      // A large subscription must not eagerly compose every node just because
+      // its subscription is selected.
+      session.singBoxEntries.forEach { entry ->
+        singBoxEntryItems(session, entry, refresh)
+      }
     } else {
       items(session.trustEntries, key = { it.id }) { entry ->
         SelectableRow(
@@ -800,10 +820,13 @@ private fun ProfileCatalog(session: VeilarkSession, refresh: () -> Unit, modifie
   }
 }
 
-@Composable
-private fun SingBoxEntryRow(session: VeilarkSession, entry: SingBoxCatalogEntry, refresh: () -> Unit) {
+private fun LazyListScope.singBoxEntryItems(
+  session: VeilarkSession,
+  entry: SingBoxCatalogEntry,
+  refresh: () -> Unit,
+) {
   val selected = entry.id == session.selectedSingBoxId
-  Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+  item(key = "singbox-header-${entry.id}") {
     SelectableRow(
       title = entry.name,
       subtitle = "${entry.nodes.size} · ${entry.origin.wireName}",
@@ -811,8 +834,12 @@ private fun SingBoxEntryRow(session: VeilarkSession, entry: SingBoxCatalogEntry,
       icon = Icons.Outlined.Tune,
       onClick = { session.selectSingBox(entry.id); refresh() },
     )
-    if (selected) {
+  }
+  if (selected) {
+    item(key = "singbox-servers-label-${entry.id}") {
       Text(Strings.servers, style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(start = 13.dp, top = 2.dp))
+    }
+    item(key = "singbox-automatic-${entry.id}") {
       SelectableRow(
         title = Strings.automatic,
         selected = entry.selectedNodeTag == ProfileSelection.AUTOMATIC_TAG,
@@ -823,19 +850,19 @@ private fun SingBoxEntryRow(session: VeilarkSession, entry: SingBoxCatalogEntry,
           refresh()
         },
       )
-      entry.nodes.forEach { node ->
-        SelectableRow(
-          title = node.name,
-          subtitle = node.protocol,
-          selected = entry.selectedNodeTag == node.tag,
-          indent = true,
-          icon = Icons.Outlined.Wifi,
-          onClick = {
-            session.selectSingBox(entry.id, node.tag)
-            refresh()
-          },
-        )
-      }
+    }
+    items(entry.nodes, key = { node -> "singbox-node-${entry.id}:${node.tag}" }) { node ->
+      SelectableRow(
+        title = node.name,
+        subtitle = node.protocol,
+        selected = entry.selectedNodeTag == node.tag,
+        indent = true,
+        icon = Icons.Outlined.Wifi,
+        onClick = {
+          session.selectSingBox(entry.id, node.tag)
+          refresh()
+        },
+      )
     }
   }
 }

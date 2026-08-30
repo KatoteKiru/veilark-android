@@ -5,28 +5,52 @@ import java.net.URI
 
 internal object TelegramBotLink {
   const val DEFAULT_URL = "https://t.me/senyavpn_bot?start=client_macos"
-  private const val PROPERTY_NAME = "veilark.telegramBotUrl"
-  private const val ENVIRONMENT_NAME = "VEILARK_TELEGRAM_BOT_URL"
+  const val DEFAULT_SUPPORT_URL = "https://t.me/senyavpn_bot?start=support"
+  private const val BOT_PATH = "/senyavpn_bot"
   private val allowedHosts = setOf("t.me", "telegram.me")
 
-  fun configuredUrl(): String =
-    System.getProperty(PROPERTY_NAME)?.takeIf(String::isNotBlank)
-      ?: System.getenv(ENVIRONMENT_NAME)?.takeIf(String::isNotBlank)
-      ?: DEFAULT_URL
+  enum class Destination(
+    internal val startPayload: String,
+    internal val propertyName: String,
+    internal val environmentName: String,
+    internal val defaultUrl: String,
+  ) {
+    SUBSCRIPTION(
+      startPayload = "client_macos",
+      propertyName = "veilark.telegramBotUrl",
+      environmentName = "VEILARK_TELEGRAM_BOT_URL",
+      defaultUrl = DEFAULT_URL,
+    ),
+    SUPPORT(
+      startPayload = "support",
+      propertyName = "veilark.telegramSupportUrl",
+      environmentName = "VEILARK_TELEGRAM_SUPPORT_URL",
+      defaultUrl = DEFAULT_SUPPORT_URL,
+    ),
+  }
 
-  fun validate(raw: String): URI? {
+  fun configuredUrl(destination: Destination = Destination.SUBSCRIPTION): String =
+    System.getProperty(destination.propertyName)?.takeIf(String::isNotBlank)
+      ?: System.getenv(destination.environmentName)?.takeIf(String::isNotBlank)
+      ?: destination.defaultUrl
+
+  fun validate(raw: String, destination: Destination = Destination.SUBSCRIPTION): URI? {
     val candidate = raw.trim().takeIf(String::isNotEmpty) ?: return null
     val uri = runCatching { URI(candidate) }.getOrNull() ?: return null
     val host = uri.host?.lowercase() ?: return null
     return uri.takeIf {
       it.scheme.equals("https", ignoreCase = true) &&
         host in allowedHosts &&
-        it.userInfo == null
+        it.userInfo == null &&
+        it.port == -1 &&
+        it.path == BOT_PATH &&
+        it.rawQuery == "start=${destination.startPayload}" &&
+        it.fragment == null
     }
   }
 
-  fun openConfigured(): Boolean {
-    val uri = validate(configuredUrl()) ?: return false
+  fun openConfigured(destination: Destination = Destination.SUBSCRIPTION): Boolean {
+    val uri = validate(configuredUrl(destination), destination) ?: return false
     return runCatching {
       check(Desktop.isDesktopSupported())
       val desktop = Desktop.getDesktop()
