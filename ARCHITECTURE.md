@@ -33,8 +33,9 @@ upgrade safety; it does not remove GPL obligations.
 2. Self-hosted signed channel for environments where store access is unreliable.
 
 The self-hosted channel publishes a minimal signed manifest containing version,
-minimum supported version, SHA-256, APK URL, rollout percentage, and release
-notes. Android still requires user confirmation for normal sideloaded updates.
+SHA-256, APK URL, size, and release notes. Android still requires user
+confirmation for normal sideloaded updates. Staged rollout and a minimum
+supported version remain release-control work rather than current behavior.
 
 ## Initial compatibility
 
@@ -46,31 +47,35 @@ notes. Android still requires user confirmation for normal sideloaded updates.
 
 ## Current development build
 
-`0.7.15-dev` contains two independently selectable engines:
+`0.8.0-rc14` contains two independently selectable engines:
 
-- sing-box 1.13.14 with share-link parsing for VLESS Reality/TCP and gRPC,
-  Trojan, and Hysteria 2; imported sing-box JSON may use other protocols
-  supported by the bundled core;
-- the official TrustTunnel 1.0.49 Android core with HTTP/2, HTTP/3, anti-DPI,
+- sing-box 1.13.19 with bounded import for VLESS, Trojan, Hysteria 2, VMess,
+  Shadowsocks, TUIC, and AnyTLS; unsupported or graph-dependent profiles must
+  be reported instead of being described as universally compatible;
+- the official TrustTunnel 1.1.4 Android core with HTTP/2, HTTP/3, anti-DPI,
   post-quantum groups, network recovery, and a full-tunnel kill switch;
 - arm64-v8a and armeabi-v7a native libraries;
 - HTTPS subscriptions, JSON profiles, and `tt://` deep-link import;
 - simultaneous encrypted storage of the primary and TrustTunnel profiles with
   in-app engine switching;
-- an encrypted multi-profile TrustTunnel catalog with endpoint selection,
-  H2/H3 status, and post-connect HTTPS/YouTube health probes;
-- two production TrustTunnel profiles generated into the signed APK and
-  installed into encrypted storage on first launch, so a clean installation
-  works without importing a subscription;
-- the managed TrustTunnel pair is Frankfurt plus the current Netherlands node;
-  obsolete Netherlands profiles are removed during the encrypted-store migration;
-- per-application routing and explicit user-defined VPN/direct domain or CIDR
-  rules for the sing-box engine; automatic geographic routing is not applied;
+- an encrypted multi-profile TrustTunnel catalog with endpoint selection and
+  H2/H3 status; reachability checks are explicit user actions rather than
+  automatic post-connect traffic;
+- a public `oss` flavor with no bundled profiles or private update channel;
+- a separate `private` flavor that can generate managed TrustTunnel profiles
+  from ignored local inputs without placing them in source control;
+- per-application `all`, `only`, and `bypass` routing for both engines through
+  Android `VpnService.Builder`; explicit user-defined VPN/direct domain or CIDR
+  rules and the offline Russia-direct geo preset remain specific to sing-box;
+- a source-tracked TrustTunnel Android adapter patch that preserves Android 14+
+  `specialUse` foreground-service startup and early-failure service cleanup;
 - an explicit 1280-byte TUN MTU, authenticated Cloudflare DoH, and DNS reverse
   mapping for reliable browser, YouTube, and manual domain routing;
-- staged diagnostics and a tunnel-level internet probe;
-- signed, self-hosted OTA manifests and resumable HTTP Range APK downloads with
-  SHA-256 verification and an explicit Android package-install permission flow;
+- staged diagnostics and redacted technical logs without periodic external
+  internet probes;
+- signed, self-hosted OTA manifests and resumable in-app HTTP Range APK downloads
+  with progress, signed release notes, SHA-256, package/version/signer verification,
+  and the mandatory Android package-install confirmation flow;
 - bounded automatic recovery of the sing-box command channel used for live
   latency measurements after network handovers;
 - digest-based built-in TrustTunnel provisioning that avoids redundant
@@ -90,15 +95,23 @@ notes. Android still requires user confirmation for normal sideloaded updates.
   long-press;
 - explicit sing-box and TrustTunnel mode controls that remain switchable after
   a failed connection, plus a bounded persistent technical event journal;
+- a standard private ongoing sing-box notification with current state, profile,
+  system chronometer, app open action, and idempotent disconnect action;
 - manual pre-connect TCP reachability checks for sing-box endpoints and
   TrustTunnel servers, without idle polling or radio wakeups;
 - in-place Android underlying-network handover for sing-box and stable
   recovery-state presentation for TrustTunnel during Wi-Fi/LTE transitions;
-- an adaptive color and monochrome Veilark launcher identity;
+- an in-app CameraX `Preview` plus `ImageAnalysis` QR scanner with bundled ML Kit,
+  back/front camera fallback, bounded frame processing, and redacted failure codes;
+- a restrained graphite/slate adaptive, monochrome, and legacy Veilark launcher identity;
 - a reduced arm64 transition OTA for legacy `0.4.1-dev` clients, with a
   separately published universal arm64/armv7 artifact.
 
-Profile payloads are encrypted with an Android Keystore AES-GCM key. Android
-release APKs currently retain the established development signer so installed
-development builds remain OTA-compatible. A future migration to an offline
-production Android signing key will require one explicit reinstall.
+The `veilarkCoreCanary` flavor keeps its distinct application id for future
+engine experiments. In this release it deliberately uses the same verified
+sing-box 1.13.19 artifact as production.
+
+Profile payloads are encrypted with an Android Keystore AES-GCM key. The OSS
+release uses a dedicated signing identity and application id. The private
+release retains its established signer for update compatibility; the two
+channels cannot update or overwrite one another.

@@ -4,17 +4,22 @@ import com.example.veilark.diagnostics.TechnicalLogStore
 import com.example.veilark.profile.ConnectionNode
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONObject
 import java.net.InetSocketAddress
 import java.net.Socket
+import kotlin.coroutines.resume
 import kotlin.system.measureTimeMillis
 
 /**
@@ -30,31 +35,56 @@ object EndpointLatencyProbe {
   val latencies = mutableLatencies.asStateFlow()
   private val mutableChecking = MutableStateFlow(false)
   val checking = mutableChecking.asStateFlow()
+  private var refreshJob: Job? = null
+  private var refreshGeneration = 0L
 
+  @Synchronized
   fun refresh(config: String, nodes: List<ConnectionNode>) {
-    if (mutableChecking.value) return
-    scope.launch {
+    refreshJob?.cancel()
+    val generation = ++refreshGeneration
+    mutableChecking.value = true
+    refreshJob = scope.launch {
       mutableChecking.value = true
       try {
-        val endpoints = parseEndpoints(config, nodes)
-        val semaphore = Semaphore(PARALLELISM)
-        mutableLatencies.value = endpoints.map { endpoint ->
-          async {
-            semaphore.withPermit {
-              measure(endpoint)?.let { endpoint.tag to it }
-            }
+        val endpoints = ManualLatencyPolicy.boundedTargets(parseEndpoints(config, nodes))
+        val measured = withTimeoutOrNull(ManualLatencyPolicy.DEADLINE_MS) {
+          coroutineScope {
+            val semaphore = Semaphore(PARALLELISM)
+            endpoints.map { endpoint ->
+              async {
+                semaphore.withPermit {
+                  measure(endpoint)?.let { endpoint.tag to it }
+                }
+              }
+            }.awaitAll().filterNotNull().toMap()
           }
-        }.awaitAll().filterNotNull().toMap()
+        }.orEmpty()
+        if (generation == refreshGeneration) mutableLatencies.value = measured
         TechnicalLogStore.info(
           "PING",
-          "Проверено TCP-узлов: ${endpoints.size}, ответили: ${mutableLatencies.value.size}",
+          "TCP endpoints checked: ${endpoints.size}; responded: ${measured.size}",
         )
       } catch (failure: Throwable) {
-        TechnicalLogStore.error("PING", "Проверка узлов не выполнена: ${failure.javaClass.simpleName}")
+        if (generation == refreshGeneration) {
+          TechnicalLogStore.error("PING", "Endpoint check failed: ${failure.javaClass.simpleName}")
+        }
       } finally {
-        mutableChecking.value = false
+        synchronized(this@EndpointLatencyProbe) {
+          if (generation == refreshGeneration) {
+            mutableChecking.value = false
+            refreshJob = null
+          }
+        }
       }
     }
+  }
+
+  @Synchronized
+  fun stop() {
+    refreshGeneration += 1L
+    refreshJob?.cancel()
+    refreshJob = null
+    mutableChecking.value = false
   }
 
   private fun parseEndpoints(
@@ -78,18 +108,22 @@ object EndpointLatencyProbe {
     }
   }
 
-  private fun measure(endpoint: Endpoint): Int? {
-    var connected = false
-    val elapsed = measureTimeMillis {
-      connected = runCatching {
-        Socket().use { socket ->
+  private suspend fun measure(endpoint: Endpoint): Int? =
+    suspendCancellableCoroutine { continuation ->
+      val socket = Socket()
+      continuation.invokeOnCancellation { runCatching { socket.close() } }
+      var connected = false
+      val elapsed = measureTimeMillis {
+        connected = runCatching {
           socket.connect(InetSocketAddress(endpoint.host, endpoint.port), TIMEOUT_MS)
-        }
-        true
-      }.getOrDefault(false)
+          true
+        }.getOrDefault(false)
+      }
+      runCatching { socket.close() }
+      if (continuation.isActive) {
+        continuation.resume(elapsed.toInt().takeIf { connected })
+      }
     }
-    return elapsed.toInt().takeIf { connected }
-  }
 
   private data class Endpoint(
     val tag: String,

@@ -25,5 +25,9 @@ class ConnectionStatePolicyTest {
       ConnectionState.Connecting,
       trustRecoveryUiState(wasConnected = false, connectionRequested = true),
     )
+    assertEquals(
+      ConnectionState.Disconnected,
+      trustRecoveryUiState(wasConnected = true, connectionRequested = false),
+    )
   }
 }

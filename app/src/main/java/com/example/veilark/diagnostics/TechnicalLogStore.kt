@@ -4,11 +4,15 @@ import android.content.Context
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import java.io.File
 import java.time.Instant
+import java.util.concurrent.atomic.AtomicInteger
 
 data class TechnicalLogEntry(
   val timestamp: Long,
@@ -23,9 +27,13 @@ object TechnicalLogStore {
   private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
   private val mutableEntries = MutableStateFlow<List<TechnicalLogEntry>>(emptyList())
   val entries = mutableEntries.asStateFlow()
+  private val writes = Channel<WriteCommand>(capacity = 256)
+  private val droppedWrites = AtomicInteger()
   private val lock = Any()
   @Volatile
   private var logFile: File? = null
+  @Volatile
+  private var writerStarted = false
 
   fun initialize(context: Context) {
     if (logFile != null) return
@@ -38,8 +46,9 @@ object TechnicalLogStore {
         ?.takeLast(MAX_ENTRIES)
         ?.mapNotNull(::decode)
         .orEmpty()
+      startWriter()
     }
-    info("APP", "Veilark запущен")
+    info("APP", "Veilark started")
   }
 
   fun info(component: String, message: String) = append("INFO", component, message)
@@ -52,7 +61,7 @@ object TechnicalLogStore {
     synchronized(lock) {
       mutableEntries.value = emptyList()
     }
-    scope.launch { logFile?.delete() }
+    scope.launch { writes.send(WriteCommand.Clear) }
   }
 
   private fun append(level: String, component: String, message: String) {
@@ -67,15 +76,69 @@ object TechnicalLogStore {
       if (updated.takeLast(2).let { it.size == 2 && sameEvent(it[0], it[1]) }) return
       mutableEntries.value = updated
     }
+    if (writes.trySend(WriteCommand.Append(entry)).isFailure) {
+      droppedWrites.incrementAndGet()
+    }
+  }
+
+  private fun startWriter() {
+    if (writerStarted) return
+    writerStarted = true
     scope.launch {
-      val file = logFile ?: return@launch
-      synchronized(lock) {
-        if (file.length() > MAX_FILE_BYTES) {
-          file.writeText(mutableEntries.value.joinToString("\n", postfix = "\n", transform = ::encode))
-        } else {
-          file.appendText("${encode(entry)}\n", Charsets.UTF_8)
+      val batch = mutableListOf<TechnicalLogEntry>()
+      while (isActive) {
+        when (val first = writes.receive()) {
+          WriteCommand.Clear -> logFile?.delete()
+          is WriteCommand.Append -> {
+            appendOverflowMarker(batch)
+            batch += first.entry
+            val deadline = System.nanoTime() + WRITE_BATCH_WINDOW_MS * 1_000_000
+            while (batch.size < WRITE_BATCH_SIZE) {
+              val remainingMs = ((deadline - System.nanoTime()) / 1_000_000).coerceAtLeast(1)
+              when (val next = withTimeoutOrNull(remainingMs) { writes.receive() }) {
+                null -> break
+                WriteCommand.Clear -> {
+                  batch.clear()
+                  logFile?.delete()
+                }
+                is WriteCommand.Append -> batch += next.entry
+              }
+            }
+            appendOverflowMarker(batch)
+            flush(batch)
+            batch.clear()
+          }
         }
       }
+    }
+  }
+
+  private fun appendOverflowMarker(batch: MutableList<TechnicalLogEntry>) {
+    val dropped = droppedWrites.getAndSet(0)
+    if (dropped == 0) return
+    val marker = TechnicalLogEntry(
+      timestamp = Instant.now().toEpochMilli(),
+      level = "WARN",
+      component = "LOG",
+      message = "Persistence queue overflow: $dropped event(s) were not written",
+    )
+    synchronized(lock) {
+      mutableEntries.value = (mutableEntries.value + marker).takeLast(MAX_ENTRIES)
+    }
+    batch += marker
+  }
+
+  private fun flush(batch: List<TechnicalLogEntry>) {
+    if (batch.isEmpty()) return
+    val file = logFile ?: return
+    if (file.length() > MAX_FILE_BYTES) {
+      val compacted = (
+        file.takeIf(File::isFile)?.readLines(Charsets.UTF_8).orEmpty() +
+          batch.map(::encode)
+        ).takeLast(MAX_ENTRIES)
+      file.writeText(compacted.joinToString("\n", postfix = "\n"), Charsets.UTF_8)
+    } else {
+      file.appendText(batch.joinToString("\n", postfix = "\n", transform = ::encode), Charsets.UTF_8)
     }
   }
 
@@ -126,4 +189,12 @@ object TechnicalLogStore {
       message = fields[3],
     )
   }
+
+  private sealed interface WriteCommand {
+    data class Append(val entry: TechnicalLogEntry) : WriteCommand
+    data object Clear : WriteCommand
+  }
+
+  private const val WRITE_BATCH_SIZE = 32
+  private const val WRITE_BATCH_WINDOW_MS = 1_000L
 }

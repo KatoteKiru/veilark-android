@@ -7,6 +7,8 @@ import android.os.Build
 import android.service.quicksettings.Tile
 import android.service.quicksettings.TileService
 import com.example.veilark.MainActivity
+import com.example.veilark.R
+import com.example.veilark.lifecycle.AndroidTunnelLifecycleOwner
 import com.example.veilark.profile.SecureProfileStore
 import com.example.veilark.protocol.ProfileEngine
 import com.example.veilark.protocol.TrustTunnelManager
@@ -51,7 +53,7 @@ class VeilarkTileService : TileService() {
     unlockAndRun {
       runCatching { toggleConnection() }
         .onFailure {
-          updateTile(Tile.STATE_INACTIVE, "Откройте приложение")
+      updateTile(Tile.STATE_INACTIVE, getString(R.string.tile_open_app))
           openApp(connect = false)
         }
     }
@@ -61,9 +63,8 @@ class VeilarkTileService : TileService() {
     val singBoxState = VeilarkVpnService.state.value
     val trustState = TrustTunnelManager.state.value
     if (singBoxState.isRunning() || trustState.isRunning()) {
-      if (singBoxState.isRunning()) VeilarkVpnService.stop(this)
-      if (trustState.isRunning()) TrustTunnelManager.stop(this)
-      updateTile(Tile.STATE_INACTIVE, "Отключено")
+      AndroidTunnelLifecycleOwner.stop(this)
+      updateTile(Tile.STATE_INACTIVE, getString(R.string.tile_disconnected))
       return
     }
 
@@ -85,7 +86,7 @@ class VeilarkTileService : TileService() {
       return
     }
 
-    updateTile(Tile.STATE_ACTIVE, "Подключение…")
+      updateTile(Tile.STATE_ACTIVE, getString(R.string.notification_connecting))
     if (engine == ProfileEngine.TRUST_TUNNEL) {
       TrustTunnelManager.start(this, SecureProfileStore.load(this, profileId))
     } else {
@@ -97,11 +98,11 @@ class VeilarkTileService : TileService() {
     val states = listOf(VeilarkVpnService.state.value, TrustTunnelManager.state.value)
     when {
       states.any { it == ConnectionState.Connected } ->
-        updateTile(Tile.STATE_ACTIVE, "Защищено")
+      updateTile(Tile.STATE_ACTIVE, getString(R.string.notification_protected))
       states.any { it == ConnectionState.Connecting } ->
-        updateTile(Tile.STATE_ACTIVE, "Подключение…")
+      updateTile(Tile.STATE_ACTIVE, getString(R.string.notification_connecting))
       else ->
-        updateTile(Tile.STATE_INACTIVE, "Отключено")
+      updateTile(Tile.STATE_INACTIVE, getString(R.string.tile_disconnected))
     }
   }
 

@@ -15,13 +15,13 @@ object TunnelDiagnostics {
   private val endpoints = listOf(
     Endpoint("Cloudflare", "https://cp.cloudflare.com/generate_204"),
     Endpoint("YouTube", "https://www.youtube.com/generate_204"),
-    Endpoint("ChatGPT", "https://chatgpt.com/"),
-    Endpoint("OpenAI API", "https://api.openai.com/v1/models"),
-    Endpoint("Gemini API", "https://generativelanguage.googleapis.com/v1beta/models"),
+    Endpoint("Google", "https://www.google.com/generate_204"),
+    Endpoint("GitHub", "https://github.com/"),
+    Endpoint("Wikipedia", "https://www.wikipedia.org/"),
   )
 
   suspend fun run() = withContext(Dispatchers.IO) {
-    TechnicalLogStore.info("DIAGNOSTICS", "Запущена проверка внешних сервисов")
+    TechnicalLogStore.info("DIAGNOSTICS", "External service check started")
     var answered = 0
     endpoints.forEach { endpoint ->
       val started = SystemClock.elapsedRealtime()
@@ -53,9 +53,9 @@ object TunnelDiagnostics {
       }
     }
     val level = if (answered == endpoints.size) {
-      "Проверка завершена: ответили все ${endpoints.size} сервисов"
+      "Check completed: all ${endpoints.size} services responded"
     } else {
-      "Проверка завершена: ответили $answered из ${endpoints.size} сервисов"
+      "Check completed: $answered of ${endpoints.size} services responded"
     }
     if (answered == endpoints.size) {
       TechnicalLogStore.info("DIAGNOSTICS", level)

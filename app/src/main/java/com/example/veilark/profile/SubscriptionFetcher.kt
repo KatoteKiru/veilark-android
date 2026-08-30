@@ -36,7 +36,7 @@ object SubscriptionFetcher {
         // sing-box JSON; panels without negotiation normally fall back to URI/base64.
         connection.setRequestProperty(
           "User-Agent",
-          "SFA/1.13.14 Veilark/${BuildConfig.VERSION_NAME}",
+          "SFA/1.13.19 Veilark/${BuildConfig.VERSION_NAME}",
         )
         connection.setRequestProperty("X-Client", "Veilark")
         headers.forEach(connection::setRequestProperty)

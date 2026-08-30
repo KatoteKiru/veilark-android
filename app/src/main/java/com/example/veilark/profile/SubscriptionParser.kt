@@ -783,7 +783,7 @@ class SubscriptionParser {
       json = root.toString(2),
       profileCount = outbounds.size,
       rejectedCount = rejectedCount,
-      displayName = "Veilark · ${outbounds.size} узлов",
+      displayName = "Veilark · ${outbounds.size}",
       nodes = parsedOutbounds.map(ParsedOutbound::node),
       trustTunnelLinks = trustTunnelLinks,
       rejectedReasons = rejectedReasons,

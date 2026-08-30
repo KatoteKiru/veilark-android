@@ -6,6 +6,7 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager.NameNotFoundException
+import android.content.pm.ServiceInfo
 import android.net.ConnectivityManager
 import android.net.IpPrefix
 import android.net.Network
@@ -13,10 +14,11 @@ import android.net.NetworkCapabilities
 import android.net.NetworkRequest
 import android.net.VpnService
 import android.os.Build
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import android.os.ParcelFileDescriptor
 import android.os.Process
-import android.os.SystemClock
 import android.system.OsConstants
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
@@ -25,6 +27,9 @@ import com.example.veilark.MainActivity
 import com.example.veilark.NativeRuntimeState
 import com.example.veilark.R
 import com.example.veilark.diagnostics.TechnicalLogStore
+import com.example.veilark.lifecycle.AndroidTunnelLifecycleOwner
+import com.example.veilark.lifecycle.LifecycleAttempt
+import com.example.veilark.lifecycle.startupSideEffectAllowed
 import com.example.veilark.profile.SecureProfileStore
 import io.nekohasekai.libbox.CommandServer
 import io.nekohasekai.libbox.CommandServerHandler
@@ -40,7 +45,10 @@ import io.nekohasekai.libbox.StringIterator
 import io.nekohasekai.libbox.SystemProxyStatus
 import io.nekohasekai.libbox.TunOptions
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -52,9 +60,8 @@ import java.net.Inet6Address
 import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.NetworkInterface
-import java.net.HttpURLConnection
-import java.net.URL
 import java.security.KeyStore
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.io.encoding.Base64
 import kotlin.io.encoding.ExperimentalEncodingApi
 import io.nekohasekai.libbox.NetworkInterface as BoxNetworkInterface
@@ -66,13 +73,13 @@ enum class ConnectionState {
   Failed,
 }
 
-enum class StartupStage(val safeTitle: String) {
-  Idle("Ожидание"),
-  Config("Проверка профиля"),
-  Network("Поиск физической сети"),
-  Core("Запуск сетевого ядра"),
-  Tun("Создание VPN-туннеля"),
-  Internet("Проверка доступа"),
+enum class StartupStage(val titleRes: Int) {
+  Idle(R.string.stage_idle),
+  Config(R.string.stage_config),
+  Network(R.string.stage_network),
+  Core(R.string.stage_core),
+  Tun(R.string.stage_tun),
+  Internet(R.string.stage_internet),
 }
 
 class VeilarkVpnService :
@@ -81,6 +88,10 @@ class VeilarkVpnService :
   CommandServerHandler {
 
   private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+  private val teardownScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+  private val mainHandler = Handler(Looper.getMainLooper())
+  private val startupLock = Any()
+  private val teardownRequested = AtomicBoolean(false)
   private val connectivity by lazy {
     getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
   }
@@ -89,8 +100,13 @@ class VeilarkVpnService :
   private var networkCallback: ConnectivityManager.NetworkCallback? = null
   private var interfaceListener: InterfaceUpdateListener? = null
   private var underlyingNetwork: Network? = null
+  private var activeProfileName: String? = null
+  private var connectionStartedAtMillis = 0L
   private val dnsTransport = AndroidDnsTransport { underlyingNetwork ?: findPhysicalNetwork() }
+  @Volatile
   private var startupAttempt = 0
+  private var lifecycleAttempt: LifecycleAttempt? = null
+  private var startupJob: Job? = null
 
   override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
     if (intent?.action == ACTION_STOP) {
@@ -98,70 +114,148 @@ class VeilarkVpnService :
       return START_NOT_STICKY
     }
 
+    lifecycleAttempt = intent?.lifecycleAttempt()
+    if (!ownsLifecycleAttempt()) {
+      TechnicalLogStore.warning("LIFECYCLE", "Stale sing-box start rejected")
+      stopSelf(startId)
+      return START_NOT_STICKY
+    }
+
     val configPath = intent?.getStringExtra(EXTRA_CONFIG_PATH)
     if (configPath.isNullOrBlank()) {
-      mutableState.value = ConnectionState.Failed
+      publishState(ConnectionState.Failed)
       stopSelf()
       return START_NOT_STICKY
     }
 
-    startForeground(NOTIFICATION_ID, createStatusNotification("Подключение…"))
-    val attempt = ++startupAttempt
-    TechnicalLogStore.info("SING-BOX", "Запуск сетевого ядра")
-    mutableState.value = ConnectionState.Connecting
+    // A new start is admitted only after the process-wide owner observed the
+    // previous terminal fence, which means its resource teardown has finished.
+    teardownRequested.set(false)
+
+    activeProfileName = readActiveProfileName()
+    connectionStartedAtMillis = 0L
+    val startingNotification = createStatusNotification(getString(R.string.notification_connecting))
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+      startForeground(
+        NOTIFICATION_ID,
+        startingNotification,
+        ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE,
+      )
+    } else {
+      startForeground(NOTIFICATION_ID, startingNotification)
+    }
+    val attempt = synchronized(startupLock) { ++startupAttempt }
+    TechnicalLogStore.info("SING-BOX", "Starting network engine")
+    publishState(ConnectionState.Connecting)
     mutableFailureMessage.value = null
     mutableFailureCode.value = null
     mutableDiagnosticReport.value = null
+    val lifecycleToken = lifecycleAttempt
     scope.launch {
       kotlinx.coroutines.delay(CONNECTION_TIMEOUT_MS)
-      if (attempt == startupAttempt && mutableState.value == ConnectionState.Connecting) {
-        mutableFailureMessage.value =
-          "Сетевое ядро не подключилось за 45 секунд. Проверьте профиль и сеть"
-        mutableFailureCode.value = "VPN-CORE-TIMEOUT"
-        TechnicalLogStore.error("SING-BOX", "VPN-CORE-TIMEOUT: таймаут подключения")
-        shutdown(delayStop = true)
+      if (
+        attempt == startupAttempt && ownsLifecycleAttempt() &&
+        mutableState.value == ConnectionState.Connecting
+      ) {
+        runCatching {
+          currentStartupSideEffect(attempt, lifecycleToken) {
+            check(mutableState.value == ConnectionState.Connecting)
+            mutableFailureMessage.value =
+              getString(R.string.failure_core_timeout)
+            mutableFailureCode.value = "VPN-CORE-TIMEOUT"
+            TechnicalLogStore.error("SING-BOX", "VPN-CORE-TIMEOUT: connection timed out")
+          }
+          requireCurrentStartup(attempt, lifecycleToken)
+          shutdown(delayStop = true)
+        }
       }
     }
-    scope.launch {
-      runCatching {
-        mutableStartupStage.value = StartupStage.Config
+    val job = scope.launch(start = CoroutineStart.LAZY) {
+      var localServer: CommandServer? = null
+      var ownedNetworkCallback: ConnectivityManager.NetworkCallback? = null
+      var connected = false
+      try {
+        requireCurrentStartup(attempt, lifecycleToken)
+        currentStartupSideEffect(attempt, lifecycleToken) {
+          mutableStartupStage.value = StartupStage.Config
+        }
         val config = SecureProfileStore.load(this@VeilarkVpnService, configPath)
         Libbox.checkConfig(config)
+        requireCurrentStartup(attempt, lifecycleToken)
         TechnicalLogStore.info("CONFIG", describeConfig(config))
-        mutableStartupStage.value = StartupStage.Network
-        underlyingNetwork = findPhysicalNetwork()
-        check(underlyingNetwork != null) { "Physical network is unavailable" }
-        startNetworkMonitor()
-        mutableStartupStage.value = StartupStage.Core
+
+        requireCurrentStartup(attempt, lifecycleToken)
+        currentStartupSideEffect(attempt, lifecycleToken) {
+          mutableStartupStage.value = StartupStage.Network
+        }
+        val physicalNetwork = findPhysicalNetwork()
+          ?: error("Physical network is unavailable")
+        requireCurrentStartup(attempt, lifecycleToken)
+        currentStartupSideEffect(attempt, lifecycleToken) {
+          underlyingNetwork = physicalNetwork
+        }
+        ownedNetworkCallback = startNetworkMonitor(attempt, lifecycleToken)
+
+        currentStartupSideEffect(attempt, lifecycleToken) {
+          mutableStartupStage.value = StartupStage.Core
+        }
         val server = CommandServer(this@VeilarkVpnService, this@VeilarkVpnService)
-        commandServer = server
+        localServer = server
+        requireCurrentStartup(attempt, lifecycleToken)
         server.start()
+        requireCurrentStartup(attempt, lifecycleToken)
+        currentStartupSideEffect(attempt, lifecycleToken) { commandServer = server }
+        requireCurrentStartup(attempt, lifecycleToken)
         server.startOrReloadService(config, OverrideOptions())
-      }.onSuccess {
-        if (attempt != startupAttempt) return@onSuccess
-        mutableStartupStage.value = StartupStage.Idle
-        mutableState.value = ConnectionState.Connected
-        mutableFailureMessage.value = null
-        updateNotification("Защищено")
+        requireCurrentStartup(attempt, lifecycleToken)
+
+        requireCurrentStartup(attempt, lifecycleToken)
         val coreVersion = runCatching { Libbox.version() }.getOrDefault("unknown")
-        TechnicalLogStore.info("SING-BOX", "Туннель подключён; core=$coreVersion")
-        LatencyMonitor.start()
-        scope.launch { verifyInternetThroughTunnel() }
-      }.onFailure {
-        if (attempt != startupAttempt) return@onFailure
-        mutableState.value = ConnectionState.Failed
-        val stage = mutableStartupStage.value
-        mutableFailureMessage.value = "${stage.safeTitle}. ${classifyFailure(it, stage)}"
-        mutableFailureCode.value = diagnosticCode(it, stage)
-        TechnicalLogStore.error(
-          "SING-BOX",
-          "${mutableFailureCode.value}: ${classifyFailure(it, stage)}",
-        )
-        mutableDiagnosticReport.value = buildDiagnosticReport(it, stage)
-        updateNotification("Ошибка конфигурации или соединения")
-        shutdown(delayStop = true)
+        requireCurrentStartup(attempt, lifecycleToken)
+        currentStartupSideEffect(attempt, lifecycleToken) {
+          mutableStartupStage.value = StartupStage.Idle
+          mutableState.value = ConnectionState.Connected
+          mutableFailureMessage.value = null
+          connectionStartedAtMillis = System.currentTimeMillis()
+          updateNotification(getString(R.string.notification_protected))
+          TechnicalLogStore.info("SING-BOX", "Tunnel connected; core=$coreVersion")
+          LatencyMonitor.start()
+          connected = true
+        }
+      } catch (_: CancellationException) {
+        // A newer lifecycle command owns all user-visible state.
+      } catch (failure: Throwable) {
+        if (isCurrentStartup(attempt, lifecycleToken)) {
+          val stage = mutableStartupStage.value
+          currentStartupSideEffect(attempt, lifecycleToken) {
+            mutableState.value = ConnectionState.Failed
+            mutableFailureMessage.value =
+              "${getString(stage.titleRes)}. ${classifyFailure(failure, stage)}"
+            mutableFailureCode.value = diagnosticCode(failure, stage)
+            TechnicalLogStore.error(
+              "SING-BOX",
+              "${mutableFailureCode.value}: ${classifyFailure(failure, stage)}",
+            )
+            mutableDiagnosticReport.value = buildDiagnosticReport(failure, stage)
+            updateNotification(getString(R.string.notification_connection_error))
+          }
+          requireCurrentStartup(attempt, lifecycleToken)
+          shutdown(delayStop = true)
+        }
+      } finally {
+        if (!connected || !isCurrentStartup(attempt, lifecycleToken)) {
+          cleanupStartupResources(localServer, ownedNetworkCallback)
+        }
       }
     }
+    synchronized(startupLock) {
+      if (isCurrentStartup(attempt, lifecycleToken)) {
+        startupJob = job
+      } else {
+        job.cancel()
+      }
+    }
+    job.start()
     return START_NOT_STICKY
   }
 
@@ -173,7 +267,10 @@ class VeilarkVpnService :
   }
 
   override fun onDestroy() {
-    closeResources()
+    // Normal shutdown reaches here after the IO teardown. If Android destroys
+    // the service directly, start the same idempotent cleanup without blocking
+    // the service main thread on native close calls.
+    beginTeardown(delayStop = false, stopServiceWhenDone = false)
     scope.cancel()
     super.onDestroy()
   }
@@ -321,7 +418,7 @@ class VeilarkVpnService :
 
   override fun startDefaultInterfaceMonitor(listener: InterfaceUpdateListener) {
     interfaceListener = listener
-    startNetworkMonitor()
+    startNetworkMonitor(startupAttempt, lifecycleAttempt)
     publishDefaultInterface(connectivity.activeNetwork)
   }
 
@@ -329,17 +426,33 @@ class VeilarkVpnService :
     interfaceListener = null
   }
 
-  private fun startNetworkMonitor() {
-    if (networkCallback != null) return
+  private fun startNetworkMonitor(
+    attempt: Int,
+    lifecycleToken: LifecycleAttempt?,
+  ): ConnectivityManager.NetworkCallback? {
+    requireCurrentStartup(attempt, lifecycleToken)
+    if (networkCallback != null) return null
     val callback = object : ConnectivityManager.NetworkCallback() {
       override fun onAvailable(network: Network) = considerUnderlyingNetwork(network)
       override fun onLost(network: Network) {
         if (network == underlyingNetwork) {
-          TechnicalLogStore.warning("NETWORK", "Физическая сеть потеряна, ищем замену")
+          TechnicalLogStore.warning("NETWORK", "Physical network lost; finding replacement")
           underlyingNetwork = findPhysicalNetwork(excluding = network)
           publishDefaultInterface(underlyingNetwork)
           updateUnderlyingNetworks(underlyingNetwork)
+      updateNotification(
+        getString(
+          if (underlyingNetwork == null) {
+            R.string.notification_waiting_network
+          } else {
+            R.string.notification_switching_network
+          },
+        ),
+      )
           commandServer?.resetNetwork()
+      if (underlyingNetwork != null) {
+        updateNotification(getString(R.string.notification_protected))
+      }
         }
       }
       override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) {
@@ -355,7 +468,20 @@ class VeilarkVpnService :
         .build(),
       callback,
     )
-    networkCallback = callback
+    try {
+      currentStartupSideEffect(attempt, lifecycleToken) {
+        if (networkCallback == null) {
+          networkCallback = callback
+        } else {
+          connectivity.unregisterNetworkCallback(callback)
+          return null
+        }
+      }
+    } catch (failure: Throwable) {
+      runCatching { connectivity.unregisterNetworkCallback(callback) }
+      throw failure
+    }
+    return callback
   }
 
   private fun considerUnderlyingNetwork(network: Network) {
@@ -395,7 +521,8 @@ class VeilarkVpnService :
     underlyingNetwork = network
     publishDefaultInterface(network)
     updateUnderlyingNetworks(network)
-    TechnicalLogStore.info("NETWORK", "Туннель переведён на ${networkType(caps)}")
+    TechnicalLogStore.info("NETWORK", "Tunnel moved to ${networkType(caps)}")
+    updateNotification(getString(R.string.notification_protected))
     commandServer?.resetNetwork()
   }
 
@@ -404,7 +531,7 @@ class VeilarkVpnService :
       runCatching {
         setUnderlyingNetworks(network?.let { arrayOf(it) })
       }.onFailure {
-        TechnicalLogStore.warning("NETWORK", "Android не принял смену базовой сети")
+        TechnicalLogStore.warning("NETWORK", "Android rejected underlying network change")
       }
     }
   }
@@ -419,9 +546,10 @@ class VeilarkVpnService :
 
   private fun networkType(caps: NetworkCapabilities): String = when {
     caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> "Wi‑Fi"
-    caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> "мобильную сеть"
+      caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) ->
+        getString(R.string.network_cellular)
     caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) -> "Ethernet"
-    else -> "новую физическую сеть"
+      else -> getString(R.string.network_physical)
   }
 
   private fun networkPriority(caps: NetworkCapabilities): Int = when {
@@ -467,46 +595,6 @@ class VeilarkVpnService :
     listener.updateDefaultInterface(name, index, metered, false)
   }
 
-  private fun verifyInternetThroughTunnel() {
-    val endpoints = listOf(
-      "Cloudflare" to "https://cp.cloudflare.com/generate_204",
-      "Google" to "https://www.gstatic.com/generate_204",
-    )
-    var success = false
-    endpoints.forEach { (name, endpoint) ->
-      val started = SystemClock.elapsedRealtime()
-      runCatching {
-        val connection = URL(endpoint).openConnection() as HttpURLConnection
-        try {
-          connection.connectTimeout = 8_000
-          connection.readTimeout = 8_000
-          connection.instanceFollowRedirects = false
-          connection.useCaches = false
-          connection.setRequestProperty("User-Agent", "Veilark-Probe/0.2")
-          connection.responseCode
-        } finally {
-          connection.disconnect()
-        }
-      }.onSuccess { code ->
-        val elapsed = SystemClock.elapsedRealtime() - started
-        if (code in 200..399) success = true
-        TechnicalLogStore.info("HEALTH", "$name HTTPS=$code latency=${elapsed}ms")
-      }.onFailure { failure ->
-        val elapsed = SystemClock.elapsedRealtime() - started
-        TechnicalLogStore.warning(
-          "HEALTH",
-          "$name failed=${failure.javaClass.simpleName} latency=${elapsed}ms",
-        )
-      }
-    }
-    if (!success) {
-      TechnicalLogStore.warning(
-        "HEALTH",
-        "Ядро и TUN активны, но внешние контрольные HTTPS-запросы не ответили",
-      )
-    }
-  }
-
   private fun describeConfig(config: String): String = runCatching {
     val root = JSONObject(config)
     val dns = root.optJSONObject("dns")
@@ -528,7 +616,7 @@ class VeilarkVpnService :
       append("; final=")
       append(route?.optString("final").orEmpty().ifBlank { "unset" })
     }
-  }.getOrElse { "Не удалось разобрать сводку конфигурации" }
+  }.getOrElse { getString(R.string.failure_summary_parse) }
 
   private fun classifyFailure(failure: Throwable, stage: StartupStage): String {
     val chain = generateSequence(failure) { it.cause }
@@ -536,19 +624,19 @@ class VeilarkVpnService :
       .lowercase()
     return when {
       "tunnel verification failed" in chain ->
-        "Туннель создан, но контрольный трафик через него не прошёл"
+        getString(R.string.failure_tunnel_probe)
       "certificate" in chain || "x509" in chain ->
-        "Сертификат сервера не прошёл проверку"
+        getString(R.string.failure_certificate)
       "dns" in chain || "lookup" in chain ->
-        "Не удалось разрешить адрес сервера или DNS"
+        getString(R.string.failure_dns)
       "timeout" in chain || "deadline" in chain ->
-        "Сеть не ответила за отведённое время"
+        getString(R.string.failure_timeout)
       "connection refused" in chain ->
-        "Сервер отклонил соединение"
+        getString(R.string.failure_refused)
       "network is unreachable" in chain || "no route" in chain ->
-        "Физическая сеть недоступна"
+        getString(R.string.failure_network_unavailable)
       else ->
-        "Сетевое ядро не смогло запустить профиль (${failure.javaClass.simpleName})"
+        getString(R.string.failure_core_start, failure.javaClass.simpleName)
     }
   }
 
@@ -644,15 +732,111 @@ class VeilarkVpnService :
   }
 
   private fun shutdown(delayStop: Boolean = false) {
-    startupAttempt += 1
-    closeResources()
-    mutableState.value = if (delayStop) ConnectionState.Failed else ConnectionState.Disconnected
-    if (!delayStop) TechnicalLogStore.info("SING-BOX", "Туннель остановлен")
-    stopForeground(STOP_FOREGROUND_REMOVE)
-    stopSelf()
+    beginTeardown(delayStop = delayStop, stopServiceWhenDone = true)
+  }
+
+  private fun beginTeardown(
+    delayStop: Boolean,
+    stopServiceWhenDone: Boolean,
+  ) {
+    if (!teardownRequested.compareAndSet(false, true)) return
+    val (ownsAttempt, stoppingAttempt, settlingJob) = synchronized(startupLock) {
+      startupAttempt += 1
+      Triple(ownsLifecycleAttempt(), lifecycleAttempt, startupJob)
+    }
+    settlingJob?.cancel()
+    teardownScope.launch {
+      try {
+        synchronized(startupLock) { closeResources() }
+      } finally {
+        mainHandler.post {
+          if (ownsAttempt) {
+            mutableState.value = if (delayStop) {
+              ConnectionState.Failed
+            } else {
+              ConnectionState.Disconnected
+            }
+            finishTeardown(stoppingAttempt)
+          }
+          if (!delayStop) TechnicalLogStore.info("SING-BOX", "Tunnel stopped")
+          if (stopServiceWhenDone) {
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            stopSelf()
+          }
+        }
+      }
+    }
+  }
+
+  private fun publishState(state: ConnectionState) {
+    if (ownsLifecycleAttempt()) mutableState.value = state
+  }
+
+  private fun ownsLifecycleAttempt(): Boolean =
+    lifecycleAttempt != null && lifecycleAttempt == activeLifecycleAttempt
+
+  private fun isCurrentStartup(attempt: Int, lifecycleToken: LifecycleAttempt?): Boolean =
+    startupSideEffectAllowed(
+      expectedStartupAttempt = attempt,
+      currentStartupAttempt = startupAttempt,
+      expectedLifecycleAttempt = lifecycleToken,
+      activeLifecycleAttempt = activeLifecycleAttempt,
+    )
+
+  private fun requireCurrentStartup(attempt: Int, lifecycleToken: LifecycleAttempt?) {
+    if (!isCurrentStartup(attempt, lifecycleToken)) {
+      throw CancellationException("Stale sing-box startup attempt")
+    }
+  }
+
+  private inline fun <T> currentStartupSideEffect(
+    attempt: Int,
+    lifecycleToken: LifecycleAttempt?,
+    block: () -> T,
+  ): T = synchronized(startupLock) {
+    requireCurrentStartup(attempt, lifecycleToken)
+    block()
+  }
+
+  private fun cleanupStartupResources(
+    server: CommandServer?,
+    callback: ConnectivityManager.NetworkCallback?,
+  ) {
+    synchronized(startupLock) {
+      server?.let {
+        runCatching { it.closeService() }
+        runCatching { it.close() }
+        if (commandServer === it) commandServer = null
+      }
+      callback?.let {
+        if (networkCallback === it) {
+          runCatching { connectivity.unregisterNetworkCallback(it) }
+          networkCallback = null
+        }
+      }
+    }
+  }
+
+  @Synchronized
+  private fun finishTeardown(attempt: LifecycleAttempt?) {
+    if (activeLifecycleAttempt == attempt) {
+      mutableStopped.value = true
+      clearActiveAttempt(attempt)
+    }
+  }
+
+  private fun Intent.lifecycleAttempt(): LifecycleAttempt? {
+    val attemptId = getLongExtra(EXTRA_ATTEMPT_ID, 0L)
+    val epoch = getLongExtra(EXTRA_ENGINE_EPOCH, 0L)
+    return if (attemptId > 0L && epoch > 0L) {
+      LifecycleAttempt(attemptId, epoch, com.example.veilark.lifecycle.EngineId.SingBox)
+    } else {
+      null
+    }
   }
 
   private fun closeResources() {
+    EndpointLatencyProbe.stop()
     LatencyMonitor.stop()
     runCatching { commandServer?.closeService() }
     runCatching { commandServer?.close() }
@@ -662,13 +846,22 @@ class VeilarkVpnService :
     networkCallback?.let { runCatching { connectivity.unregisterNetworkCallback(it) } }
     networkCallback = null
     underlyingNetwork = null
+    connectionStartedAtMillis = 0L
   }
 
   private fun createStatusNotification(status: String): android.app.Notification {
     val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
       manager.createNotificationChannel(
-        NotificationChannel(CHANNEL_ID, "VPN", NotificationManager.IMPORTANCE_LOW),
+        NotificationChannel(
+          CHANNEL_ID,
+          getString(R.string.notification_channel_name),
+          NotificationManager.IMPORTANCE_LOW,
+        ).apply {
+          description = getString(R.string.notification_channel_description)
+          setShowBadge(false)
+          lockscreenVisibility = android.app.Notification.VISIBILITY_PRIVATE
+        },
       )
     }
     val open = PendingIntent.getActivity(
@@ -683,15 +876,45 @@ class VeilarkVpnService :
       Intent(this, VeilarkVpnService::class.java).setAction(ACTION_STOP),
       PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
     )
-    return NotificationCompat.Builder(this, CHANNEL_ID)
+    val notification = NotificationCompat.Builder(this, CHANNEL_ID)
       .setSmallIcon(R.drawable.ic_vpn_status)
-      .setContentTitle("Veilark")
+      .setContentTitle("Veilark · sing-box")
       .setContentText(status)
+      .setSubText(activeProfileName?.take(64))
       .setContentIntent(open)
       .setOngoing(true)
       .setOnlyAlertOnce(true)
-      .addAction(0, "Отключить", stop)
-      .build()
+      .setCategory(NotificationCompat.CATEGORY_SERVICE)
+      .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
+      .setPublicVersion(
+        NotificationCompat.Builder(this, CHANNEL_ID)
+          .setSmallIcon(R.drawable.ic_vpn_status)
+          .setContentTitle("Veilark · VPN")
+          .setContentText(
+            if (status == getString(R.string.notification_protected)) {
+              getString(R.string.notification_connection_active)
+            } else {
+              status
+            },
+          )
+          .setCategory(NotificationCompat.CATEGORY_SERVICE)
+          .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+          .build(),
+      )
+      .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
+      .addAction(0, getString(R.string.notification_disconnect), stop)
+    if (
+      connectionStartedAtMillis > 0L &&
+      status == getString(R.string.notification_protected)
+    ) {
+      notification
+        .setWhen(connectionStartedAtMillis)
+        .setUsesChronometer(true)
+        .setShowWhen(true)
+    } else {
+      notification.setShowWhen(false)
+    }
+    return notification.build()
   }
 
   private fun updateNotification(status: String) {
@@ -699,10 +922,18 @@ class VeilarkVpnService :
     manager.notify(NOTIFICATION_ID, createStatusNotification(status))
   }
 
+  private fun readActiveProfileName(): String? =
+    getSharedPreferences("profile_meta", MODE_PRIVATE)
+      .getString("sing_display_name", null)
+      ?.trim()
+      ?.takeIf(String::isNotEmpty)
+
   companion object {
-    private const val ACTION_START = "uk.senyasenyavski.veilark.START"
-    private const val ACTION_STOP = "uk.senyasenyavski.veilark.STOP"
+    private val ACTION_START = "${BuildConfig.APPLICATION_ID}.START"
+    private val ACTION_STOP = "${BuildConfig.APPLICATION_ID}.STOP"
     private const val EXTRA_CONFIG_PATH = "config_path"
+    private const val EXTRA_ATTEMPT_ID = "lifecycle_attempt_id"
+    private const val EXTRA_ENGINE_EPOCH = "lifecycle_engine_epoch"
     private const val CHANNEL_ID = "veilark_vpn"
     private const val NOTIFICATION_ID = 1001
     private const val CONNECTION_TIMEOUT_MS = 45_000L
@@ -717,22 +948,58 @@ class VeilarkVpnService :
     val startupStage = mutableStartupStage.asStateFlow()
     private val mutableDiagnosticReport = MutableStateFlow<String?>(null)
     val diagnosticReport = mutableDiagnosticReport.asStateFlow()
+    private val mutableStopped = MutableStateFlow(true)
+    internal val stopped = mutableStopped.asStateFlow()
+    @Volatile
+    private var activeLifecycleAttempt: LifecycleAttempt? = null
 
     fun start(context: Context, configPath: String = SecureProfileStore.SING_BOX) {
       NativeRuntimeState.requireLibbox()
+      AndroidTunnelLifecycleOwner.startSingBox(context, configPath)
+    }
+
+    internal fun startEngine(
+      context: Context,
+      configPath: String,
+      attempt: LifecycleAttempt,
+    ) {
+      NativeRuntimeState.requireLibbox()
+      EndpointLatencyProbe.stop()
+      activeLifecycleAttempt = attempt
+      mutableStopped.value = false
+      mutableState.value = ConnectionState.Connecting
       val intent = Intent(context, VeilarkVpnService::class.java)
         .setAction(ACTION_START)
         .putExtra(EXTRA_CONFIG_PATH, configPath)
-      ContextCompat.startForegroundService(context, intent)
+        .putExtra(EXTRA_ATTEMPT_ID, attempt.attemptId)
+        .putExtra(EXTRA_ENGINE_EPOCH, attempt.engineEpoch)
+      try {
+        ContextCompat.startForegroundService(context, intent)
+      } catch (failure: Throwable) {
+        mutableState.value = ConnectionState.Failed
+        mutableStopped.value = true
+        clearActiveAttempt(attempt)
+        throw failure
+      }
     }
 
     fun stop(context: Context) {
       mutableFailureMessage.value = null
       mutableFailureCode.value = null
       mutableDiagnosticReport.value = null
+      AndroidTunnelLifecycleOwner.stop(context)
+    }
+
+    internal fun stopEngine(context: Context, attempt: LifecycleAttempt? = null) {
+      if (attempt != null && activeLifecycleAttempt != attempt) return
       context.startService(
         Intent(context, VeilarkVpnService::class.java).setAction(ACTION_STOP),
       )
+    }
+
+    @Synchronized
+    private fun clearActiveAttempt(attempt: LifecycleAttempt?) {
+      if (activeLifecycleAttempt == attempt) activeLifecycleAttempt = null
     }
   }
 }

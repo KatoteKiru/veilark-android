@@ -1,0 +1,92 @@
+{
+  "schema": 3,
+  "upstream": {
+    "repository": "https://github.com/TrustTunnel/TrustTunnelClient.git",
+    "tag": "v1.1.4",
+    "commit": "7da863b1b947d22a3131d94dcc7c80b0240b6e97"
+  },
+  "patches": [
+    {
+      "path": "patches/0001-android-per-app-routing.patch",
+      "sha256": "A041E2A15F5C414A3C5C18037F897257DBBE4BBA4B8C42430F0FBC042025742F"
+    },
+    {
+      "path": "patches/0002-android-lifecycle-hardening.patch",
+      "sha256": "0DEADECEEC1B4103C7E8E6F4358447177184AC3B122049F8BF1BC965D4FF60D6"
+    }
+  ],
+  "packaging": {
+    "method": "full-upstream-android-aar-build",
+    "native_rebuilt": true,
+    "abis": ["arm64-v8a", "armeabi-v7a"],
+    "preserved_veilark_adapter_fixes": [
+      "android-34-special-use-foreground-service",
+      "stop-foreground-service-after-early-start-failure",
+      "report-disconnected-after-early-start-failure",
+      "confirmed-foreground-service-start",
+      "session-fenced-native-state-callbacks",
+      "exactly-once-disconnected-terminal-event",
+      "network-callback-unregister-and-clear",
+      "per-service-executor-shutdown",
+      "runtime-native-exclusions",
+      "per-application-routing"
+    ]
+  },
+  "dependency_bootstrap": {
+    "dns_libs": {
+      "package": "dns-libs/2.8.51@adguard/oss",
+      "repository_tag": "v2.8.52",
+      "source_commit": "8b4fec198f12f69f23b3ae45d6d86afb8e82ba62"
+    },
+    "native_libs_common": {
+      "package": "native_libs_common/8.1.28@adguard/oss",
+      "repository_tag": "v8.1.28",
+      "source_commit": "e9ea7f8b99294d1638c40edb1c14001416edf8fa"
+    }
+  },
+  "toolchain": {
+    "jdk": "Eclipse Temurin 17.0.19+10",
+    "gradle": "8.11.1",
+    "android_gradle_plugin": "8.9.1",
+    "kotlin": "2.0.21",
+    "compile_sdk": 35,
+    "min_sdk": 26,
+    "android_ndk": "28.1.13356709",
+    "cmake": "3.31.6",
+    "conan": "2.31.2",
+    "rust": "1.95-x86_64-pc-windows-gnu"
+  },
+  "reproducibility": {
+    "clang_flags": ["-ffile-prefix-map=<work>=/work/veilark-trusttunnel", "-fmacro-prefix-map=<work>=/work/veilark-trusttunnel"],
+    "rust_flags": ["--remap-path-prefix=<work>=/work/veilark-trusttunnel"],
+    "linker_flags": ["-Wl,--build-id=none"],
+    "note": "Explicit SHA-1 build IDs drifted despite byte-identical remaining ELF sections. Build IDs are disabled; tombstones require manual correlation by version and per-ABI artifact hash."
+  },
+  "sha256": {
+    "aar": "3F442054AF06297C9E6103FACB34508B420C2E28F198CB6EE6958546679B2944",
+    "classes_jar": "CA9AC0DD3428C40923035BEB46BD146FF3B34403CF0EA7DDC5D5E8C5CA1E4DE0",
+    "content_tree": "FC6B76F5BB4206B9484A4AC398CA1E1651D10D09C30AEF65A4641F22C939CD12",
+    "jni_arm64_v8a": "CA5EB273585EF11BEA42FBAB659874B51BA0C65F898E0F078869A368D6019040",
+    "jni_armeabi_v7a": "1D17677028E1E12D054E36CCFE846E52B095D6ACD4C885DB9554A7214AA041A5",
+    "android_manifest_xml": "E2B8620B22BF37D9860165BBA5DF9B1B4FFF41CBDFDD240D7038628A077941BA",
+    "r_txt": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855",
+    "proguard_txt": "59A5016DC2777C4A21B3C88D1D2BA7BDF36999EFF08CECB301E00E2EAD478510",
+    "assets_logback_xml": "7AC50F5A58E5FB5DFA8648CB459E4FB8B45DF3D6C50AEEC4DC1AFA64321D77C4",
+    "aar_metadata_properties": "9CC8517BBDF06D879F57A2CFD6F8C6914E48800D443421CD850971945F98E7B2",
+    "unstripped_arm64_v8a": "F4218EDC3A4EADC6044A85723420EC9B6A666A2E7E4D53E5A411F1A77C6EAD4F",
+    "unstripped_armeabi_v7a": "25AA82CD70FC853E40034E2B7326E34B1C00AAC0451CB12B7B8122C564BFF275",
+    "native_symbols_zip": "A42A74E89E431EB3351517721EEE1208D3AD8A6967E876DFD19766150652CA10"
+  },
+  "symbols": {
+    "archive": "build/release/rc19/trusttunnel-client-1.1.4-native-symbols.zip",
+    "automatic_build_id_correlation": false
+  },
+  "verification": {
+    "upstream_android_unit_tests": "passed",
+    "release_kotlin_compilation": "passed",
+    "full_native_build": "passed",
+    "patched_bytecode": "passed",
+    "two_workdir_payload_and_aar_comparison": "passed",
+    "physical_arm_device": "not-run"
+  }
+}

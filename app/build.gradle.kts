@@ -1,38 +1,9 @@
-import org.gradle.api.DefaultTask
-import org.gradle.api.file.ConfigurableFileCollection
-import org.gradle.api.file.DirectoryProperty
-import org.gradle.api.tasks.InputFiles
-import org.gradle.api.tasks.OutputDirectory
-import org.gradle.api.tasks.TaskAction
+import java.util.Properties
 
 plugins {
   alias(libs.plugins.android.application)
   alias(libs.plugins.compose.compiler)
   alias(libs.plugins.kotlin.serialization)
-}
-
-abstract class GenerateEmbeddedTrustProfiles : DefaultTask() {
-  @get:InputFiles
-  abstract val sourceFiles: ConfigurableFileCollection
-
-  @get:OutputDirectory
-  abstract val outputDirectory: DirectoryProperty
-
-  @TaskAction
-  fun generate() {
-    val clientLink = Regex(""""client_link"\s*:\s*"([^"\\]+)"""")
-    val links = sourceFiles.files.sortedBy { it.name }.map { source ->
-      require(source.isFile) { "Missing embedded TrustTunnel source: $source" }
-      clientLink.find(source.readText(Charsets.UTF_8))
-        ?.groupValues
-        ?.get(1)
-        ?.takeIf { it.startsWith("tt://") }
-        ?: error("Invalid embedded TrustTunnel source: $source")
-    }
-    val output = outputDirectory.file("builtin_trust_profiles.txt").get().asFile
-    output.parentFile.mkdirs()
-    output.writeText(links.joinToString(separator = "\n", postfix = "\n"), Charsets.UTF_8)
-  }
 }
 
 val veilarkAbis = providers.gradleProperty("veilarkAbis")
@@ -52,28 +23,65 @@ val veilarkCoreCanaryRequested = providers.gradleProperty("veilarkCoreCanary")
   }
   .orElse(false)
 
-val embeddedTrustSources = listOf(
-  rootProject.layout.projectDirectory.file("../secrets/generated/new-nl-trusttunnel.json"),
-  rootProject.layout.projectDirectory.file("../secrets/generated/frankfurt-trusttunnel.json"),
-)
-val generatedTrustAssets = layout.buildDirectory.dir("generated/veilark/trust-assets").get().asFile
-val generateEmbeddedTrustProfiles = tasks.register<GenerateEmbeddedTrustProfiles>(
-  "generateEmbeddedTrustProfiles",
-) {
-  sourceFiles.from(embeddedTrustSources)
-  outputDirectory.set(generatedTrustAssets)
+val privatePropertiesFile = rootProject.file("private.properties")
+val privateProperties = Properties().apply {
+  if (privatePropertiesFile.isFile) {
+    privatePropertiesFile.inputStream().use(::load)
+  }
 }
+
+fun privateProperty(name: String): String? =
+  privateProperties.getProperty(name)?.trim()?.takeIf(String::isNotEmpty)
+
+fun quotedBuildConfig(value: String): String =
+  "\"${value.replace("\\", "\\\\").replace("\"", "\\\"")}\""
+
+val privateApplicationId = privateProperty("applicationId") ?: "app.veilark.private"
+val privateOtaManifestUrl = privateProperty("otaManifestUrl").orEmpty()
+val privateOtaHost = privateProperty("otaHost").orEmpty()
+val privateOtaPort = privateProperty("otaPort")?.toIntOrNull() ?: -1
+val privateOtaPublicKey = privateProperty("otaPublicKey").orEmpty()
+val telegramBotUrl = privateProperty("telegramBotUrl")
+  ?: "https://t.me/senyavpn_bot?start=client_android"
+
+val ossKeystorePath = providers.environmentVariable("VEILARK_OSS_KEYSTORE").orNull
+val ossKeystorePassword = providers.environmentVariable("VEILARK_OSS_STORE_PASSWORD").orNull
+val ossKeyAlias = providers.environmentVariable("VEILARK_OSS_KEY_ALIAS").orNull
+val ossKeyPassword = providers.environmentVariable("VEILARK_OSS_KEY_PASSWORD").orNull
+val ossSigningConfigured = listOf(
+  ossKeystorePath,
+  ossKeystorePassword,
+  ossKeyAlias,
+  ossKeyPassword,
+).all { !it.isNullOrBlank() }
 
 android {
     namespace = "com.example.veilark"
     compileSdk = 36
+    flavorDimensions += "distribution"
+
+    signingConfigs {
+      if (ossSigningConfigured) {
+        create("ossRelease") {
+          storeFile = rootProject.file(ossKeystorePath!!)
+          storePassword = ossKeystorePassword
+          keyAlias = ossKeyAlias
+          keyPassword = ossKeyPassword
+          enableV1Signing = false
+          enableV2Signing = true
+          enableV3Signing = true
+          enableV4Signing = true
+        }
+      }
+    }
+
     defaultConfig {
-        applicationId = "uk.senyasenyavski.veilark"
         minSdk = 29
         targetSdk = 36
-        versionCode = 34
-        versionName = "0.8.0-rc7"
+        versionCode = 47
+        versionName = "0.8.0-rc20"
         buildConfigField("boolean", "VEILARK_CORE_ENABLED", "false")
+        buildConfigField("String", "TELEGRAM_BOT_URL", quotedBuildConfig(telegramBotUrl))
         ndk {
             abiFilters += veilarkAbis
         }
@@ -81,9 +89,7 @@ android {
 
     buildTypes {
         release {
-            // Keep OTA compatibility with all Veilark development builds already installed.
-            // Migrating to a production key later requires one explicit reinstall.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = null
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
@@ -96,6 +102,31 @@ android {
             matchingFallbacks += listOf("debug")
             buildConfigField("boolean", "VEILARK_CORE_ENABLED", "true")
         }
+    }
+
+    productFlavors {
+      create("private") {
+        dimension = "distribution"
+        applicationId = privateApplicationId
+        buildConfigField("boolean", "SELF_UPDATE_ENABLED", "true")
+        buildConfigField("String", "OTA_MANIFEST_URL", quotedBuildConfig(privateOtaManifestUrl))
+        buildConfigField("String", "OTA_HOST", quotedBuildConfig(privateOtaHost))
+        buildConfigField("int", "OTA_PORT", privateOtaPort.toString())
+        buildConfigField("String", "OTA_PUBLIC_KEY", quotedBuildConfig(privateOtaPublicKey))
+      }
+      create("oss") {
+        dimension = "distribution"
+        applicationId = "app.veilark.android"
+        versionNameSuffix = "-oss"
+        buildConfigField("boolean", "SELF_UPDATE_ENABLED", "false")
+        buildConfigField("String", "OTA_MANIFEST_URL", quotedBuildConfig(""))
+        buildConfigField("String", "OTA_HOST", quotedBuildConfig(""))
+        buildConfigField("int", "OTA_PORT", "-1")
+        buildConfigField("String", "OTA_PUBLIC_KEY", quotedBuildConfig(""))
+        if (ossSigningConfigured) {
+          signingConfig = signingConfigs.getByName("ossRelease")
+        }
+      }
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -113,10 +144,17 @@ android {
         excludes += "/META-INF/{AL2.0,LGPL2.1}"
       }
     }
-    sourceSets.getByName("main").assets.srcDir(generatedTrustAssets)
 }
 
 androidComponents {
+  beforeVariants(selector().all()) { variantBuilder ->
+    val distribution = variantBuilder.productFlavors
+      .firstOrNull { it.first == "distribution" }
+      ?.second
+    if (distribution == "oss" && variantBuilder.buildType == "veilarkCoreCanary") {
+      variantBuilder.enable = false
+    }
+  }
   beforeVariants(selector().withBuildType("veilarkCoreCanary")) { variantBuilder ->
     val enabled = veilarkCoreCanaryRequested.get()
     variantBuilder.enable = enabled
@@ -126,15 +164,6 @@ androidComponents {
     if (veilarkCoreCanaryRequested.get()) {
       variantBuilder.enable = false
     }
-  }
-}
-
-tasks.configureEach {
-  if (
-    (name.startsWith("merge") && name.endsWith("Assets")) ||
-    name.contains("Lint", ignoreCase = true)
-  ) {
-    dependsOn(generateEmbeddedTrustProfiles)
   }
 }
 
@@ -164,10 +193,8 @@ dependencies {
   implementation("androidx.camera:camera-camera2:1.6.1")
   implementation("androidx.camera:camera-core:1.6.1")
   implementation("androidx.camera:camera-lifecycle:1.6.1")
-  implementation("androidx.camera:camera-mlkit-vision:1.6.1")
   implementation("androidx.camera:camera-view:1.6.1")
   implementation("com.google.mlkit:barcode-scanning:17.3.0")
-  implementation("com.google.android.gms:play-services-code-scanner:16.1.0")
   implementation("org.yaml:snakeyaml:2.6")
   // Tooling
   debugImplementation(libs.androidx.compose.ui.tooling)
@@ -192,7 +219,8 @@ dependencies {
   implementation(libs.androidx.lifecycle.viewmodel.navigation3)
   implementation(libs.kotlinx.coroutines.android)
 
-  // Reproducible arm64 build of sing-box 1.13.14 (GPLv3).
+  // Stable production sing-box core. The canary flavor keeps a distinct
+  // application id but deliberately uses the same verified core artifact.
   implementation(files("libs/libbox.aar"))
 
   // Official TrustTunnel Android client built from the upstream source.

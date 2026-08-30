@@ -17,7 +17,12 @@
 .externalNativeBuild
 .cxx
 local.properties
+/private.properties
+/oss-signing.properties
+/*.jks
+/*.keystore
 **/__pycache__/
 *.py[cod]
 *.apk
+/vendor/sing-box/artifacts/*.aar
 *.aab

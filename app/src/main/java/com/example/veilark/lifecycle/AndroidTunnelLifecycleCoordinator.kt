@@ -1,5 +1,22 @@
 package com.example.veilark.lifecycle
 
+import android.content.Context
+import com.example.veilark.diagnostics.TechnicalLogStore
+import com.example.veilark.protocol.TrustTunnelManager
+import com.example.veilark.vpn.ConnectionState
+import com.example.veilark.vpn.VeilarkVpnService
+import java.util.concurrent.atomic.AtomicLong
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withTimeoutOrNull
+
 /**
  * Pure, deterministic lifecycle model for a future Android tunnel owner.
  *
@@ -407,4 +424,271 @@ enum class IgnoreReason {
   TerminalAlreadyChosen,
   StaleOrIllegalEvent,
   AttemptIdExhausted,
+}
+
+/** Pure fence used immediately before every sing-box startup side effect. */
+internal fun startupSideEffectAllowed(
+  expectedStartupAttempt: Int,
+  currentStartupAttempt: Int,
+  expectedLifecycleAttempt: LifecycleAttempt?,
+  activeLifecycleAttempt: LifecycleAttempt?,
+): Boolean =
+  expectedStartupAttempt == currentStartupAttempt &&
+    expectedLifecycleAttempt != null &&
+    expectedLifecycleAttempt == activeLifecycleAttempt
+
+/**
+ * Process-wide Android adapter for [AndroidTunnelLifecycleCoordinator].
+ *
+ * Android permits only one app VPN owner at a time. All UI, tile and service
+ * requests enter this serialized owner; a later request supersedes an earlier
+ * one, but cannot start until the previous engine has completed teardown.
+ */
+object AndroidTunnelLifecycleOwner {
+  private const val STOP_TIMEOUT_MS = 8_000L
+  private const val START_TIMEOUT_MS = 48_000L
+
+  private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+  private val mutex = Mutex()
+  private val commandSequence = AtomicLong(0L)
+  private val commandVersion = MutableStateFlow(0L)
+  private val coordinator = AndroidTunnelLifecycleCoordinator(
+    engineEpoch = (System.nanoTime() and Long.MAX_VALUE).coerceAtLeast(1L),
+  )
+
+  fun startSingBox(context: Context, configPath: String) {
+    submit(
+      context = context,
+      command = OwnerCommand.Start(EngineId.SingBox, configPath),
+    )
+  }
+
+  fun startTrustTunnel(context: Context, config: String) {
+    submit(
+      context = context,
+      command = OwnerCommand.Start(EngineId.TrustTunnel, config),
+    )
+  }
+
+  fun stop(context: Context) {
+    submit(context, OwnerCommand.Stop)
+  }
+
+  private fun submit(context: Context, command: OwnerCommand) {
+    val sequence = commandSequence.incrementAndGet()
+    commandVersion.value = sequence
+    val appContext = context.applicationContext
+    scope.launch {
+      mutex.withLock {
+        if (sequence != commandSequence.get()) return@withLock
+        when (command) {
+          is OwnerCommand.Start -> executeStart(appContext, command, sequence)
+          OwnerCommand.Stop -> executeStop(appContext, sequence)
+        }
+      }
+    }
+  }
+
+  private suspend fun executeStart(
+    context: Context,
+    command: OwnerCommand.Start,
+    sequence: Long,
+  ) {
+    val stopping = coordinator.state as? LifecycleState.Stopping
+    if (stopping != null) {
+      stopEngine(context, stopping.activeAttempt)
+      if (!awaitStopped(stopping.activeAttempt.engine)) return
+      coordinator.dispatch(LifecycleInput.EngineStopped(stopping.stopFence))
+      // The recovered after-stop intent may belong to an older command. Admit
+      // the latest command again so its engine and payload always stay paired.
+      executeAction(
+        context,
+        command,
+        sequence,
+        coordinator.dispatch(LifecycleInput.Connect(command.engine)).action,
+      )
+      return
+    }
+    val dispatch = coordinator.dispatch(LifecycleInput.Connect(command.engine))
+    executeAction(context, command, sequence, dispatch.action)
+  }
+
+  private suspend fun executeStop(context: Context, sequence: Long) {
+    val action = coordinator.dispatch(LifecycleInput.Stop).action
+    executeAction(context, command = null, sequence = sequence, action = action)
+    // Reconcile a service restored by Android after this process lost its model.
+    stopForeignOrUntracked(context, keep = null)
+  }
+
+  private suspend fun executeAction(
+    context: Context,
+    command: OwnerCommand.Start?,
+    sequence: Long,
+    action: LifecycleAction,
+  ) {
+    when (action) {
+      is LifecycleAction.RequestVpnPermission -> {
+        // Activity/Tile already completed VpnService.prepare before entering here.
+        executeAction(
+          context,
+          command,
+          sequence,
+          coordinator.dispatch(
+            LifecycleInput.PermissionResult(action.attempt, granted = true),
+          ).action,
+        )
+      }
+
+      is LifecycleAction.StartEngine -> {
+        if (command == null || sequence != commandSequence.get()) return
+        if (!stopForeignOrUntracked(context, keep = action.attempt.engine)) return
+        if (sequence != commandSequence.get()) {
+          cancelSupersededAttempt(context, sequence)
+          return
+        }
+        val launched = runCatching {
+          when (action.attempt.engine) {
+            EngineId.SingBox -> VeilarkVpnService.startEngine(
+              context,
+              command.payload,
+              action.attempt,
+            )
+            EngineId.TrustTunnel -> TrustTunnelManager.startEngine(
+              context,
+              command.payload,
+              action.attempt,
+            )
+            EngineId.VeilarkCoreCanary -> error("Veilark Core canary is not an Android engine")
+          }
+        }
+        if (launched.isFailure) {
+          TechnicalLogStore.error(
+            "LIFECYCLE",
+            "Android did not start ${action.attempt.engine.name}: " +
+              launched.exceptionOrNull()?.javaClass?.simpleName,
+          )
+          executeAction(
+            context,
+            command = null,
+            sequence = sequence,
+            action = coordinator.dispatch(LifecycleInput.EngineFailed(action.attempt)).action,
+          )
+          return
+        }
+        awaitStartedOrSuperseded(context, action.attempt, sequence)
+      }
+
+      is LifecycleAction.StopEngine -> {
+        stopEngine(context, action.stopFence.activeAttempt)
+        if (!awaitStopped(action.stopFence.activeAttempt.engine)) return
+        executeAction(
+          context,
+          command,
+          sequence,
+          coordinator.dispatch(LifecycleInput.EngineStopped(action.stopFence)).action,
+        )
+      }
+
+      is LifecycleAction.QueuedAfterStop,
+      is LifecycleAction.PendingStartCancelled,
+      is LifecycleAction.Connected,
+      is LifecycleAction.Stopped,
+      is LifecycleAction.Failed,
+      is LifecycleAction.Ignored,
+      -> Unit
+    }
+  }
+
+  private suspend fun awaitStartedOrSuperseded(
+    context: Context,
+    attempt: LifecycleAttempt,
+    sequence: Long,
+  ) {
+    val result = withTimeoutOrNull(START_TIMEOUT_MS) {
+      combine(stateFor(attempt.engine), commandVersion) { state, version -> state to version }
+        .first { (state, version) ->
+          version != sequence || state == ConnectionState.Connected ||
+            state == ConnectionState.Failed || state == ConnectionState.Disconnected
+        }
+    }
+    val superseded = commandSequence.get() != sequence
+    val state = result?.first
+    val action = when {
+      superseded -> coordinator.dispatch(LifecycleInput.Stop).action
+      state == ConnectionState.Connected ->
+        coordinator.dispatch(LifecycleInput.EngineStarted(attempt)).action
+      state == ConnectionState.Failed || state == ConnectionState.Disconnected ->
+        coordinator.dispatch(LifecycleInput.EngineFailed(attempt)).action
+      else -> coordinator.dispatch(LifecycleInput.Timeout(attempt)).action
+    }
+    executeAction(
+      context = context,
+      command = null,
+      sequence = sequence,
+      action = action,
+    )
+  }
+
+  private suspend fun cancelSupersededAttempt(
+    context: Context,
+    sequence: Long,
+  ) {
+    val action = coordinator.dispatch(LifecycleInput.Stop).action
+    executeAction(context, null, sequence, action)
+  }
+
+  private suspend fun stopForeignOrUntracked(
+    context: Context,
+    keep: EngineId?,
+  ): Boolean {
+    if (keep != EngineId.SingBox && !VeilarkVpnService.stopped.value) {
+      VeilarkVpnService.stopEngine(context)
+      if (!awaitStopped(EngineId.SingBox)) return false
+    }
+    if (keep != EngineId.TrustTunnel && !TrustTunnelManager.stopped.value) {
+      TrustTunnelManager.stopEngine(context)
+      if (!awaitStopped(EngineId.TrustTunnel)) return false
+    }
+    return true
+  }
+
+  private fun stopEngine(context: Context, attempt: LifecycleAttempt) {
+    when (attempt.engine) {
+      EngineId.SingBox -> VeilarkVpnService.stopEngine(context, attempt)
+      EngineId.TrustTunnel -> TrustTunnelManager.stopEngine(context, attempt)
+      EngineId.VeilarkCoreCanary -> Unit
+    }
+  }
+
+  private suspend fun awaitStopped(engine: EngineId): Boolean {
+    val stopped = withTimeoutOrNull(STOP_TIMEOUT_MS) {
+      when (engine) {
+        EngineId.SingBox -> VeilarkVpnService.stopped.first { it }
+        EngineId.TrustTunnel -> TrustTunnelManager.stopped.first { it }
+        EngineId.VeilarkCoreCanary -> stateFor(engine).first { state -> !state.isActive() }
+      }
+      true
+    } ?: false
+    if (!stopped) {
+      TechnicalLogStore.warning(
+        "LIFECYCLE",
+        "${engine.name} stop timed out; starting a new tunnel is blocked",
+      )
+    }
+    return stopped
+  }
+
+  private fun stateFor(engine: EngineId) = when (engine) {
+    EngineId.SingBox -> VeilarkVpnService.state
+    EngineId.TrustTunnel -> TrustTunnelManager.state
+    EngineId.VeilarkCoreCanary -> VeilarkVpnService.state
+  }
+
+  private fun ConnectionState.isActive(): Boolean =
+    this == ConnectionState.Connecting || this == ConnectionState.Connected
+
+  private sealed interface OwnerCommand {
+    data class Start(val engine: EngineId, val payload: String) : OwnerCommand
+    data object Stop : OwnerCommand
+  }
 }

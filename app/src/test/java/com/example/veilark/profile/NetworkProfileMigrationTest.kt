@@ -67,6 +67,7 @@ class NetworkProfileMigrationTest {
     assertFalse(tun.has("include_package"))
     assertFalse(tun.has("exclude_package"))
     assertFalse(recovered.getJSONObject("route").has("rules"))
+    assertFalse(recovered.getJSONObject("route").has("rule_set"))
     assertEquals("ipv4_only", recovered.getJSONObject("dns").getString("strategy"))
     assertFalse(
       recovered.getJSONArray("outbounds").getJSONObject(1)
@@ -92,7 +93,7 @@ class NetworkProfileMigrationTest {
         )
         .put(
           JSONObject()
-            .put("package_name", org.json.JSONArray().put("com.openai.chatgpt"))
+            .put("package_name", org.json.JSONArray().put("com.example.browser"))
             .put("outbound", "direct"),
         ),
     )
@@ -102,10 +103,10 @@ class NetworkProfileMigrationTest {
         config = original.toString(),
         routingMode = ProfileSelection.ROUTING_MANUAL,
         directRoutes = "example.ru",
-        vpnRoutes = "chatgpt.com gemini.google.com",
+        vpnRoutes = "example.com example.net",
         applicationMode = ProfileSelection.APPS_ALL,
         selectedApplications = emptySet(),
-        vpnPackage = "uk.senyasenyavski.veilark",
+        vpnPackage = "app.veilark.test",
         dpiMode = ProfileSelection.DPI_OFF,
       ),
     )
@@ -114,7 +115,7 @@ class NetworkProfileMigrationTest {
     assertFalse(serializedRules.contains("geoip-ru"))
     assertFalse(serializedRules.contains("package_name"))
     assertTrue(serializedRules.contains("example.ru"))
-    assertTrue(serializedRules.contains("chatgpt.com"))
-    assertTrue(serializedRules.contains("gemini.google.com"))
+    assertTrue(serializedRules.contains("example.com"))
+    assertTrue(serializedRules.contains("example.net"))
   }
 }

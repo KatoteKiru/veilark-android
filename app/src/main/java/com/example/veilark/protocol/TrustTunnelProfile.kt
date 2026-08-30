@@ -25,12 +25,25 @@ object TrustTunnelProfile {
       ?.get(1)
       ?.takeIf(String::isNotBlank)
       ?: "TrustTunnel"
-    val config = """
+    val config = buildConfig(endpoint)
+    require(VpnServiceConfig.parseToml(config) != null) {
+      "Не удалось проверить конфигурацию TrustTunnel"
+    }
+    return CompiledTrustTunnelProfile(name, config)
+  }
+
+  internal fun buildConfig(endpoint: String, directCidrs: List<String> = emptyList()): String {
+    val exclusions = directCidrs.distinct().also { cidrs ->
+      require(cidrs.all(TrustTunnelGeoRouting::isValidCidr)) {
+        "Некорректный список CIDR для маршрутизации TrustTunnel"
+      }
+    }
+    return """
       loglevel = "warn"
       vpn_mode = "general"
       killswitch_enabled = true
       post_quantum_group_enabled = true
-      exclusions = []
+      exclusions = ${tomlStringArray(exclusions)}
 
       $endpoint
 
@@ -41,11 +54,29 @@ object TrustTunnelProfile {
       excluded_routes = ["0.0.0.0/8", "10.0.0.0/8", "169.254.0.0/16", "172.16.0.0/12", "192.168.0.0/16", "224.0.0.0/3"]
       mtu_size = 1280
     """.trimIndent()
-    require(VpnServiceConfig.parseToml(config) != null) {
-      "Не удалось проверить конфигурацию TrustTunnel"
-    }
-    return CompiledTrustTunnelProfile(name, config)
   }
+
+  /** Updates only the native general-mode exclusions on a previously compiled profile. */
+  internal fun withDirectCidrs(config: String, directCidrs: List<String>): String {
+    val exclusions = directCidrs.distinct().also { cidrs ->
+      require(cidrs.all(TrustTunnelGeoRouting::isValidCidr)) {
+        "Некорректный список CIDR для маршрутизации TrustTunnel"
+      }
+    }
+    val replacement = "exclusions = ${tomlStringArray(exclusions)}"
+    val line = Regex("(?m)^\\s*exclusions\\s*=\\s*\\[[^\\r\\n]*]\\s*$")
+    val updated = if (line.containsMatchIn(config)) {
+      config.replaceFirst(line, replacement)
+    } else {
+      config.replaceFirst(Regex("(?m)^\\[endpoint\\]"), "$replacement\n\n[endpoint]")
+    }
+    return updated
+  }
+
+  private fun tomlStringArray(values: List<String>): String =
+    values.joinToString(prefix = "[", postfix = "]") { value ->
+      "\"${value.replace("\\", "\\\\").replace("\"", "\\\"")}\""
+    }
 
   internal fun optimizeEndpoint(endpoint: String): String =
     forceSetting(

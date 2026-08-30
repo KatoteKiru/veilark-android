@@ -1,0 +1,520 @@
+diff --git a/platform/android/lib/build.gradle.kts b/platform/android/lib/build.gradle.kts
+index 0a975a39713c28ad3b8771f02d7fbb2f6aa26c56..de771a62d4c9f03c9f9e981e9079debaae74dc90 100644
+--- a/platform/android/lib/build.gradle.kts
++++ b/platform/android/lib/build.gradle.kts
+@@ -15,6 +15,10 @@ android {
+     defaultConfig {
+         minSdk = 26
+ 
++        ndk {
++            abiFilters += setOf("arm64-v8a", "armeabi-v7a")
++        }
++
+         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+         consumerProguardFiles("proguard-rules.pro")
+         externalNativeBuild {
+@@ -45,6 +49,7 @@ android {
+     externalNativeBuild {
+         cmake {
+             path = file("src/main/cpp/CMakeLists.txt")
++            version = "3.31.6"
+         }
+     }
+ }
+diff --git a/platform/android/lib/src/main/cpp/lib.cpp b/platform/android/lib/src/main/cpp/lib.cpp
+index b06e1bf45fe4c336f982e4c5bcb33ff6670fa23e..f98edb94b26cbd22d1b0e2d0836ffcff0e76d2b0 100644
+--- a/platform/android/lib/src/main/cpp/lib.cpp
++++ b/platform/android/lib/src/main/cpp/lib.cpp
+@@ -229,6 +229,23 @@ extern "C" JNIEXPORT void JNICALL Java_com_adguard_trusttunnel_VpnClient_notifyN
+     ctx->get_native_client().notify_network_change(
+             available ? ag::VpnNetworkState::VPN_NS_CONNECTED : ag::VpnNetworkState::VPN_NS_NOT_CONNECTED);
+ }
++extern "C" JNIEXPORT jboolean JNICALL Java_com_adguard_trusttunnel_VpnClient_updateExclusionsNative(
++        JNIEnv *env, jobject thiz, jlong native_ptr, jstring exclusions) {
++    if (!native_ptr) {
++        errlog(g_logger, "VpnClient is not created");
++        return (jboolean) false;
++    }
++    const char *value = env->GetStringUTFChars(exclusions, nullptr);
++    if (!value) {
++        errlog(g_logger, "Failed to read exclusions");
++        return (jboolean) false;
++    }
++    auto *ctx = (VpnCtx *) native_ptr;
++    bool updated = ctx->get_native_client().update_exclusions(
++            ag::VPN_MODE_GENERAL, {value, size_t(env->GetStringUTFLength(exclusions))});
++    env->ReleaseStringUTFChars(exclusions, value);
++    return (jboolean) updated;
++}
+ extern "C" JNIEXPORT jboolean JNICALL Java_com_adguard_trusttunnel_VpnClient_setSystemDnsServersNative(
+         JNIEnv *env, jclass clazz, jobjectArray servers, jobjectArray bootstraps) {
+     size_t num_servers = env->GetArrayLength(servers);
+@@ -303,4 +320,4 @@ extern "C" JNIEXPORT jobjectArray JNICALL Java_com_adguard_trusttunnel_VpnClient
+         env->SetObjectArrayElement(jresult.get(), i, str.get());
+     }
+     return jresult.release();
+-}
+\ No newline at end of file
++}
+diff --git a/platform/android/lib/src/main/java/com/adguard/trusttunnel/ApplicationRouting.kt b/platform/android/lib/src/main/java/com/adguard/trusttunnel/ApplicationRouting.kt
+new file mode 100644
+index 0000000000000000000000000000000000000000..433702485a5c039988d6e58c12243c888410de09
+--- /dev/null
++++ b/platform/android/lib/src/main/java/com/adguard/trusttunnel/ApplicationRouting.kt
+@@ -0,0 +1,74 @@
++package com.adguard.trusttunnel
++
++internal enum class ApplicationRoutingMode(val preferenceValue: String) {
++    ALL("all"),
++    ONLY("only"),
++    BYPASS("bypass");
++
++    companion object {
++        fun fromPreference(value: String?): ApplicationRoutingMode =
++            entries.firstOrNull { it.preferenceValue == value } ?: ALL
++    }
++}
++
++internal data class ApplicationRoutingPlan(
++    val mode: ApplicationRoutingMode,
++    val packages: List<String>,
++)
++
++internal object ApplicationRoutingPolicy {
++    const val PREFERENCES_NAME = "profile_meta"
++    const val MODE_KEY = "application_mode"
++    const val PACKAGES_KEY = "selected_applications"
++
++    fun create(
++        modePreference: String?,
++        selectedPackages: Set<String>,
++        ownPackage: String,
++    ): ApplicationRoutingPlan {
++        val mode = ApplicationRoutingMode.fromPreference(modePreference)
++        val normalizedPackages = selectedPackages
++            .asSequence()
++            .map(String::trim)
++            .filter(String::isNotEmpty)
++            .distinct()
++            .sorted()
++            .toList()
++
++        val packages = when (mode) {
++            ApplicationRoutingMode.ALL -> listOf(ownPackage)
++            ApplicationRoutingMode.ONLY -> normalizedPackages.filterNot { it == ownPackage }
++            ApplicationRoutingMode.BYPASS -> (normalizedPackages + ownPackage).distinct().sorted()
++        }
++        return ApplicationRoutingPlan(mode, packages)
++    }
++}
++
++internal interface ApplicationRuleSink {
++    fun allow(packageName: String): Boolean
++
++    fun disallow(packageName: String): Boolean
++}
++
++internal fun applyApplicationRoutingPlan(
++    plan: ApplicationRoutingPlan,
++    sink: ApplicationRuleSink,
++): Int {
++    var appliedRules = 0
++    plan.packages.forEach { packageName ->
++        val applied = when (plan.mode) {
++            ApplicationRoutingMode.ONLY -> sink.allow(packageName)
++            ApplicationRoutingMode.ALL,
++            ApplicationRoutingMode.BYPASS,
++            -> sink.disallow(packageName)
++        }
++        if (applied) {
++            appliedRules += 1
++        }
++    }
++
++    check(plan.mode != ApplicationRoutingMode.ONLY || appliedRules > 0) {
++        "No selected applications are installed; refusing to create an unrestricted VPN"
++    }
++    return appliedRules
++}
+diff --git a/platform/android/lib/src/main/java/com/adguard/trusttunnel/VpnClient.kt b/platform/android/lib/src/main/java/com/adguard/trusttunnel/VpnClient.kt
+index a23379d2626a76441a918251e3d6c83d1609ea05..1201289da1cc0dc056076900efd54f59eec09274 100644
+--- a/platform/android/lib/src/main/java/com/adguard/trusttunnel/VpnClient.kt
++++ b/platform/android/lib/src/main/java/com/adguard/trusttunnel/VpnClient.kt
+@@ -6,6 +6,9 @@ import com.adguard.trusttunnel.log.NativeLogger
+ import com.adguard.trusttunnel.log.NativeLoggerLevel
+ import java.io.Closeable
+ 
++internal fun formatExclusions(exclusions: List<String>): String =
++    exclusions.joinToString(" ")
++
+ class VpnClient (
+     private val config: String,
+     private val callbacks: VpnClientListener?
+@@ -60,6 +63,14 @@ class VpnClient (
+         notifyNetworkChangeNative(nativePtr, available);
+     }
+ 
++    fun updateExclusions(exclusions: List<String>): Boolean = synchronized(sync) {
++        if (nativePtr.toInt() == 0) {
++            LOG.error("Can't update exclusions, native client is not initialized")
++            return false
++        }
++        return updateExclusionsNative(nativePtr, formatExclusions(exclusions))
++    }
++
+     override fun close() = synchronized(sync) {
+         if (nativePtr.toInt() != 0) {
+             destroyNative(nativePtr);
+@@ -87,5 +98,6 @@ class VpnClient (
+     private external fun startNative(nativePtr: Long, tunFd: Int): Boolean;
+     private external fun stopNative(nativePtr: Long);
+     private external fun notifyNetworkChangeNative(nativePtr: Long, available: Boolean);
++    private external fun updateExclusionsNative(nativePtr: Long, exclusions: String): Boolean;
+     private external fun destroyNative(nativePtr: Long);
+-}
+\ No newline at end of file
++}
+diff --git a/platform/android/lib/src/main/java/com/adguard/trusttunnel/VpnService.kt b/platform/android/lib/src/main/java/com/adguard/trusttunnel/VpnService.kt
+index ed3373ba6b440e9a839c58ccc0507e2c4f0791ea..d09f1855a12aaf1c880d553e87bea020cdd32f7e 100644
+--- a/platform/android/lib/src/main/java/com/adguard/trusttunnel/VpnService.kt
++++ b/platform/android/lib/src/main/java/com/adguard/trusttunnel/VpnService.kt
+@@ -5,6 +5,7 @@ import android.app.NotificationChannel
+ import android.app.NotificationManager
+ import android.content.Context
+ import android.content.Intent
++import android.content.pm.PackageManager
+ import android.content.pm.ServiceInfo
+ import android.net.ConnectivityManager
+ import android.net.NetworkCapabilities
+@@ -70,6 +71,9 @@ class VpnService : android.net.VpnService(), VpnClientListener {
+         fun start(context: Context, config: String?) = start(context, ACTION_START, config)
+         private fun start(context: Context, action: String, config: String?) = start(context, getIntent(context, action), config)
+ 
++        fun updateExclusions(exclusions: List<String>): Boolean =
++            vpnClient?.updateExclusions(exclusions) ?: false
++
+         fun startNetworkManager(context: Context) = synchronized(NETWORK_MANAGER_SYNC) {
+             if (::networkCallback.isInitialized) {
+                 // Avoid double initialization
+@@ -146,8 +150,8 @@ class VpnService : android.net.VpnService(), VpnClientListener {
+ 
+         // Foreground service must spawn its notification in the first 5 seconds of the service lifetime
+         val notification = createNotification(this.applicationContext)
+-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+-            startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_SYSTEM_EXEMPTED)
++        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
++            startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
+         } else {
+             startForeground(NOTIFICATION_ID, notification)
+         }
+@@ -186,27 +190,23 @@ class VpnService : android.net.VpnService(), VpnClientListener {
+         }
+         if (configStr == null) {
+             LOG.error("Failed to get the Vpn Interface config settings")
+-            return
++            return failStarting(startId)
+         }
+         val config = VpnServiceConfig.parseToml(configStr)
+         if (config == null) {
+             LOG.error("Failed to parse Vpn Interface config")
+-            return
++            return failStarting(startId)
+         }
+ 
+         try {
+             certificateVerificator = CertificateVerificator()
+         } catch (e: Exception) {
+             LOG.error("Failed to create certificate verifier: $e")
+-            return run {
+-                close()
+-            }
++            return failStarting(startId)
+         }
+ 
+         LOG.info("VPN is starting...")
+-        val vpnTunInterface = createTunInterface(config) ?: return run {
+-            close()
+-        }
++        val vpnTunInterface = createTunInterface(config) ?: return failStarting(startId)
+         // This is required to save startId and pass it to `closeIfLast` in case of DISCONNECTED state event
+         val service = this
+         val proxyClientListener = object : VpnClientListener by service {
+@@ -230,12 +230,24 @@ class VpnService : android.net.VpnService(), VpnClientListener {
+         startNetworkNotifications(vpnClient)
+         if (vpnClient?.start(vpnTunInterface) != true) {
+             LOG.error("Failed to start Vpn client");
+-            close();
++            return failStarting(startId)
+         }
+ 
+         state = State.Started
+     }
+ 
++    private fun failStarting(startId: Int) {
++        if (vpnClient != null) {
++            stopNetworkNotifications()
++            vpnClient?.stop()
++            vpnClient?.close()
++            vpnClient = null
++        }
++        state = State.Stopped
++        stopSelf(startId)
++        onStateChanged(VpnState.DISCONNECTED.code)
++    }
++
+     override fun onRevoke() = singleThread.execute {
+         LOG.info("Revoking the VPN service")
+         close()
+@@ -249,7 +261,7 @@ class VpnService : android.net.VpnService(), VpnClientListener {
+                 .setMtu(tunConfig.mtuSize.toInt())
+                 .addAddress("172.20.2.13", 32)
+                 .addAddress("fdfd:29::2", 64)
+-                .addDisallowedApplication(applicationContext.packageName)
++            applyApplicationRouting(builder)
+             val dnsServers = if (config.endpoint.dnsUpstreams.isEmpty()) {
+                 ADGUARD_DNS_SERVERS
+             } else {
+@@ -278,6 +290,45 @@ class VpnService : android.net.VpnService(), VpnClientListener {
+         }
+     }
+ 
++    private fun applyApplicationRouting(builder: Builder) {
++        val preferences = applicationContext.getSharedPreferences(
++            ApplicationRoutingPolicy.PREFERENCES_NAME,
++            Context.MODE_PRIVATE,
++        )
++        val modePreference = preferences.getString(ApplicationRoutingPolicy.MODE_KEY, null)
++        val selectedPackages = preferences
++            .getStringSet(ApplicationRoutingPolicy.PACKAGES_KEY, emptySet())
++            ?.toSet()
++            .orEmpty()
++        val plan = ApplicationRoutingPolicy.create(
++            modePreference = modePreference,
++            selectedPackages = selectedPackages,
++            ownPackage = applicationContext.packageName,
++        )
++        val appliedRules = applyApplicationRoutingPlan(plan, BuilderApplicationRuleSink(builder))
++        LOG.info("Applied application routing mode=${plan.mode.preferenceValue}, rules=$appliedRules")
++    }
++
++    private inner class BuilderApplicationRuleSink(
++        private val builder: Builder,
++    ) : ApplicationRuleSink {
++        override fun allow(packageName: String): Boolean = applyPackageRule(packageName) {
++            builder.addAllowedApplication(packageName)
++        }
++
++        override fun disallow(packageName: String): Boolean = applyPackageRule(packageName) {
++            builder.addDisallowedApplication(packageName)
++        }
++
++        private fun applyPackageRule(packageName: String, rule: () -> Unit): Boolean = try {
++            rule()
++            true
++        } catch (_: PackageManager.NameNotFoundException) {
++            LOG.warn("Ignoring application routing rule for an uninstalled package: $packageName")
++            false
++        }
++    }
++
+     /**
+      * Closes the VPN TUN interface and stops itself only if the called is the only one who
+      * tries to stop the service.
+@@ -300,7 +351,15 @@ class VpnService : android.net.VpnService(), VpnClientListener {
+      *         false if something is wrong with closing or the service has already been closed
+      */
+     private fun close(startId: Int? = null): Boolean {
+-        if (state != State.Started) return false.also { LOG.info("VPN service is not running, do nothing") }
++        if (state != State.Started) {
++            LOG.info("VPN service is not running, stopping the foreground service")
++            if (startId != null) {
++                stopSelf(startId)
++            } else {
++                stopSelf()
++            }
++            return false
++        }
+ 
+         LOG.info("Closing VPN service")
+ 
+@@ -381,4 +440,4 @@ class VpnService : android.net.VpnService(), VpnClientListener {
+             // This is a key characteristic of foreground service notifications.
+             .build()
+     }
+-}
+\ No newline at end of file
++}
+diff --git a/platform/android/lib/src/test/java/com/adguard/trusttunnel/ApplicationRoutingTest.kt b/platform/android/lib/src/test/java/com/adguard/trusttunnel/ApplicationRoutingTest.kt
+new file mode 100644
+index 0000000000000000000000000000000000000000..4752af55027b2f6dc7cdc0ef6876482619307eae
+--- /dev/null
++++ b/platform/android/lib/src/test/java/com/adguard/trusttunnel/ApplicationRoutingTest.kt
+@@ -0,0 +1,115 @@
++package com.adguard.trusttunnel
++
++import org.junit.Assert.assertEquals
++import org.junit.Assert.assertFalse
++import org.junit.Assert.assertThrows
++import org.junit.Assert.assertTrue
++import org.junit.Test
++
++class ApplicationRoutingTest {
++    @Test
++    fun allDisallowsOnlyOwnPackage() {
++        val plan = ApplicationRoutingPolicy.create("all", setOf("app.one"), OWN_PACKAGE)
++
++        assertEquals(ApplicationRoutingMode.ALL, plan.mode)
++        assertEquals(listOf(OWN_PACKAGE), plan.packages)
++        assertUsesOnlyDisallowedRules(plan)
++    }
++
++    @Test
++    fun bypassDisallowsSelectedPackagesAndOwnPackage() {
++        val plan = ApplicationRoutingPolicy.create(
++            "bypass",
++            setOf("app.two", OWN_PACKAGE, "app.one"),
++            OWN_PACKAGE,
++        )
++
++        assertEquals(ApplicationRoutingMode.BYPASS, plan.mode)
++        assertEquals(listOf("app.one", "app.two", OWN_PACKAGE).sorted(), plan.packages)
++        assertUsesOnlyDisallowedRules(plan)
++    }
++
++    @Test
++    fun onlyAllowsSelectedPackagesWithoutOwnPackage() {
++        val plan = ApplicationRoutingPolicy.create(
++            "only",
++            setOf("app.two", OWN_PACKAGE, "app.one"),
++            OWN_PACKAGE,
++        )
++
++        assertEquals(ApplicationRoutingMode.ONLY, plan.mode)
++        assertEquals(listOf("app.one", "app.two"), plan.packages)
++        val sink = RecordingSink()
++        applyApplicationRoutingPlan(plan, sink)
++        assertEquals(plan.packages, sink.allowed)
++        assertTrue(sink.disallowed.isEmpty())
++    }
++
++    @Test
++    fun unknownModeFallsBackToSafeAllMode() {
++        val plan = ApplicationRoutingPolicy.create("unexpected", setOf("app.one"), OWN_PACKAGE)
++
++        assertEquals(ApplicationRoutingMode.ALL, plan.mode)
++        assertEquals(listOf(OWN_PACKAGE), plan.packages)
++    }
++
++    @Test
++    fun stalePackagesAreIgnoredInBypassMode() {
++        val plan = ApplicationRoutingPolicy.create(
++            "bypass",
++            setOf("app.installed", "app.removed"),
++            OWN_PACKAGE,
++        )
++        val sink = RecordingSink(stalePackages = setOf("app.removed"))
++
++        val applied = applyApplicationRoutingPlan(plan, sink)
++
++        assertEquals(2, applied)
++        assertFalse("app.removed" in sink.disallowed)
++        assertTrue("app.installed" in sink.disallowed)
++        assertTrue(OWN_PACKAGE in sink.disallowed)
++        assertTrue(sink.allowed.isEmpty())
++    }
++
++    @Test
++    fun onlyModeFailsClosedWhenEverySelectedPackageIsStale() {
++        val plan = ApplicationRoutingPolicy.create("only", setOf("app.removed"), OWN_PACKAGE)
++        val sink = RecordingSink(stalePackages = setOf("app.removed"))
++
++        assertThrows(IllegalStateException::class.java) {
++            applyApplicationRoutingPlan(plan, sink)
++        }
++        assertTrue(sink.allowed.isEmpty())
++        assertTrue(sink.disallowed.isEmpty())
++    }
++
++    private fun assertUsesOnlyDisallowedRules(plan: ApplicationRoutingPlan) {
++        val sink = RecordingSink()
++        applyApplicationRoutingPlan(plan, sink)
++        assertEquals(plan.packages, sink.disallowed)
++        assertTrue(sink.allowed.isEmpty())
++    }
++
++    private class RecordingSink(
++        private val stalePackages: Set<String> = emptySet(),
++    ) : ApplicationRuleSink {
++        val allowed = mutableListOf<String>()
++        val disallowed = mutableListOf<String>()
++
++        override fun allow(packageName: String): Boolean {
++            if (packageName in stalePackages) return false
++            allowed += packageName
++            return true
++        }
++
++        override fun disallow(packageName: String): Boolean {
++            if (packageName in stalePackages) return false
++            disallowed += packageName
++            return true
++        }
++    }
++
++    companion object {
++        private const val OWN_PACKAGE = "app.veilark.test"
++    }
++}
+diff --git a/platform/android/lib/src/test/java/com/adguard/trusttunnel/VpnClientTest.kt b/platform/android/lib/src/test/java/com/adguard/trusttunnel/VpnClientTest.kt
+new file mode 100644
+index 0000000000000000000000000000000000000000..6233fd0c870f18c349e002f5904b055d78fc6bda
+--- /dev/null
++++ b/platform/android/lib/src/test/java/com/adguard/trusttunnel/VpnClientTest.kt
+@@ -0,0 +1,15 @@
++package com.adguard.trusttunnel
++
++import org.junit.Assert.assertEquals
++import org.junit.Test
++
++class VpnClientTest {
++    @Test
++    fun exclusionsAreEncodedForTheNativeRuntimeApi() {
++        assertEquals(
++            "203.0.113.0/24 2001:db8::/32",
++            formatExclusions(listOf("203.0.113.0/24", "2001:db8::/32")),
++        )
++        assertEquals("", formatExclusions(emptyList()))
++    }
++}
+diff --git a/trusttunnel/include/vpn/trusttunnel/client.h b/trusttunnel/include/vpn/trusttunnel/client.h
+index 9306dd6bc93f184d0527bdb9a6864f88fece9b52..d5eae73d85de69584e8d152392c9cd145d62c790 100644
+--- a/trusttunnel/include/vpn/trusttunnel/client.h
++++ b/trusttunnel/include/vpn/trusttunnel/client.h
+@@ -80,6 +80,8 @@ public:
+ 
+     int disconnect();
+ 
++    bool update_exclusions(VpnMode mode, std::string_view exclusions);
++
+     void notify_network_change(VpnNetworkState state);
+ 
+     void notify_sleep();
+diff --git a/trusttunnel/src/client.cpp b/trusttunnel/src/client.cpp
+index 46f59a52df3197b06a30393593a9708a3e67a066..e707f4312fd545a18fde7a009396482433b2514a 100644
+--- a/trusttunnel/src/client.cpp
++++ b/trusttunnel/src/client.cpp
+@@ -56,6 +56,14 @@ int TrustTunnelClient::disconnect() {
+     return 0;
+ }
+ 
++bool TrustTunnelClient::update_exclusions(VpnMode mode, std::string_view exclusions) {
++    if (Vpn *vpn = m_vpn.load()) {
++        vpn_update_exclusions(vpn, mode, {exclusions.data(), uint32_t(exclusions.size())});
++        return true;
++    }
++    return false;
++}
++
+ void TrustTunnelClient::notify_network_change(VpnNetworkState state) {
+     if (m_vpn) {
+         vpn_notify_network_change(m_vpn, state);

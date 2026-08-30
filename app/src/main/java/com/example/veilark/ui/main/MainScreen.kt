@@ -1,18 +1,11 @@
 package com.example.veilark.ui.main
 
 import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
-import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.expandVertically
-import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
@@ -27,22 +20,31 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.automirrored.rounded.Article
 import androidx.compose.material.icons.rounded.Add
-import androidx.compose.material.icons.rounded.Article
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.ContentCopy
@@ -51,6 +53,7 @@ import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.FileDownload
+import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.QrCodeScanner
 import androidx.compose.material.icons.rounded.Speed
@@ -66,18 +69,26 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -91,18 +102,29 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.launch
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.example.veilark.theme.VeilarkTheme
+import com.example.veilark.BuildConfig
+import com.example.veilark.R
 import com.example.veilark.diagnostics.TechnicalLogEntry
 import com.example.veilark.profile.ConnectionNode
 import com.example.veilark.profile.InstalledApp
+import com.example.veilark.profile.InstalledAppLoader
 import com.example.veilark.profile.ProfileSelection
 import com.example.veilark.profile.SingBoxCatalogEntry
 import com.example.veilark.protocol.allowsProfileSwitch
@@ -111,10 +133,30 @@ import com.example.veilark.vpn.StartupStage
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+
+data class SubscriptionUiItem(
+  val id: String,
+  val name: String,
+  val nodeCount: Int,
+  val refreshable: Boolean,
+  val deletable: Boolean,
+)
+
+private enum class LegalDocument(
+  val titleRes: Int,
+  val contentRes: Int,
+) {
+  Veilark(R.string.veilark_license_title, R.raw.gpl_3_0),
+  TrustTunnel(R.string.trust_license_title, R.raw.apache_2_0),
+  ThirdParty(R.string.third_party_notices_title, R.raw.third_party_notices),
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MainScreen(
+  modifier: Modifier = Modifier,
   profileName: String? = null,
   connectionState: ConnectionState = ConnectionState.Disconnected,
   startupStage: StartupStage = StartupStage.Idle,
@@ -124,7 +166,9 @@ fun MainScreen(
   technicalLogs: List<TechnicalLogEntry> = emptyList(),
   connectionNodes: List<ConnectionNode> = emptyList(),
   singBoxSubscriptions: List<SingBoxCatalogEntry> = emptyList(),
+  trustSubscriptions: List<SubscriptionUiItem> = emptyList(),
   selectedSubscriptionId: String? = null,
+  selectedTrustSubscriptionId: String? = null,
   selectedNodeTag: String = ProfileSelection.AUTOMATIC_TAG,
   nodeLatencies: Map<String, Int> = emptyMap(),
   automaticNodeTag: String? = null,
@@ -141,13 +185,15 @@ fun MainScreen(
   trustTunnelActive: Boolean = false,
   singBoxAvailable: Boolean = true,
   trustTunnelAvailable: Boolean = false,
-  engineDescription: String = "sing-box 1.13.14",
+  engineDescription: String = "sing-box 1.13.19",
   subscriptionRefreshAvailable: Boolean = false,
   refreshingSubscription: Boolean = false,
-  updateStatus: String = "Проверка обновлений…",
+  selfUpdateEnabled: Boolean = true,
+  updateStatus: String = "",
   updateNotes: String = "",
   updateAvailable: Boolean = false,
   updating: Boolean = false,
+  updateProgress: Float? = null,
   importing: Boolean = false,
   onImportFile: () -> Unit = {},
   onImportUrl: (String) -> Unit = {},
@@ -155,28 +201,60 @@ fun MainScreen(
   onSelectNode: (String) -> Unit = {},
   onSelectSubscription: (String) -> Unit = {},
   onRefreshSubscription: () -> Unit = {},
+  onDeleteSubscription: (String) -> Unit = {},
   onSwitchProfile: () -> Unit = {},
   onRefreshLatency: () -> Unit = {},
   onOpenRouting: () -> Unit = {},
-  onApplyRouting: (String, String, String, String, String, Set<String>) -> Unit =
-    { _, _, _, _, _, _ -> },
+  onApplyRouting: (String, String, String, String, String, Set<String>) -> Boolean =
+    { _, _, _, _, _, _ -> true },
   onCopyDiagnostic: () -> Unit = {},
   onClearTechnicalLogs: () -> Unit = {},
   onRunDiagnostics: () -> Unit = {},
+  onOpenSubscriptionAccount: () -> Boolean = { false },
   onCheckUpdate: () -> Unit = {},
   onUpdate: () -> Unit = {},
   onConnect: () -> Unit = {},
-  modifier: Modifier = Modifier,
 ) {
   var showImport by remember { mutableStateOf(false) }
   var showNodes by remember { mutableStateOf(false) }
   var showRouting by remember { mutableStateOf(false) }
   var showTechnicalLogs by remember { mutableStateOf(false) }
+  var showAbout by remember { mutableStateOf(false) }
+  var legalDocument by remember { mutableStateOf<LegalDocument?>(null) }
   var subscriptionUrl by remember { mutableStateOf("") }
   var importSubmitted by remember { mutableStateOf(false) }
   var observedImporting by remember { mutableStateOf(false) }
   var importAttempted by remember { mutableStateOf(false) }
+  val snackbarHostState = remember { SnackbarHostState() }
+  val coroutineScope = rememberCoroutineScope()
+  val subscriptionBotOpenFailed = stringResource(R.string.subscription_bot_open_failed)
+  val openSubscriptionAccount = {
+    if (!onOpenSubscriptionAccount()) {
+      coroutineScope.launch { snackbarHostState.showSnackbar(subscriptionBotOpenFailed) }
+    }
+  }
+  val routingSavedMessage = stringResource(R.string.routing_saved)
+  val routingSavedReconnectMessage = stringResource(R.string.routing_saved_reconnect)
   val clipboard = LocalClipboardManager.current
+  val activeSubscriptions = remember(
+    trustTunnelActive,
+    trustSubscriptions,
+    singBoxSubscriptions,
+  ) {
+    if (trustTunnelActive) {
+      trustSubscriptions
+    } else {
+      singBoxSubscriptions.map { subscription ->
+        SubscriptionUiItem(
+          id = subscription.id,
+          name = subscription.name,
+          nodeCount = subscription.nodes.size,
+          refreshable = subscription.sourceUrl != null,
+          deletable = true,
+        )
+      }
+    }
+  }
 
   LaunchedEffect(importing, importError) {
     if (importSubmitted && importing) observedImporting = true
@@ -197,6 +275,23 @@ fun MainScreen(
       onClear = onClearTechnicalLogs,
       onRunDiagnostics = onRunDiagnostics,
     )
+    return
+  }
+
+  if (showAbout) {
+    val document = legalDocument
+    if (document == null) {
+      AboutScreen(
+        onBack = { showAbout = false },
+        onOpenDocument = { legalDocument = it },
+        onOpenSubscriptionAccount = openSubscriptionAccount,
+      )
+    } else {
+      LegalDocumentScreen(
+        document = document,
+        onBack = { legalDocument = null },
+      )
+    }
     return
   }
 
@@ -250,8 +345,20 @@ fun MainScreen(
       installedApplications = installedApplications,
       trustTunnelActive = trustTunnelActive,
       onApply = { route, direct, vpn, apps, dpi, packages ->
-        onApplyRouting(route, direct, vpn, apps, dpi, packages)
-        showRouting = false
+        val reconnectRequired = connectionState != ConnectionState.Disconnected &&
+          connectionState != ConnectionState.Failed
+        if (onApplyRouting(route, direct, vpn, apps, dpi, packages)) {
+          showRouting = false
+          coroutineScope.launch {
+            snackbarHostState.showSnackbar(
+              if (reconnectRequired) {
+                routingSavedReconnectMessage
+              } else {
+                routingSavedMessage
+              },
+            )
+          }
+        }
       },
       onDismiss = { showRouting = false },
     )
@@ -260,6 +367,7 @@ fun MainScreen(
   Scaffold(
     modifier = modifier.fillMaxSize(),
     containerColor = MaterialTheme.colorScheme.background,
+    snackbarHost = { SnackbarHost(snackbarHostState) },
     topBar = {
       TopAppBar(
         title = {
@@ -272,12 +380,17 @@ fun MainScreen(
         actions = {
           CompactIconAction(
             glyph = ActionGlyph.Journal,
-            description = "Открыть технический журнал",
+            description = stringResource(R.string.open_technical_log),
             onClick = { showTechnicalLogs = true },
           )
           CompactIconAction(
+            glyph = ActionGlyph.Info,
+            description = stringResource(R.string.open_about),
+            onClick = { showAbout = true },
+          )
+          CompactIconAction(
             glyph = ActionGlyph.Add,
-            description = "Добавить подписку или профиль",
+            description = stringResource(R.string.add_subscription_or_profile),
             enabled = !importing,
             onClick = { showImport = true },
           )
@@ -289,7 +402,11 @@ fun MainScreen(
     },
   ) { innerPadding ->
     LazyColumn(
-      modifier = Modifier.fillMaxSize(),
+      modifier = Modifier
+        .fillMaxHeight()
+        .fillMaxWidth()
+        .wrapContentWidth(Alignment.CenterHorizontally)
+        .widthIn(max = 720.dp),
       contentPadding = PaddingValues(
         start = 16.dp,
         top = innerPadding.calculateTopPadding() + 12.dp,
@@ -338,8 +455,12 @@ fun MainScreen(
           profileName = profileName,
           trustTunnelActive = trustTunnelActive,
           nodes = connectionNodes,
-          subscriptions = singBoxSubscriptions,
-          selectedSubscriptionId = selectedSubscriptionId,
+          subscriptions = activeSubscriptions,
+          selectedSubscriptionId = if (trustTunnelActive) {
+            selectedTrustSubscriptionId
+          } else {
+            selectedSubscriptionId
+          },
           selectedTag = selectedNodeTag,
           subscriptionRefreshAvailable = subscriptionRefreshAvailable,
           refreshingSubscription = refreshingSubscription,
@@ -350,6 +471,27 @@ fun MainScreen(
             profileName != null,
           latencyChecking = latencyChecking,
           onRefreshSubscription = onRefreshSubscription,
+          onAddSubscription = {
+            subscriptionUrl = ""
+            importAttempted = false
+            showImport = true
+          },
+          onPasteSubscription = {
+            subscriptionUrl = clipboard.getText()?.text?.trim().orEmpty()
+            importAttempted = false
+            showImport = true
+          },
+          onScanSubscriptionQr = {
+            onScanQr { scanned ->
+              val value = scanned.trim()
+              subscriptionUrl = value
+              importAttempted = true
+              importSubmitted = true
+              onImportUrl(value)
+            }
+          },
+          onDeleteSubscription = onDeleteSubscription,
+          onOpenSubscriptionAccount = openSubscriptionAccount,
           onRefreshLatency = onRefreshLatency,
           onSelectNode = {
             onSelectNode(it)
@@ -357,10 +499,9 @@ fun MainScreen(
           },
           onSelectSubscription = {
             onSelectSubscription(it)
-            showNodes = false
           },
           onToggleNodes = {
-            if (connectionNodes.isEmpty() && singBoxSubscriptions.isEmpty()) {
+            if (connectionNodes.isEmpty() && activeSubscriptions.isEmpty()) {
               showImport = true
             } else {
               showNodes = !showNodes
@@ -383,19 +524,22 @@ fun MainScreen(
           },
         )
       }
-      item {
-        UpdateCard(
-          status = updateStatus,
-          notes = updateNotes,
-          available = updateAvailable,
-          updating = updating,
-          onCheck = onCheckUpdate,
-          onUpdate = onUpdate,
-        )
+      if (selfUpdateEnabled) {
+        item {
+          UpdateCard(
+            status = updateStatus,
+            notes = updateNotes,
+            available = updateAvailable,
+            updating = updating,
+            progress = updateProgress,
+            onCheck = onCheckUpdate,
+            onUpdate = onUpdate,
+          )
+        }
       }
       item {
         Text(
-          text = "Сетевое ядро $engineDescription · журнал не содержит ключей доступа",
+          text = stringResource(R.string.core_footer, engineDescription),
           modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
           style = MaterialTheme.typography.bodySmall,
           color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -412,12 +556,62 @@ private fun UpdateCard(
   notes: String,
   available: Boolean,
   updating: Boolean,
+  progress: Float?,
   onCheck: () -> Unit,
   onUpdate: () -> Unit,
 ) {
+  var showConfirmation by remember { mutableStateOf(false) }
+  val normalizedProgress = progress?.coerceIn(0f, 1f)
+  if (showConfirmation && available && !updating) {
+    AlertDialog(
+      onDismissRequest = { showConfirmation = false },
+      title = { Text(stringResource(R.string.update_confirm_title)) },
+      text = {
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+          Text(status, style = MaterialTheme.typography.titleSmall)
+          if (notes.isNotBlank()) {
+            Text(
+              text = notes,
+              style = MaterialTheme.typography.bodyMedium,
+              color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+          } else {
+            Text(
+              text = stringResource(R.string.update_notes_missing),
+              style = MaterialTheme.typography.bodyMedium,
+              color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+          }
+          Text(
+            text = stringResource(R.string.update_verification_note),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+          )
+        }
+      },
+      confirmButton = {
+        Button(
+          onClick = {
+            showConfirmation = false
+            onUpdate()
+          },
+        ) {
+          Icon(Icons.Rounded.Download, contentDescription = null)
+          Text(stringResource(R.string.update), modifier = Modifier.padding(start = 8.dp))
+        }
+      },
+      dismissButton = {
+        CompactIconAction(
+          glyph = ActionGlyph.Close,
+          description = stringResource(R.string.cancel),
+          onClick = { showConfirmation = false },
+        )
+      },
+    )
+  }
   Column {
     Text(
-      text = "Обновления",
+      text = stringResource(R.string.updates),
       modifier = Modifier.padding(start = 16.dp, bottom = 8.dp),
       style = MaterialTheme.typography.titleSmall,
       color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -427,39 +621,61 @@ private fun UpdateCard(
       shape = RoundedCornerShape(24.dp),
       color = MaterialTheme.colorScheme.surfaceContainer,
     ) {
-      Row(
+      Column(
         modifier = Modifier.fillMaxWidth().padding(20.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
       ) {
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-          Text("Veilark", fontWeight = FontWeight.Medium)
-          Text(
-            status,
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-          )
-          if (available && notes.isNotBlank()) {
+        Row(
+          modifier = Modifier.fillMaxWidth(),
+          verticalAlignment = Alignment.CenterVertically,
+          horizontalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+          Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text("Veilark", fontWeight = FontWeight.Medium)
             Text(
-              text = notes,
+              status,
               style = MaterialTheme.typography.bodySmall,
               color = MaterialTheme.colorScheme.onSurfaceVariant,
-              maxLines = 4,
-              overflow = TextOverflow.Ellipsis,
+            )
+            if (available && notes.isNotBlank() && !updating) {
+              Text(
+                text = notes,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 3,
+                overflow = TextOverflow.Ellipsis,
+              )
+            }
+          }
+          CompactIconAction(
+            glyph = if (available) ActionGlyph.Download else ActionGlyph.Refresh,
+            description = when {
+              updating -> stringResource(R.string.update_downloading)
+              available -> stringResource(R.string.update_show_and_download)
+              else -> stringResource(R.string.update_check_action)
+            },
+            onClick = if (available) ({ showConfirmation = true }) else onCheck,
+            enabled = !updating,
+            loading = updating && normalizedProgress == null,
+          )
+        }
+        if (updating && normalizedProgress != null) {
+          Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+          ) {
+            LinearProgressIndicator(
+              progress = { normalizedProgress },
+              modifier = Modifier.weight(1f),
+            )
+            Text(
+              text = "${(normalizedProgress * 100).toInt()}%",
+              style = MaterialTheme.typography.labelMedium,
+              color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
           }
         }
-        CompactIconAction(
-          glyph = if (available) ActionGlyph.Download else ActionGlyph.Refresh,
-          description = when {
-            updating -> "Обновление загружается"
-            available -> "Загрузить обновление"
-            else -> "Проверить обновление приложения"
-          },
-          onClick = if (available) onUpdate else onCheck,
-          enabled = !updating,
-          loading = updating,
-        )
       }
     }
   }
@@ -476,21 +692,6 @@ private fun ConnectionCard(
 ) {
   val connected = state == ConnectionState.Connected
   val connecting = state == ConnectionState.Connecting
-  val pulse = if (connecting) {
-    val pulseTransition = rememberInfiniteTransition(label = "connection pulse")
-    val animatedPulse by pulseTransition.animateFloat(
-      initialValue = 0.96f,
-      targetValue = 1.04f,
-      animationSpec = infiniteRepeatable(
-        animation = tween(durationMillis = 900),
-        repeatMode = RepeatMode.Reverse,
-      ),
-      label = "connection pulse scale",
-    )
-    animatedPulse
-  } else {
-    1f
-  }
   val progress by animateFloatAsState(
     targetValue = if (connected) 1f else 0f,
     label = "connection progress",
@@ -511,12 +712,7 @@ private fun ConnectionCard(
     ) {
       Surface(
         modifier = Modifier
-          .size(104.dp)
-          .graphicsLayer {
-            val scale = if (connecting) pulse else 1f
-            scaleX = scale
-            scaleY = scale
-          },
+          .size(104.dp),
         shape = CircleShape,
         color = if (connected) {
           MaterialTheme.colorScheme.primary
@@ -555,10 +751,10 @@ private fun ConnectionCard(
       ) { current ->
         Text(
           text = when (current) {
-            ConnectionState.Disconnected -> "VPN выключен"
-            ConnectionState.Connecting -> stage.safeTitle
-            ConnectionState.Connected -> "Соединение защищено"
-            ConnectionState.Failed -> "Не удалось подключиться"
+            ConnectionState.Disconnected -> stringResource(R.string.vpn_off)
+            ConnectionState.Connecting -> stringResource(stage.titleRes)
+            ConnectionState.Connected -> stringResource(R.string.vpn_protected)
+            ConnectionState.Failed -> stringResource(R.string.vpn_connect_failed)
           },
           style = MaterialTheme.typography.headlineSmall,
           fontWeight = FontWeight.SemiBold,
@@ -568,10 +764,10 @@ private fun ConnectionCard(
       Spacer(Modifier.height(6.dp))
       Text(
         text = when {
-          profileName == null -> "Добавьте подписку или профиль"
-          connecting -> "Это может занять несколько секунд"
+          profileName == null -> stringResource(R.string.vpn_add_profile_hint)
+          connecting -> stringResource(R.string.vpn_connecting_hint)
           connected -> profileName
-          else -> "Готово к безопасному подключению"
+          else -> stringResource(R.string.vpn_ready_hint)
         },
         style = MaterialTheme.typography.bodyMedium,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -584,7 +780,7 @@ private fun ConnectionCard(
           color = MaterialTheme.colorScheme.surface.copy(alpha = 0.55f),
         ) {
           Text(
-            text = "$latency мс",
+            text = stringResource(R.string.latency_ms, latency),
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
             style = MaterialTheme.typography.labelLarge,
             color = MaterialTheme.colorScheme.onSurface,
@@ -605,11 +801,11 @@ private fun ConnectionCard(
       ) {
         Text(
           text = when {
-            importing -> "Проверяем профиль…"
-            profileName == null -> "Добавить профиль"
-            connecting -> "Отменить"
-            connected -> "Отключить"
-            else -> "Подключить"
+          importing -> stringResource(R.string.profile_checking)
+          profileName == null -> stringResource(R.string.profile_add)
+          connecting -> stringResource(R.string.connection_cancel)
+          connected -> stringResource(R.string.disconnect)
+          else -> stringResource(R.string.connect)
           },
           style = MaterialTheme.typography.labelLarge,
         )
@@ -629,9 +825,10 @@ private fun EngineSelectorCard(
   val alternativeAvailable = if (trustTunnelActive) singBoxAvailable else trustTunnelAvailable
   val idle = connectionState.allowsProfileSwitch()
   val canSwitch = idle && alternativeAvailable
+  val stackModes = LocalDensity.current.fontScale >= 1.3f
   Column {
     Text(
-      text = "Режим подключения",
+      text = stringResource(R.string.connection_mode),
       modifier = Modifier.padding(start = 16.dp, bottom = 8.dp),
       style = MaterialTheme.typography.titleSmall,
       color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -645,38 +842,59 @@ private fun EngineSelectorCard(
         modifier = Modifier.padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
       ) {
-        Row(
-          modifier = Modifier.fillMaxWidth(),
-          horizontalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-          EngineModeButton(
-            title = "sing-box",
-            trust = false,
-            selected = !trustTunnelActive,
-            enabled = idle && singBoxAvailable,
-            modifier = Modifier.weight(1f),
-            onClick = { if (trustTunnelActive && canSwitch) onSwitchProfile() },
-          )
-          EngineModeButton(
-            title = "TrustTunnel",
-            trust = true,
-            selected = trustTunnelActive,
-            enabled = idle && trustTunnelAvailable,
-            modifier = Modifier.weight(1f),
-            onClick = { if (!trustTunnelActive && canSwitch) onSwitchProfile() },
-          )
+        if (stackModes) {
+          Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            EngineModeButton(
+              title = "sing-box",
+              trust = false,
+              selected = !trustTunnelActive,
+              enabled = idle && singBoxAvailable,
+              modifier = Modifier.fillMaxWidth(),
+              onClick = { if (trustTunnelActive && canSwitch) onSwitchProfile() },
+            )
+            EngineModeButton(
+              title = "TrustTunnel",
+              trust = true,
+              selected = trustTunnelActive,
+              enabled = idle && trustTunnelAvailable,
+              modifier = Modifier.fillMaxWidth(),
+              onClick = { if (!trustTunnelActive && canSwitch) onSwitchProfile() },
+            )
+          }
+        } else {
+          Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+          ) {
+            EngineModeButton(
+              title = "sing-box",
+              trust = false,
+              selected = !trustTunnelActive,
+              enabled = idle && singBoxAvailable,
+              modifier = Modifier.weight(1f),
+              onClick = { if (trustTunnelActive && canSwitch) onSwitchProfile() },
+            )
+            EngineModeButton(
+              title = "TrustTunnel",
+              trust = true,
+              selected = trustTunnelActive,
+              enabled = idle && trustTunnelAvailable,
+              modifier = Modifier.weight(1f),
+              onClick = { if (!trustTunnelActive && canSwitch) onSwitchProfile() },
+            )
+          }
         }
         Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
           Text(
             when {
               !idle ->
-                "Сначала отключите VPN, чтобы сменить режим"
+                stringResource(R.string.engine_switch_disconnect_first)
               !alternativeAvailable ->
-                "Другой режим станет доступен после добавления профиля"
+                stringResource(R.string.engine_switch_add_profile)
               trustTunnelActive ->
-                "H2/H3 · Anti-DPI · встроенные Frankfurt и Netherlands"
+                stringResource(R.string.engine_trust_summary)
               else ->
-                "VLESS · Trojan · Hysteria · ручная маршрутизация"
+                stringResource(R.string.engine_singbox_summary)
             },
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -708,14 +926,19 @@ private fun EngineModeButton(
   }
   Surface(
     modifier = modifier
-      .height(58.dp)
-      .clickable(enabled = enabled && !selected, onClick = onClick),
+      .heightIn(min = 58.dp)
+      .selectable(
+        selected = selected,
+        enabled = enabled,
+        role = Role.RadioButton,
+        onClick = { if (!selected) onClick() },
+      ),
     shape = RoundedCornerShape(18.dp),
     color = container,
     contentColor = content,
   ) {
     Row(
-      modifier = Modifier.padding(horizontal = 14.dp),
+      modifier = Modifier.padding(horizontal = 14.dp, vertical = 14.dp),
       verticalAlignment = Alignment.CenterVertically,
       horizontalArrangement = Arrangement.spacedBy(9.dp),
     ) {
@@ -724,6 +947,246 @@ private fun EngineModeButton(
         title,
         fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
         maxLines = 1,
+      )
+    }
+  }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun AboutScreen(
+  onBack: () -> Unit,
+  onOpenDocument: (LegalDocument) -> Unit,
+  onOpenSubscriptionAccount: () -> Unit,
+) {
+  val uriHandler = LocalUriHandler.current
+  val privacyPolicyUrl = stringResource(R.string.privacy_policy_url)
+  Scaffold(
+    containerColor = MaterialTheme.colorScheme.background,
+    topBar = {
+      TopAppBar(
+        title = { Text(stringResource(R.string.about_title)) },
+        navigationIcon = {
+          CompactIconAction(
+            glyph = ActionGlyph.Back,
+            description = stringResource(R.string.back),
+            onClick = onBack,
+          )
+        },
+        colors = TopAppBarDefaults.topAppBarColors(
+          containerColor = MaterialTheme.colorScheme.background,
+        ),
+      )
+    },
+  ) { innerPadding ->
+    LazyColumn(
+      modifier = Modifier.fillMaxSize(),
+      contentPadding = PaddingValues(
+        start = 20.dp,
+        top = innerPadding.calculateTopPadding() + 12.dp,
+        end = 20.dp,
+        bottom = 32.dp,
+      ),
+      verticalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
+      item {
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+          Text(
+            text = stringResource(R.string.about_summary),
+            style = MaterialTheme.typography.titleMedium,
+          )
+          Text(
+            text = stringResource(R.string.about_version, BuildConfig.VERSION_NAME),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+          )
+        }
+      }
+      item {
+        Surface(
+          modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onOpenSubscriptionAccount),
+          shape = RoundedCornerShape(16.dp),
+          color = MaterialTheme.colorScheme.secondaryContainer,
+        ) {
+          Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+          ) {
+            Text(
+              text = stringResource(R.string.subscription_get_or_renew),
+              style = MaterialTheme.typography.titleSmall,
+              fontWeight = FontWeight.SemiBold,
+              color = MaterialTheme.colorScheme.onSecondaryContainer,
+            )
+            Text(
+              text = stringResource(R.string.subscription_bot_note),
+              style = MaterialTheme.typography.bodySmall,
+              color = MaterialTheme.colorScheme.onSecondaryContainer,
+            )
+          }
+        }
+      }
+      item {
+        Surface(
+          modifier = Modifier
+            .fillMaxWidth()
+            .clickable {
+              uriHandler.openUri("https://github.com/KatoteKiru/veilark-android")
+            },
+          shape = RoundedCornerShape(16.dp),
+          color = MaterialTheme.colorScheme.surfaceContainer,
+        ) {
+          Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(
+              text = stringResource(R.string.source_code),
+              style = MaterialTheme.typography.titleSmall,
+              fontWeight = FontWeight.SemiBold,
+            )
+            Text(
+              text = stringResource(R.string.source_code_description),
+              style = MaterialTheme.typography.bodySmall,
+              color = MaterialTheme.colorScheme.primary,
+            )
+          }
+        }
+      }
+      item {
+        Surface(
+          modifier = Modifier
+            .fillMaxWidth()
+            .clickable {
+              uriHandler.openUri(privacyPolicyUrl)
+            },
+          shape = RoundedCornerShape(16.dp),
+          color = MaterialTheme.colorScheme.surfaceContainer,
+        ) {
+          Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(
+              text = stringResource(R.string.privacy_policy),
+              style = MaterialTheme.typography.titleSmall,
+              fontWeight = FontWeight.SemiBold,
+            )
+            Text(
+              text = stringResource(R.string.privacy_policy_description),
+              style = MaterialTheme.typography.bodySmall,
+              color = MaterialTheme.colorScheme.primary,
+            )
+          }
+        }
+      }
+      item {
+        Text(
+          text = stringResource(R.string.open_source_licenses),
+          style = MaterialTheme.typography.titleMedium,
+          fontWeight = FontWeight.SemiBold,
+        )
+      }
+      item {
+        Text(
+          text = stringResource(R.string.trust_attribution),
+          style = MaterialTheme.typography.bodyMedium,
+          color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+      }
+      items(LegalDocument.entries, key = LegalDocument::name) { document ->
+        LegalDocumentItem(
+          title = stringResource(document.titleRes),
+          onClick = { onOpenDocument(document) },
+        )
+      }
+      item {
+        Text(
+          text = stringResource(R.string.independent_project_notice),
+          style = MaterialTheme.typography.bodySmall,
+          color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+      }
+    }
+  }
+}
+
+@Composable
+private fun LegalDocumentItem(
+  title: String,
+  onClick: () -> Unit,
+) {
+  Surface(
+    modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
+    shape = RoundedCornerShape(16.dp),
+    color = MaterialTheme.colorScheme.surfaceContainer,
+  ) {
+    Row(
+      modifier = Modifier.padding(horizontal = 16.dp, vertical = 15.dp),
+      verticalAlignment = Alignment.CenterVertically,
+      horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+      Icon(
+        imageVector = Icons.Rounded.Description,
+        contentDescription = null,
+        tint = MaterialTheme.colorScheme.primary,
+      )
+      Text(
+        text = title,
+        modifier = Modifier.weight(1f),
+        style = MaterialTheme.typography.bodyLarge,
+        fontWeight = FontWeight.Medium,
+      )
+    }
+  }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun LegalDocumentScreen(
+  document: LegalDocument,
+  onBack: () -> Unit,
+) {
+  val context = LocalContext.current
+  val content = remember(document) {
+    context.resources.openRawResource(document.contentRes)
+      .bufferedReader(Charsets.UTF_8)
+      .use { it.readText() }
+  }
+  Scaffold(
+    containerColor = MaterialTheme.colorScheme.background,
+    topBar = {
+      TopAppBar(
+        title = {
+          Text(
+            text = stringResource(document.titleRes),
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+          )
+        },
+        navigationIcon = {
+          CompactIconAction(
+            glyph = ActionGlyph.Back,
+            description = stringResource(R.string.legal_document_back),
+            onClick = onBack,
+          )
+        },
+        colors = TopAppBarDefaults.topAppBarColors(
+          containerColor = MaterialTheme.colorScheme.background,
+        ),
+      )
+    },
+  ) { innerPadding ->
+    SelectionContainer {
+      Text(
+        text = content,
+        modifier = Modifier
+          .fillMaxSize()
+          .verticalScroll(rememberScrollState())
+          .padding(
+            start = 20.dp,
+            top = innerPadding.calculateTopPadding() + 12.dp,
+            end = 20.dp,
+            bottom = 32.dp,
+          ),
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
       )
     }
   }
@@ -741,23 +1204,23 @@ private fun TechnicalLogScreen(
     containerColor = MaterialTheme.colorScheme.background,
     topBar = {
       TopAppBar(
-        title = { Text("Технический журнал") },
+        title = { Text(stringResource(R.string.technical_log)) },
         navigationIcon = {
           CompactIconAction(
             glyph = ActionGlyph.Back,
-            description = "Назад",
+            description = stringResource(R.string.back),
             onClick = onBack,
           )
         },
         actions = {
           CompactIconAction(
             glyph = ActionGlyph.Diagnostics,
-            description = "Проверить внешние сервисы",
+            description = stringResource(R.string.run_diagnostics),
             onClick = onRunDiagnostics,
           )
           CompactIconAction(
             glyph = ActionGlyph.Clear,
-            description = "Очистить журнал",
+            description = stringResource(R.string.clear_log),
             enabled = entries.isNotEmpty(),
             onClick = onClear,
           )
@@ -774,7 +1237,7 @@ private fun TechnicalLogScreen(
         contentAlignment = Alignment.Center,
       ) {
         Text(
-          "Ошибок и сетевых событий пока нет",
+          stringResource(R.string.technical_log_empty),
           color = MaterialTheme.colorScheme.onSurfaceVariant,
           textAlign = TextAlign.Center,
         )
@@ -841,7 +1304,7 @@ private fun ProfileCard(
   profileName: String?,
   trustTunnelActive: Boolean,
   nodes: List<ConnectionNode>,
-  subscriptions: List<SingBoxCatalogEntry>,
+  subscriptions: List<SubscriptionUiItem>,
   selectedSubscriptionId: String?,
   selectedTag: String,
   subscriptionRefreshAvailable: Boolean,
@@ -852,15 +1315,61 @@ private fun ProfileCard(
   canRefreshLatency: Boolean,
   latencyChecking: Boolean,
   onRefreshSubscription: () -> Unit,
+  onAddSubscription: () -> Unit,
+  onPasteSubscription: () -> Unit,
+  onScanSubscriptionQr: () -> Unit,
+  onDeleteSubscription: (String) -> Unit,
+  onOpenSubscriptionAccount: () -> Unit,
   onRefreshLatency: () -> Unit,
   onSelectNode: (String) -> Unit,
   onSelectSubscription: (String) -> Unit,
   onToggleNodes: () -> Unit,
 ) {
   val selectedNode = nodes.firstOrNull { it.tag == selectedTag }
+  var pendingDeletionId by remember { mutableStateOf<String?>(null) }
+  val pendingDeletion = subscriptions.firstOrNull { it.id == pendingDeletionId }
+  val expansionStateDescription = stringResource(
+    if (expanded) R.string.expanded else R.string.collapsed,
+  )
+
+  if (pendingDeletion != null) {
+    AlertDialog(
+      onDismissRequest = { pendingDeletionId = null },
+      icon = {
+        Icon(
+          imageVector = Icons.Rounded.DeleteOutline,
+          contentDescription = null,
+        )
+      },
+      title = { Text(stringResource(R.string.subscription_delete_title)) },
+      text = {
+        Text(
+          stringResource(R.string.subscription_delete_message, pendingDeletion.name),
+        )
+      },
+      confirmButton = {
+        TextButton(
+          onClick = {
+            val id = pendingDeletion.id
+            pendingDeletionId = null
+            onDeleteSubscription(id)
+          },
+        ) {
+          Text(stringResource(R.string.delete), color = MaterialTheme.colorScheme.error)
+        }
+      },
+      dismissButton = {
+        TextButton(onClick = { pendingDeletionId = null }) {
+          Text(stringResource(R.string.cancel))
+        }
+      },
+    )
+  }
   Column {
     Text(
-      text = if (trustTunnelActive) "Профиль TrustTunnel" else "Профиль sing-box",
+      text = stringResource(
+        if (trustTunnelActive) R.string.trust_profile else R.string.singbox_profile,
+      ),
       modifier = Modifier.padding(start = 16.dp, bottom = 8.dp),
       style = MaterialTheme.typography.titleSmall,
       color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -872,22 +1381,30 @@ private fun ProfileCard(
     ) {
       Column {
         ListItem(
-          modifier = Modifier.clickable(onClick = onToggleNodes),
+          modifier = Modifier
+            .clickable(role = Role.Button, onClick = onToggleNodes)
+            .semantics {
+              stateDescription = expansionStateDescription
+            },
           headlineContent = {
             Text(
-              profileName ?: "Профиль не добавлен",
+              profileName ?: stringResource(R.string.profile_missing),
               fontWeight = FontWeight.Medium,
             )
           },
           supportingContent = {
             Text(
               when {
-                profileName == null -> "Импортировать подписку"
+                profileName == null -> stringResource(R.string.import_subscription)
                 selectedNode != null && !trustTunnelActive ->
                   "${selectedNode.name} · ${selectedNode.protocol}"
                 selectedNode != null -> selectedNode.protocol
-                nodes.isNotEmpty() -> "Автоматический выбор · ${nodes.size} узлов"
-                else -> "Импортированная конфигурация"
+            nodes.isNotEmpty() -> pluralStringResource(
+              R.plurals.automatic_node_summary,
+              nodes.size,
+              nodes.size,
+            )
+            else -> stringResource(R.string.imported_configuration)
               },
             )
           },
@@ -920,110 +1437,248 @@ private fun ProfileCard(
           },
           colors = ListItemDefaults.colors(containerColor = Color.Transparent),
         )
-        AnimatedVisibility(
-          visible = expanded,
-          enter = fadeIn(tween(180)) + expandVertically(tween(220)),
-          exit = fadeOut(tween(120)) + shrinkVertically(tween(180)),
-        ) {
-          Column {
-            HorizontalDivider(modifier = Modifier.padding(horizontal = 20.dp))
-            Row(
-              modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 18.dp, vertical = 10.dp),
-              verticalAlignment = Alignment.CenterVertically,
-              horizontalArrangement = Arrangement.SpaceBetween,
-            ) {
-              Text(
-                if (trustTunnelActive) "Сервер" else "Подписка и сервер",
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-              )
-              Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                CompactIconAction(
-                  glyph = ActionGlyph.Refresh,
-                  description = when {
-                    refreshingSubscription -> "Подписка обновляется"
-                    subscriptionRefreshAvailable -> "Обновить подписку"
-                    else -> "У профиля нет URL для обновления"
-                  },
-                  enabled = subscriptionRefreshAvailable && !refreshingSubscription,
-                  loading = refreshingSubscription,
-                  onClick = onRefreshSubscription,
-                )
-                CompactIconAction(
-                  glyph = ActionGlyph.Ping,
-                  description = if (latencyChecking) {
-                    "Проверяется задержка до узлов"
-                  } else {
-                    "Проверить задержку до узлов"
-                  },
-                  enabled = canRefreshLatency && !latencyChecking,
-                  loading = latencyChecking,
-                  onClick = onRefreshLatency,
-                )
+      }
+    }
+
+    if (expanded) {
+      ConnectionPickerSheet(
+        trustTunnelActive = trustTunnelActive,
+        subscriptions = subscriptions,
+        selectedSubscriptionId = selectedSubscriptionId,
+        nodes = nodes,
+        selectedTag = selectedTag,
+        latencies = latencies,
+        automaticAvailable = automaticAvailable,
+        subscriptionRefreshAvailable = subscriptionRefreshAvailable,
+        refreshingSubscription = refreshingSubscription,
+        canRefreshLatency = canRefreshLatency,
+        latencyChecking = latencyChecking,
+        onDismiss = onToggleNodes,
+        onRefreshSubscription = onRefreshSubscription,
+        onAddSubscription = onAddSubscription,
+        onPasteSubscription = onPasteSubscription,
+        onScanSubscriptionQr = onScanSubscriptionQr,
+        onRefreshLatency = onRefreshLatency,
+        onSelectSubscription = onSelectSubscription,
+        onSelectNode = onSelectNode,
+        onRequestDelete = { pendingDeletionId = it },
+        onOpenSubscriptionAccount = onOpenSubscriptionAccount,
+      )
+    }
+  }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ConnectionPickerSheet(
+  trustTunnelActive: Boolean,
+  subscriptions: List<SubscriptionUiItem>,
+  selectedSubscriptionId: String?,
+  nodes: List<ConnectionNode>,
+  selectedTag: String,
+  latencies: Map<String, Int>,
+  automaticAvailable: Boolean,
+  subscriptionRefreshAvailable: Boolean,
+  refreshingSubscription: Boolean,
+  canRefreshLatency: Boolean,
+  latencyChecking: Boolean,
+  onDismiss: () -> Unit,
+  onRefreshSubscription: () -> Unit,
+  onAddSubscription: () -> Unit,
+  onPasteSubscription: () -> Unit,
+  onScanSubscriptionQr: () -> Unit,
+  onRefreshLatency: () -> Unit,
+  onSelectSubscription: (String) -> Unit,
+  onSelectNode: (String) -> Unit,
+  onRequestDelete: (String) -> Unit,
+  onOpenSubscriptionAccount: () -> Unit,
+) {
+  val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+
+  ModalBottomSheet(
+    onDismissRequest = onDismiss,
+    sheetState = sheetState,
+  ) {
+    Column(
+      modifier = Modifier
+        .fillMaxWidth()
+        .fillMaxHeight(0.82f),
+    ) {
+      Column(
+        modifier = Modifier.padding(horizontal = 24.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+      ) {
+        Text(
+          text = stringResource(R.string.connection_picker_title),
+          style = MaterialTheme.typography.headlineSmall,
+          fontWeight = FontWeight.SemiBold,
+        )
+        Text(
+          text = stringResource(
+            if (trustTunnelActive) R.string.profiles_and_servers
+            else R.string.subscriptions_and_servers,
+          ),
+          style = MaterialTheme.typography.bodyMedium,
+          color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+      }
+
+      Row(
+        modifier = Modifier
+          .fillMaxWidth()
+          .padding(horizontal = 18.dp, vertical = 12.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterHorizontally),
+      ) {
+        CompactIconAction(
+          glyph = ActionGlyph.Add,
+          description = stringResource(R.string.subscription_add),
+          onClick = onAddSubscription,
+        )
+        CompactIconAction(
+          glyph = ActionGlyph.Paste,
+          description = stringResource(R.string.subscription_paste),
+          onClick = onPasteSubscription,
+        )
+        CompactIconAction(
+          glyph = ActionGlyph.Qr,
+          description = stringResource(R.string.subscription_scan_qr),
+          onClick = onScanSubscriptionQr,
+        )
+        CompactIconAction(
+          glyph = ActionGlyph.Refresh,
+          description = when {
+            refreshingSubscription -> stringResource(R.string.subscription_refreshing)
+            subscriptionRefreshAvailable -> stringResource(R.string.subscription_refresh)
+            else -> stringResource(R.string.subscription_refresh_unavailable)
+          },
+          enabled = subscriptionRefreshAvailable && !refreshingSubscription,
+          loading = refreshingSubscription,
+          onClick = onRefreshSubscription,
+        )
+        CompactIconAction(
+          glyph = ActionGlyph.Ping,
+          description = stringResource(
+            if (latencyChecking) R.string.latency_checking else R.string.latency_check,
+          ),
+          enabled = canRefreshLatency && !latencyChecking,
+          loading = latencyChecking,
+          onClick = onRefreshLatency,
+        )
+      }
+
+      TextButton(
+        onClick = onOpenSubscriptionAccount,
+        modifier = Modifier
+          .align(Alignment.CenterHorizontally)
+          .padding(bottom = 8.dp),
+      ) {
+        Text(stringResource(R.string.subscription_get_or_renew))
+      }
+      Text(
+        text = stringResource(R.string.subscription_bot_note),
+        modifier = Modifier
+          .align(Alignment.CenterHorizontally)
+          .padding(start = 24.dp, end = 24.dp, bottom = 8.dp),
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        textAlign = TextAlign.Center,
+      )
+
+      HorizontalDivider()
+
+      LazyColumn(
+        modifier = Modifier
+          .fillMaxWidth()
+          .weight(1f),
+        contentPadding = PaddingValues(start = 16.dp, top = 16.dp, end = 16.dp, bottom = 32.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+      ) {
+        if (subscriptions.isNotEmpty()) {
+          item(key = "subscriptions-label") {
+            PickerSectionLabel(stringResource(R.string.subscriptions))
+          }
+          items(subscriptions, key = { "subscription-${it.id}" }) { subscription ->
+            SubscriptionChoice(
+              name = subscription.name,
+              nodeCount = subscription.nodeCount,
+              refreshable = subscription.refreshable,
+              selected = selectedSubscriptionId == subscription.id,
+              onClick = { onSelectSubscription(subscription.id) },
+              onDelete = if (subscription.deletable) {
+                { onRequestDelete(subscription.id) }
+              } else {
+                null
+              },
+            )
+          }
+        }
+
+        if (automaticAvailable || nodes.isNotEmpty()) {
+          item(key = "servers-label") {
+            PickerSectionLabel(stringResource(R.string.servers))
+          }
+        }
+        if (automaticAvailable) {
+          item(key = "automatic-node") {
+            NodeChoice(
+              title = stringResource(R.string.automatic),
+              subtitle = stringResource(R.string.automatic_node_description),
+              selected = selectedTag == ProfileSelection.AUTOMATIC_TAG,
+              onClick = { onSelectNode(ProfileSelection.AUTOMATIC_TAG) },
+            )
+          }
+        }
+        items(nodes, key = { "node-${it.tag}" }) { node ->
+          NodeChoice(
+            title = node.name,
+            subtitle = buildString {
+              append(node.protocol)
+              latencies[node.tag]?.let {
+                append(" · ")
+                append(stringResource(R.string.latency_ms, it))
               }
-            }
+            },
+            selected = selectedTag == node.tag,
+            onClick = { onSelectNode(node.tag) },
+          )
+        }
+
+        if (subscriptions.isEmpty() && nodes.isEmpty()) {
+          item(key = "empty") {
             Column(
               modifier = Modifier
                 .fillMaxWidth()
-                .heightIn(max = 360.dp)
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 12.dp, vertical = 4.dp),
+                .padding(horizontal = 16.dp, vertical = 40.dp),
+              horizontalAlignment = Alignment.CenterHorizontally,
               verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-              if (!trustTunnelActive && subscriptions.size > 1) {
-                Text(
-                  text = "Подписка",
-                  modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
-                  style = MaterialTheme.typography.labelLarge,
-                  color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                subscriptions.forEach { subscription ->
-                  SubscriptionChoice(
-                    name = subscription.name,
-                    nodeCount = subscription.nodes.size,
-                    refreshable = subscription.sourceUrl != null,
-                    selected = selectedSubscriptionId == subscription.id,
-                    onClick = { onSelectSubscription(subscription.id) },
-                  )
-                }
-                HorizontalDivider(
-                  modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-                )
-                Text(
-                  text = "Сервер",
-                  modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
-                  style = MaterialTheme.typography.labelLarge,
-                  color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-              }
-              if (automaticAvailable) {
-                NodeChoice(
-                  title = "Автоматически",
-                  subtitle = "Самый быстрый доступный узел",
-                  selected = selectedTag == ProfileSelection.AUTOMATIC_TAG,
-                  onClick = { onSelectNode(ProfileSelection.AUTOMATIC_TAG) },
-                )
-              }
-              nodes.forEach { node ->
-                NodeChoice(
-                  title = node.name,
-                  subtitle = buildString {
-                    append(node.protocol)
-                    latencies[node.tag]?.let { append(" · $it мс") }
-                  },
-                  selected = selectedTag == node.tag,
-                  onClick = { onSelectNode(node.tag) },
-                )
-              }
-              Spacer(Modifier.height(4.dp))
+              Text(
+                text = stringResource(R.string.profiles_empty_title),
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Medium,
+              )
+              Text(
+                text = stringResource(R.string.profiles_empty_message),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+              )
             }
           }
         }
       }
     }
   }
+}
+
+@Composable
+private fun PickerSectionLabel(text: String) {
+  Text(
+    text = text,
+    modifier = Modifier.padding(start = 8.dp, top = 8.dp, bottom = 2.dp),
+    style = MaterialTheme.typography.labelLarge,
+    color = MaterialTheme.colorScheme.primary,
+  )
 }
 
 private enum class ActionGlyph {
@@ -1037,6 +1692,7 @@ private enum class ActionGlyph {
   Diagnostics,
   File,
   Import,
+  Info,
   Journal,
   Paste,
   Ping,
@@ -1091,7 +1747,8 @@ private fun ActionGlyph.imageVector(): ImageVector = when (this) {
   ActionGlyph.Diagnostics -> Icons.Rounded.Troubleshoot
   ActionGlyph.File -> Icons.Rounded.Description
   ActionGlyph.Import -> Icons.Rounded.FileDownload
-  ActionGlyph.Journal -> Icons.Rounded.Article
+  ActionGlyph.Info -> Icons.Rounded.Info
+  ActionGlyph.Journal -> Icons.AutoMirrored.Rounded.Article
   ActionGlyph.Paste -> Icons.Rounded.ContentPaste
   ActionGlyph.Ping -> Icons.Rounded.Speed
   ActionGlyph.Qr -> Icons.Rounded.QrCodeScanner
@@ -1203,52 +1860,60 @@ private fun RoutingCard(
 ) {
   Column {
     Text(
-      text = "Маршрутизация",
+      text = stringResource(R.string.routing),
       modifier = Modifier.padding(start = 16.dp, bottom = 8.dp),
       style = MaterialTheme.typography.titleSmall,
       color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
     Surface(
-      modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
+      modifier = Modifier.fillMaxWidth().clickable(enabled = available, onClick = onClick),
       shape = RoundedCornerShape(24.dp),
       color = MaterialTheme.colorScheme.surfaceContainer,
     ) {
       Column {
         if (available) {
           InfoRow(
-            "Трафик",
-            if (routingMode == ProfileSelection.ROUTING_MANUAL) {
-              "Свои правила"
-            } else {
-              "Весь трафик через VPN"
+            stringResource(R.string.traffic),
+            when (routingMode) {
+              ProfileSelection.ROUTING_RU_DIRECT -> stringResource(R.string.russia_direct)
+              ProfileSelection.ROUTING_MANUAL -> stringResource(R.string.custom_rules)
+              else -> stringResource(R.string.all_traffic_vpn)
             },
           )
           HorizontalDivider(modifier = Modifier.padding(horizontal = 20.dp))
           InfoRow(
-            "Приложения",
+            stringResource(R.string.applications),
             when (applicationMode) {
-              ProfileSelection.APPS_ONLY -> "Только выбранные · $selectedApplicationCount"
-              ProfileSelection.APPS_BYPASS -> "Исключения · $selectedApplicationCount"
-              else -> "Все приложения"
+              ProfileSelection.APPS_ONLY -> pluralStringResource(
+                R.plurals.only_selected_count,
+                selectedApplicationCount,
+                selectedApplicationCount,
+              )
+              ProfileSelection.APPS_BYPASS -> pluralStringResource(
+                R.plurals.bypass_selected_count,
+                selectedApplicationCount,
+                selectedApplicationCount,
+              )
+              else -> stringResource(R.string.all_apps)
             },
           )
           HorizontalDivider(modifier = Modifier.padding(horizontal = 20.dp))
           InfoRow(
-            "Защита от DPI",
+            stringResource(R.string.dpi_protection),
             if (dpiMode == ProfileSelection.DPI_TLS_FRAGMENT) {
-              "Фрагментация TLS"
+              stringResource(R.string.tls_fragmentation)
             } else {
-              "Стандартная"
+              stringResource(R.string.standard)
             },
           )
           HorizontalDivider(modifier = Modifier.padding(horizontal = 20.dp))
-          InfoRow("DNS", "Защищённый")
+          InfoRow(stringResource(R.string.dns), stringResource(R.string.protected_value))
           HorizontalDivider(modifier = Modifier.padding(horizontal = 20.dp))
-          InfoRow("Защита при обрыве", "Включена")
+          InfoRow(stringResource(R.string.kill_switch), stringResource(R.string.enabled_value))
         } else {
-          InfoRow("Трафик", "Полный туннель через TrustTunnel")
+          InfoRow(stringResource(R.string.traffic), stringResource(R.string.trust_full_tunnel))
           HorizontalDivider(modifier = Modifier.padding(horizontal = 20.dp))
-          InfoRow("Защита", "H2/H3 · Anti-DPI · Kill switch")
+          InfoRow(stringResource(R.string.protection), "H2/H3 · Anti-DPI · Kill switch")
         }
       }
     }
@@ -1262,9 +1927,16 @@ private fun SubscriptionChoice(
   refreshable: Boolean,
   selected: Boolean,
   onClick: () -> Unit,
+  onDelete: (() -> Unit)?,
 ) {
   Surface(
-    modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
+    modifier = Modifier
+      .fillMaxWidth()
+      .selectable(
+        selected = selected,
+        role = Role.RadioButton,
+        onClick = onClick,
+      ),
     shape = RoundedCornerShape(16.dp),
     color = if (selected) {
       MaterialTheme.colorScheme.secondaryContainer
@@ -1305,23 +1977,29 @@ private fun SubscriptionChoice(
           style = MaterialTheme.typography.bodyLarge,
           fontWeight = FontWeight.Medium,
           maxLines = 1,
+          overflow = TextOverflow.Ellipsis,
         )
         Text(
-          text = buildString {
-            append(nodeCount)
-            append(if (nodeCount == 1) " сервер" else " серверов")
-            append(if (refreshable) " · по ссылке" else " · файл")
-          },
+          text = "${pluralStringResource(R.plurals.server_count, nodeCount, nodeCount)} · ${stringResource(if (refreshable) R.string.subscription_source_remote else R.string.subscription_source_local)}",
           style = MaterialTheme.typography.bodySmall,
           color = MaterialTheme.colorScheme.onSurfaceVariant,
+          maxLines = 2,
+          overflow = TextOverflow.Ellipsis,
         )
       }
       if (selected) {
         Icon(
           imageVector = Icons.Rounded.Check,
-          contentDescription = "Выбрано",
+          contentDescription = null,
           tint = MaterialTheme.colorScheme.primary,
           modifier = Modifier.size(21.dp),
+        )
+      }
+      if (onDelete != null) {
+        CompactIconAction(
+          glyph = ActionGlyph.Clear,
+          description = stringResource(R.string.subscription_delete, name),
+          onClick = onDelete,
         )
       }
     }
@@ -1336,7 +2014,14 @@ private fun NodeChoice(
   onClick: () -> Unit,
 ) {
   Surface(
-    modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
+    modifier = Modifier
+      .fillMaxWidth()
+      .heightIn(min = 56.dp)
+      .selectable(
+        selected = selected,
+        role = Role.RadioButton,
+        onClick = onClick,
+      ),
     shape = RoundedCornerShape(18.dp),
     color = if (selected) {
       MaterialTheme.colorScheme.secondaryContainer
@@ -1389,247 +2074,359 @@ private fun RoutingSettingsDialog(
   onApply: (String, String, String, String, String, Set<String>) -> Unit,
   onDismiss: () -> Unit,
 ) {
-  var route by remember(routingMode) { mutableStateOf(routingMode) }
+  var route by remember(routingMode, trustTunnelActive) {
+    mutableStateOf(
+      if (trustTunnelActive && routingMode == ProfileSelection.ROUTING_MANUAL) {
+        ProfileSelection.ROUTING_ALL
+      } else {
+        routingMode
+      },
+    )
+  }
   var direct by remember(directRoutes) { mutableStateOf(directRoutes) }
   var vpn by remember(vpnRoutes) { mutableStateOf(vpnRoutes) }
   var appMode by remember(applicationMode) { mutableStateOf(applicationMode) }
   var dpi by remember(dpiMode) { mutableStateOf(dpiMode) }
   var packages by remember(selectedApplications) { mutableStateOf(selectedApplications) }
   var search by remember { mutableStateOf("") }
-  val visibleApps = remember(installedApplications, search, packages) {
+  val visibleApps = remember(installedApplications, search) {
     installedApplications
       .filter {
         search.isBlank() ||
           it.label.contains(search, ignoreCase = true) ||
           it.packageName.contains(search, ignoreCase = true)
       }
-      .sortedWith(
-        compareByDescending<InstalledApp> { it.packageName in packages }
-          .thenBy { it.label.lowercase() },
-      )
+      .sortedBy { it.label.lowercase() }
   }
 
-  AlertDialog(
+  val canApply =
+    (appMode == ProfileSelection.APPS_ALL || packages.isNotEmpty()) &&
+      (trustTunnelActive || route != ProfileSelection.ROUTING_MANUAL ||
+        direct.isNotBlank() || vpn.isNotBlank())
+  Dialog(
     onDismissRequest = onDismiss,
-    title = { Text("Маршрутизация") },
-    text = {
-      Column(
-        modifier = Modifier.verticalScroll(rememberScrollState()),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
+    properties = DialogProperties(usePlatformDefaultWidth = false),
+  ) {
+    Box(
+      modifier = Modifier
+        .fillMaxSize()
+        .windowInsetsPadding(WindowInsets.safeDrawing)
+        .imePadding()
+        .padding(12.dp),
+      contentAlignment = Alignment.Center,
+    ) {
+      Surface(
+        modifier = Modifier.fillMaxWidth().fillMaxHeight().widthIn(max = 720.dp),
+        shape = RoundedCornerShape(28.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        tonalElevation = 6.dp,
       ) {
-        if (!trustTunnelActive) {
-          Text(
-            "Трафик",
-            style = MaterialTheme.typography.titleSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-          )
-          SettingChoice(
-            title = "Весь трафик через VPN",
-            selected = route == ProfileSelection.ROUTING_ALL,
-            onClick = { route = ProfileSelection.ROUTING_ALL },
-          )
-          SettingChoice(
-            title = "Свои правила",
-            subtitle = "Только указанные вами домены и IP идут напрямую",
-            selected = route == ProfileSelection.ROUTING_MANUAL,
-            onClick = { route = ProfileSelection.ROUTING_MANUAL },
-          )
-          if (route == ProfileSelection.ROUTING_MANUAL) {
-            OutlinedTextField(
-              value = direct,
-              onValueChange = { direct = it },
-              modifier = Modifier.fillMaxWidth(),
-              label = { Text("Напрямую, без VPN") },
-              supportingText = { Text("Домены и сети через пробел или с новой строки") },
-              placeholder = { Text("gosuslugi.ru\n192.168.0.0/16") },
-              minLines = 3,
-            )
-            OutlinedTextField(
-              value = vpn,
-              onValueChange = { vpn = it },
-              modifier = Modifier.fillMaxWidth(),
-              label = { Text("Всегда через VPN") },
-              supportingText = { Text("Исключения имеют приоритет над прямыми правилами") },
-              placeholder = { Text("youtube.com\ngooglevideo.com") },
-              minLines = 3,
-            )
-          }
-        } else {
-          Text(
-            "TrustTunnel поддерживает правила доменов и IP. Разделение по приложениям " +
-              "недоступно через API текущего Android-ядра.",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-          )
-        }
-        Spacer(Modifier.height(8.dp))
-        Text(
-          "Приложения",
-          style = MaterialTheme.typography.titleSmall,
-          color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        SettingChoice(
-          title = "Все приложения",
-          selected = appMode == ProfileSelection.APPS_ALL,
-          onClick = { appMode = ProfileSelection.APPS_ALL },
-        )
-        SettingChoice(
-          title = "Только выбранные через VPN",
-          selected = appMode == ProfileSelection.APPS_ONLY,
-          onClick = { appMode = ProfileSelection.APPS_ONLY },
-        )
-        SettingChoice(
-          title = "Выбранные без VPN",
-          selected = appMode == ProfileSelection.APPS_BYPASS,
-          onClick = { appMode = ProfileSelection.APPS_BYPASS },
-        )
-        if (appMode != ProfileSelection.APPS_ALL) {
+        Column {
           Row(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth().padding(start = 24.dp, end = 12.dp, top = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween,
           ) {
-            Text(
-              if (packages.isEmpty()) "Ничего не выбрано" else "Выбрано: ${packages.size}",
-              style = MaterialTheme.typography.bodyMedium,
-              color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            if (packages.isNotEmpty()) {
-              CompactIconAction(
-                glyph = ActionGlyph.Clear,
-                description = "Сбросить выбранные приложения",
-                onClick = { packages = emptySet() },
+            Column(Modifier.weight(1f)) {
+              Text(
+              stringResource(R.string.routing),
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.SemiBold,
+              )
+              Text(
+                if (trustTunnelActive) "TrustTunnel" else "sing-box",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
               )
             }
+            CompactIconAction(
+              glyph = ActionGlyph.Close,
+              description = stringResource(R.string.close_routing),
+              onClick = onDismiss,
+            )
           }
-          OutlinedTextField(
-            value = search,
-            onValueChange = { search = it },
-            modifier = Modifier.fillMaxWidth(),
-            label = { Text("Найти приложение") },
-            singleLine = true,
-            shape = RoundedCornerShape(16.dp),
-          )
-          visibleApps.forEach { app ->
-            val selected = app.packageName in packages
-            Row(
-              modifier = Modifier
-                .fillMaxWidth()
-                .clickable {
-                  packages = if (app.packageName in packages) {
-                    packages - app.packageName
+          LazyColumn(
+            modifier = Modifier.weight(1f),
+            contentPadding = PaddingValues(horizontal = 20.dp, vertical = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+          ) {
+            item { SettingsSectionTitle(stringResource(R.string.traffic)) }
+            item {
+              SettingChoice(
+                title = stringResource(R.string.all_traffic_vpn),
+                selected = route == ProfileSelection.ROUTING_ALL,
+                onClick = { route = ProfileSelection.ROUTING_ALL },
+              )
+            }
+            item {
+              SettingChoice(
+                title = stringResource(R.string.russia_direct),
+                subtitle = stringResource(
+                  if (trustTunnelActive) {
+                    R.string.trust_russia_direct_description
                   } else {
-                    packages + app.packageName
-                  }
-                }
-                .padding(vertical = 7.dp),
-              verticalAlignment = Alignment.CenterVertically,
-            ) {
-              if (app.icon != null) {
-                Image(
-                  bitmap = app.icon.asImageBitmap(),
-                  contentDescription = null,
-                  modifier = Modifier.size(40.dp),
+                    R.string.russia_direct_description
+                  },
+                ),
+                selected = route == ProfileSelection.ROUTING_RU_DIRECT,
+                onClick = { route = ProfileSelection.ROUTING_RU_DIRECT },
+              )
+            }
+            if (!trustTunnelActive) {
+              item {
+                SettingChoice(
+                  title = stringResource(R.string.custom_rules),
+                  subtitle = stringResource(R.string.custom_rules_description),
+                  selected = route == ProfileSelection.ROUTING_MANUAL,
+                  onClick = { route = ProfileSelection.ROUTING_MANUAL },
                 )
-              } else {
+              }
+              if (route == ProfileSelection.ROUTING_MANUAL) {
+                item {
+                  OutlinedTextField(
+                    value = direct,
+                    onValueChange = { direct = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text(stringResource(R.string.direct_without_vpn)) },
+                    supportingText = { Text(stringResource(R.string.routes_input_hint)) },
+                    placeholder = { Text("gosuslugi.ru\n192.168.0.0/16") },
+                    minLines = 3,
+                    shape = RoundedCornerShape(16.dp),
+                  )
+                }
+                item {
+                  OutlinedTextField(
+                    value = vpn,
+                    onValueChange = { vpn = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text(stringResource(R.string.always_vpn)) },
+                    supportingText = { Text(stringResource(R.string.vpn_routes_priority)) },
+                    placeholder = { Text("youtube.com\ngooglevideo.com") },
+                    minLines = 3,
+                    shape = RoundedCornerShape(16.dp),
+                  )
+                }
+              }
+            } else {
+              item {
                 Surface(
-                  modifier = Modifier.size(40.dp),
-                  shape = CircleShape,
+                  shape = RoundedCornerShape(18.dp),
                   color = MaterialTheme.colorScheme.secondaryContainer,
                 ) {
-                  Box(contentAlignment = Alignment.Center) {
-                    Text(
-                      app.label.take(1).uppercase(),
-                      fontWeight = FontWeight.SemiBold,
-                      color = MaterialTheme.colorScheme.onSecondaryContainer,
+                  Text(
+                    text = stringResource(R.string.trust_app_rules_note),
+                    modifier = Modifier.padding(16.dp),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                  )
+                }
+              }
+            }
+            item { SettingsSectionTitle(stringResource(R.string.applications)) }
+            item {
+              SettingChoice(
+                title = stringResource(R.string.all_apps),
+                selected = appMode == ProfileSelection.APPS_ALL,
+                onClick = { appMode = ProfileSelection.APPS_ALL },
+              )
+            }
+            item {
+              SettingChoice(
+                title = stringResource(R.string.apps_only_vpn),
+                selected = appMode == ProfileSelection.APPS_ONLY,
+                onClick = { appMode = ProfileSelection.APPS_ONLY },
+              )
+            }
+            item {
+              SettingChoice(
+                title = stringResource(R.string.apps_bypass_vpn),
+                selected = appMode == ProfileSelection.APPS_BYPASS,
+                onClick = { appMode = ProfileSelection.APPS_BYPASS },
+              )
+            }
+            if (appMode != ProfileSelection.APPS_ALL) {
+              item {
+                Row(
+                  modifier = Modifier.fillMaxWidth(),
+                  verticalAlignment = Alignment.CenterVertically,
+                  horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                  Text(
+                    if (packages.isEmpty()) {
+                      stringResource(R.string.nothing_selected)
+                    } else {
+                      pluralStringResource(
+                        R.plurals.selected_apps_count,
+                        packages.size,
+                        packages.size,
+                      )
+                    },
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                  )
+                  if (packages.isNotEmpty()) {
+                    CompactIconAction(
+                      glyph = ActionGlyph.Clear,
+                      description = stringResource(R.string.clear_selected_apps),
+                      onClick = { packages = emptySet() },
                     )
                   }
                 }
               }
-              Column(
-                Modifier
-                  .weight(1f)
-                  .padding(start = 12.dp),
-              ) {
-                Text(app.label, style = MaterialTheme.typography.bodyMedium)
+              item {
+                OutlinedTextField(
+                  value = search,
+                  onValueChange = { search = it },
+                  modifier = Modifier.fillMaxWidth(),
+                  label = { Text(stringResource(R.string.find_application)) },
+                  singleLine = true,
+                  shape = RoundedCornerShape(16.dp),
+                )
+              }
+              items(visibleApps, key = InstalledApp::packageName) { app ->
+                ApplicationChoice(
+                  app = app,
+                  selected = app.packageName in packages,
+                  onToggle = {
+                    packages = if (app.packageName in packages) {
+                      packages - app.packageName
+                    } else {
+                      packages + app.packageName
+                    }
+                  },
+                )
+              }
+              if (visibleApps.isEmpty()) {
+                item {
+                  Text(
+                    if (installedApplications.isEmpty()) {
+                      stringResource(R.string.apps_loading)
+                    } else {
+                      stringResource(R.string.apps_not_found)
+                    },
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 20.dp),
+                    textAlign = TextAlign.Center,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                  )
+                }
+              }
+              item {
                 Text(
-                  app.packageName,
-                  style = MaterialTheme.typography.labelSmall,
+                  stringResource(R.string.bypass_app_note),
+                  style = MaterialTheme.typography.bodySmall,
                   color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
               }
-              Checkbox(
-                checked = selected,
-                onCheckedChange = {
-                  packages = if (selected) {
-                    packages - app.packageName
-                  } else {
-                    packages + app.packageName
-                  }
-                },
-              )
+            }
+            if (!trustTunnelActive) {
+              item { SettingsSectionTitle(stringResource(R.string.dpi_protection)) }
+              item {
+                SettingChoice(
+                  title = stringResource(R.string.standard),
+                  subtitle = stringResource(R.string.standard_description),
+                  selected = dpi == ProfileSelection.DPI_OFF,
+                  onClick = { dpi = ProfileSelection.DPI_OFF },
+                )
+              }
+              item {
+                SettingChoice(
+                  title = stringResource(R.string.tls_fragmentation),
+                  subtitle = stringResource(R.string.tls_fragmentation_description),
+                  selected = dpi == ProfileSelection.DPI_TLS_FRAGMENT,
+                  onClick = { dpi = ProfileSelection.DPI_TLS_FRAGMENT },
+                )
+              }
             }
           }
-          if (visibleApps.isEmpty()) {
-            Text(
-              if (installedApplications.isEmpty()) {
-                "Загрузка списка приложений…"
-              } else {
-                "Приложения не найдены"
-              },
-              modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp),
-              textAlign = TextAlign.Center,
-              color = MaterialTheme.colorScheme.onSurfaceVariant,
+          HorizontalDivider()
+          Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.End,
+            verticalAlignment = Alignment.CenterVertically,
+          ) {
+            CompactIconAction(
+              glyph = ActionGlyph.Check,
+              description = stringResource(R.string.apply_routing),
+              onClick = { onApply(route, direct, vpn, appMode, dpi, packages) },
+              enabled = canApply,
             )
           }
-          Text(
-            "Исключение выводит трафик приложения из туннеля. Android всё равно " +
-              "показывает системный значок VPN для всего устройства.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-          )
         }
-        if (!trustTunnelActive) {
-          Spacer(Modifier.height(8.dp))
+      }
+    }
+  }
+}
+
+@Composable
+private fun SettingsSectionTitle(title: String) {
+  Text(
+    text = title,
+    modifier = Modifier.padding(top = 8.dp, start = 4.dp),
+    style = MaterialTheme.typography.titleSmall,
+    color = MaterialTheme.colorScheme.onSurfaceVariant,
+  )
+}
+
+@Composable
+private fun ApplicationChoice(
+  app: InstalledApp,
+  selected: Boolean,
+  onToggle: () -> Unit,
+) {
+  val context = LocalContext.current
+  val icon by produceState<android.graphics.Bitmap?>(null, app.packageName) {
+    value = withContext(Dispatchers.IO) {
+      InstalledAppLoader.loadIcon(context.applicationContext, app.packageName)
+    }
+  }
+  Row(
+    modifier = Modifier
+      .fillMaxWidth()
+      .toggleable(
+        value = selected,
+        role = Role.Checkbox,
+        onValueChange = { onToggle() },
+      )
+      .padding(horizontal = 4.dp, vertical = 8.dp),
+    verticalAlignment = Alignment.CenterVertically,
+  ) {
+    if (icon != null) {
+      Image(
+        bitmap = icon!!.asImageBitmap(),
+        contentDescription = null,
+        modifier = Modifier.size(40.dp),
+      )
+    } else {
+      Surface(
+        modifier = Modifier.size(40.dp),
+        shape = CircleShape,
+        color = MaterialTheme.colorScheme.secondaryContainer,
+      ) {
+        Box(contentAlignment = Alignment.Center) {
           Text(
-            "Защита от DPI",
-            style = MaterialTheme.typography.titleSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-          )
-          SettingChoice(
-            title = "Стандартная",
-            subtitle = "Максимальная совместимость и скорость",
-            selected = dpi == ProfileSelection.DPI_OFF,
-            onClick = { dpi = ProfileSelection.DPI_OFF },
-          )
-          SettingChoice(
-            title = "Фрагментация TLS",
-            subtitle = "Дробит ClientHello TCP-профилей; подключение может стать немного дольше",
-            selected = dpi == ProfileSelection.DPI_TLS_FRAGMENT,
-            onClick = { dpi = ProfileSelection.DPI_TLS_FRAGMENT },
+            app.label.take(1).uppercase(),
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onSecondaryContainer,
           )
         }
       }
-    },
-    confirmButton = {
-      CompactIconAction(
-        glyph = ActionGlyph.Check,
-        description = "Применить маршрутизацию",
-        onClick = { onApply(route, direct, vpn, appMode, dpi, packages) },
-        enabled =
-          (appMode == ProfileSelection.APPS_ALL || packages.isNotEmpty()) &&
-            (trustTunnelActive || route == ProfileSelection.ROUTING_ALL ||
-              direct.isNotBlank() || vpn.isNotBlank()),
+    }
+    Column(Modifier.weight(1f).padding(start = 12.dp)) {
+      Text(
+        app.label,
+        style = MaterialTheme.typography.bodyMedium,
+        maxLines = 2,
+        overflow = TextOverflow.Ellipsis,
       )
-    },
-    dismissButton = {
-      CompactIconAction(
-        glyph = ActionGlyph.Close,
-        description = "Отмена",
-        onClick = onDismiss,
+      Text(
+        app.packageName,
+        style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
       )
-    },
-  )
+    }
+    Checkbox(checked = selected, onCheckedChange = null)
+  }
 }
 
 @Composable
@@ -1640,7 +2437,14 @@ private fun SettingChoice(
   onClick: () -> Unit,
 ) {
   Surface(
-    modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
+    modifier = Modifier
+      .fillMaxWidth()
+      .heightIn(min = 56.dp)
+      .selectable(
+        selected = selected,
+        role = Role.RadioButton,
+        onClick = onClick,
+      ),
     shape = RoundedCornerShape(16.dp),
     color = if (selected) {
       MaterialTheme.colorScheme.secondaryContainer
@@ -1683,8 +2487,18 @@ private fun InfoRow(label: String, value: String) {
     horizontalArrangement = Arrangement.SpaceBetween,
     verticalAlignment = Alignment.CenterVertically,
   ) {
-    Text(label, style = MaterialTheme.typography.bodyLarge)
-    Text(value, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary)
+    Text(
+      label,
+      modifier = Modifier.weight(1f),
+      style = MaterialTheme.typography.bodyLarge,
+    )
+    Text(
+      value,
+      modifier = Modifier.weight(1f),
+      style = MaterialTheme.typography.bodyMedium,
+      color = MaterialTheme.colorScheme.primary,
+      textAlign = TextAlign.End,
+    )
   }
 }
 
@@ -1702,7 +2516,7 @@ private fun ErrorCard(
   ) {
     Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
       Text(
-        text = "Подключение не выполнено",
+        text = stringResource(R.string.connection_failed_title),
         fontWeight = FontWeight.SemiBold,
         color = MaterialTheme.colorScheme.onErrorContainer,
       )
@@ -1713,7 +2527,7 @@ private fun ErrorCard(
       )
       if (code != null) {
         Text(
-          text = "Код: $code",
+          text = stringResource(R.string.error_code, code),
           style = MaterialTheme.typography.labelSmall,
           color = MaterialTheme.colorScheme.onErrorContainer.copy(alpha = 0.72f),
         )
@@ -1721,7 +2535,7 @@ private fun ErrorCard(
       if (diagnosticReportAvailable) {
         CompactIconAction(
           glyph = ActionGlyph.Copy,
-          description = "Скопировать диагностику",
+          description = stringResource(R.string.copy_diagnostics),
           onClick = onCopyDiagnostic,
           modifier = Modifier.align(Alignment.End),
         )
@@ -1748,19 +2562,19 @@ private fun ImportActions(
     ) {
       CompactIconAction(
         glyph = ActionGlyph.Paste,
-        description = "Вставить ссылку из буфера обмена",
+        description = stringResource(R.string.paste_from_clipboard),
         enabled = !importing,
         onClick = onPaste,
       )
       CompactIconAction(
         glyph = ActionGlyph.Qr,
-        description = "Сканировать QR-код",
+        description = stringResource(R.string.scan_qr),
         enabled = !importing,
         onClick = onScanQr,
       )
       CompactIconAction(
         glyph = ActionGlyph.File,
-        description = "Выбрать sing-box JSON-файл",
+        description = stringResource(R.string.choose_singbox_json),
         enabled = !importing,
         onClick = onImportFile,
       )
@@ -1784,87 +2598,101 @@ private fun ImportDialog(
     onDismissRequest = { if (!importing) onDismiss() },
     properties = DialogProperties(usePlatformDefaultWidth = false),
   ) {
-    Surface(
-      modifier = Modifier.fillMaxWidth(0.92f).widthIn(max = 560.dp),
-      shape = RoundedCornerShape(28.dp),
-      color = MaterialTheme.colorScheme.surfaceContainerHigh,
-      tonalElevation = 6.dp,
+    Box(
+      modifier = Modifier
+        .fillMaxSize()
+        .windowInsetsPadding(WindowInsets.safeDrawing)
+        .imePadding()
+        .padding(12.dp),
+      contentAlignment = Alignment.Center,
     ) {
-      Column(
-        modifier = Modifier.padding(24.dp),
-        verticalArrangement = Arrangement.spacedBy(18.dp),
+      Surface(
+        modifier = Modifier.fillMaxWidth().widthIn(max = 560.dp).heightIn(max = 640.dp),
+        shape = RoundedCornerShape(28.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        tonalElevation = 6.dp,
       ) {
-        Row(
-          verticalAlignment = Alignment.CenterVertically,
-          horizontalArrangement = Arrangement.spacedBy(12.dp),
+        Column(
+          modifier = Modifier.verticalScroll(rememberScrollState()).padding(24.dp),
+          verticalArrangement = Arrangement.spacedBy(18.dp),
         ) {
-          Surface(
-            modifier = Modifier.size(44.dp),
-            shape = CircleShape,
-            color = MaterialTheme.colorScheme.primaryContainer,
+          Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
           ) {
-            Icon(
-              imageVector = Icons.Rounded.Add,
-              contentDescription = null,
-              tint = MaterialTheme.colorScheme.onPrimaryContainer,
-              modifier = Modifier.padding(10.dp),
+            Surface(
+              modifier = Modifier.size(44.dp),
+              shape = CircleShape,
+              color = MaterialTheme.colorScheme.primaryContainer,
+            ) {
+              Icon(
+                imageVector = Icons.Rounded.Add,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                modifier = Modifier.padding(10.dp),
+              )
+            }
+            Text(
+              stringResource(R.string.add_subscription),
+              modifier = Modifier.weight(1f),
+              style = MaterialTheme.typography.headlineSmall,
+              fontWeight = FontWeight.SemiBold,
+              maxLines = 2,
+              overflow = TextOverflow.Ellipsis,
             )
           }
           Text(
-            "Добавить подписку",
-            style = MaterialTheme.typography.headlineSmall,
-            fontWeight = FontWeight.SemiBold,
+            text = stringResource(R.string.import_formats),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            style = MaterialTheme.typography.bodyMedium,
           )
-        }
-        Text(
-          text = "HTTPS, QR, Base64, sing-box/Xray JSON, Clash/Mihomo YAML и прямые ссылки.",
-          color = MaterialTheme.colorScheme.onSurfaceVariant,
-          style = MaterialTheme.typography.bodyMedium,
-        )
-        OutlinedTextField(
-          value = subscriptionUrl,
-          onValueChange = onUrlChange,
-          modifier = Modifier.fillMaxWidth(),
-          label = { Text("Ссылка подписки или профиля") },
-          minLines = 1,
-          maxLines = 3,
-          enabled = !importing,
-          isError = error != null,
-          supportingText = error?.let { message ->
-            {
-              Text(
-                text = message,
-                color = MaterialTheme.colorScheme.error,
-              )
-            }
-          },
-          shape = RoundedCornerShape(16.dp),
-        )
-        ImportActions(
-          importing = importing,
-          onPaste = onPaste,
-          onScanQr = onScanQr,
-          onImportFile = onImportFile,
-        )
-        HorizontalDivider()
-        Row(
-          modifier = Modifier.fillMaxWidth(),
-          horizontalArrangement = Arrangement.End,
-          verticalAlignment = Alignment.CenterVertically,
-        ) {
-          CompactIconAction(
-            glyph = ActionGlyph.Close,
-            description = "Отмена",
+          OutlinedTextField(
+            value = subscriptionUrl,
+            onValueChange = onUrlChange,
+            modifier = Modifier.fillMaxWidth(),
+            label = { Text(stringResource(R.string.subscription_or_profile_link)) },
+            minLines = 1,
+            maxLines = 3,
             enabled = !importing,
-            onClick = onDismiss,
+            isError = error != null,
+            supportingText = error?.let { message ->
+              {
+                Text(
+                  text = message,
+                  color = MaterialTheme.colorScheme.error,
+                )
+              }
+            },
+            shape = RoundedCornerShape(16.dp),
           )
-          CompactIconAction(
-            glyph = ActionGlyph.Import,
-            description = if (importing) "Профиль импортируется" else "Импортировать профиль",
-            enabled = subscriptionUrl.contains("://") && !importing,
-            loading = importing,
-            onClick = onImportUrl,
+          ImportActions(
+            importing = importing,
+            onPaste = onPaste,
+            onScanQr = onScanQr,
+            onImportFile = onImportFile,
           )
+          HorizontalDivider()
+          Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.End,
+            verticalAlignment = Alignment.CenterVertically,
+          ) {
+            CompactIconAction(
+              glyph = ActionGlyph.Close,
+              description = stringResource(R.string.cancel),
+              enabled = !importing,
+              onClick = onDismiss,
+            )
+            CompactIconAction(
+              glyph = ActionGlyph.Import,
+              description = stringResource(
+                if (importing) R.string.profile_importing else R.string.profile_import,
+              ),
+              enabled = subscriptionUrl.contains("://") && !importing,
+              loading = importing,
+              onClick = onImportUrl,
+            )
+          }
         }
       }
     }
@@ -1912,6 +2740,6 @@ private fun ShieldMark(
 @Composable
 private fun MainScreenPreview() {
   VeilarkTheme(dynamicColor = false) {
-    MainScreen(profileName = "Veilark · 10 узлов")
+    MainScreen(profileName = "Veilark · 10 servers")
   }
 }

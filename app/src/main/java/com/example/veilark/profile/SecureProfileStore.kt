@@ -61,6 +61,8 @@ object SecureProfileStore {
       .toString(Charsets.UTF_8)
   }
 
+  fun delete(context: Context, id: String): Boolean = encryptedFile(context, id).delete()
+
   fun migrateLegacy(context: Context) {
     migrate(context, SING_BOX, File(context.filesDir, "profiles/active.json"))
     migrate(context, TRUST_TUNNEL, File(context.filesDir, "trusttunnel/active.toml"))

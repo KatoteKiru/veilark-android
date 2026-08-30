@@ -1,6 +1,7 @@
 package com.example.veilark.profile
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SingBoxCatalogTest {
@@ -68,5 +69,78 @@ class SingBoxCatalogTest {
     )
 
     assertEquals(before.id, after.id)
+  }
+
+  @Test
+  fun removingOneSourcePreservesRemoteAndManualPeers() {
+    val first = SingBoxCatalog.create(
+      config = """{"outbounds":[]}""",
+      nodes = emptyList(),
+      selectedNodeTag = ProfileSelection.AUTOMATIC_TAG,
+      sourceUrl = "https://one.example/sub/a",
+      suggestedName = null,
+    )
+    val second = SingBoxCatalog.create(
+      config = """{"outbounds":[]}""",
+      nodes = emptyList(),
+      selectedNodeTag = ProfileSelection.AUTOMATIC_TAG,
+      sourceUrl = "https://two.example/sub/b",
+      suggestedName = null,
+    )
+    val manual = SingBoxCatalog.create(
+      config = """{"outbounds":[{"tag":"manual"}]}""",
+      nodes = emptyList(),
+      selectedNodeTag = ProfileSelection.AUTOMATIC_TAG,
+      sourceUrl = null,
+      suggestedName = "Manual",
+    )
+
+    assertEquals(listOf(second, manual), SingBoxCatalog.removeSource(listOf(first, second, manual), first.id))
+  }
+
+  @Test
+  fun v1CatalogMigratesWithoutLosingProfileOrActiveNode() {
+    val legacy = """
+      {
+        "version": 1,
+        "profiles": [{
+          "id": "legacy-id",
+          "name": "Legacy",
+          "config": "{\"outbounds\":[{\"tag\":\"nl\",\"server\":\"example.org\"}]}",
+          "nodes": "[{\"tag\":\"nl\",\"name\":\"NL\",\"protocol\":\"VLESS\"}]",
+          "selectedNodeTag": "nl",
+          "sourceUrl": null
+        }]
+      }
+    """.trimIndent()
+
+    val migrated = SingBoxCatalog.decode(legacy).single()
+
+    assertEquals("legacy-id", migrated.id)
+    assertEquals("nl", migrated.selectedNodeTag)
+    assertEquals(SubscriptionOrigin.LEGACY, migrated.origin)
+    assertTrue(migrated.nodeFingerprints.containsKey("nl"))
+  }
+
+  @Test
+  fun refreshingMigratedUrlDoesNotCreateDuplicateSource() {
+    val legacy = SingBoxCatalogEntry(
+      id = "old-v1-id",
+      name = "Provider",
+      config = """{"outbounds":[]}""",
+      nodes = emptyList(),
+      selectedNodeTag = ProfileSelection.AUTOMATIC_TAG,
+      sourceUrl = "https://provider.example/sub/token",
+      origin = SubscriptionOrigin.LEGACY,
+    )
+    val refreshed = SingBoxCatalog.create(
+      config = """{"outbounds":[{"tag":"new"}]}""",
+      nodes = emptyList(),
+      selectedNodeTag = ProfileSelection.AUTOMATIC_TAG,
+      sourceUrl = "HTTPS://PROVIDER.EXAMPLE/sub/token#ignored",
+      suggestedName = null,
+    )
+
+    assertEquals(listOf(refreshed), SingBoxCatalog.replaceSource(listOf(legacy), refreshed))
   }
 }

@@ -1,0 +1,7 @@
+# Private distribution only. Copy to private.properties; never commit the real file.
+applicationId=your.private.application.id
+otaManifestUrl=https://updates.example.com/veilark/manifest.json
+telegramBotUrl=https://t.me/senyavpn_bot?start=client_android
+otaHost=updates.example.com
+otaPort=443
+otaPublicKey=BASE64_ED25519_PUBLIC_KEY

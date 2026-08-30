@@ -6,6 +6,48 @@ import org.junit.Test
 
 class AndroidTunnelLifecycleCoordinatorTest {
   @Test
+  fun startupSideEffectsRequireBothCurrentGenerationAndLifecycleAttempt() {
+    val active = LifecycleAttempt(4L, 9L, EngineId.SingBox)
+
+    assertTrue(startupSideEffectAllowed(7, 7, active, active))
+    assertEquals(false, startupSideEffectAllowed(6, 7, active, active))
+    assertEquals(
+      false,
+      startupSideEffectAllowed(7, 7, active, active.copy(attemptId = 5L)),
+    )
+    assertEquals(false, startupSideEffectAllowed(7, 7, null, active))
+  }
+
+  @Test
+  fun startStopStartAllocatesNewAttemptAndRejectsFirstAttemptCallbacks() {
+    val coordinator = coordinator(epoch = 23)
+    val first = connectToConnected(coordinator, EngineId.SingBox)
+
+    val stop = requireType<LifecycleAction.StopEngine>(
+      coordinator.dispatch(LifecycleInput.Stop).action,
+    )
+    assertEquals(
+      LifecycleAction.Stopped(first),
+      coordinator.dispatch(LifecycleInput.EngineStopped(stop.stopFence)).action,
+    )
+
+    val second = coordinator.connect(EngineId.TrustTunnel)
+    assertTrue(second.attemptId > first.attemptId)
+    coordinator.dispatch(LifecycleInput.PermissionResult(second, granted = true))
+    coordinator.dispatch(LifecycleInput.EngineStarted(second))
+
+    assertEquals(
+      LifecycleAction.Ignored(IgnoreReason.StaleOrIllegalEvent),
+      coordinator.dispatch(LifecycleInput.EngineStarted(first)).action,
+    )
+    assertEquals(
+      LifecycleAction.Ignored(IgnoreReason.StaleOrIllegalEvent),
+      coordinator.dispatch(LifecycleInput.EngineFailed(first)).action,
+    )
+    assertEquals(LifecycleState.Connected(second), coordinator.state)
+  }
+
+  @Test
   fun missingPreferenceDefaultPreservesCurrentSingBoxSelection() {
     val coordinator = coordinator()
 

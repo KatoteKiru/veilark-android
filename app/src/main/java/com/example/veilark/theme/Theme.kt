@@ -10,8 +10,35 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.platform.LocalContext
 
-private val LightColors = lightColorScheme()
-private val DarkColors = darkColorScheme()
+private val LightColors = lightColorScheme(
+  primary = LightPrimary,
+  onPrimary = LightOnPrimary,
+  primaryContainer = LightPrimaryContainer,
+  onPrimaryContainer = LightOnPrimaryContainer,
+  secondaryContainer = LightSecondaryContainer,
+  onSecondaryContainer = LightOnSecondaryContainer,
+  background = LightBackground,
+  onBackground = LightOnBackground,
+  surface = LightSurface,
+  onSurface = LightOnSurface,
+  surfaceVariant = LightSurfaceVariant,
+  onSurfaceVariant = LightOnSurfaceVariant,
+)
+
+private val DarkColors = darkColorScheme(
+  primary = DarkPrimary,
+  onPrimary = DarkOnPrimary,
+  primaryContainer = DarkPrimaryContainer,
+  onPrimaryContainer = DarkOnPrimaryContainer,
+  secondaryContainer = DarkSecondaryContainer,
+  onSecondaryContainer = DarkOnSecondaryContainer,
+  background = DarkBackground,
+  onBackground = DarkOnBackground,
+  surface = DarkSurface,
+  onSurface = DarkOnSurface,
+  surfaceVariant = DarkSurfaceVariant,
+  onSurfaceVariant = DarkOnSurfaceVariant,
+)
 
 @Composable
 fun VeilarkTheme(
