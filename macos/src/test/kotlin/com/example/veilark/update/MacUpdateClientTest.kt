@@ -13,6 +13,12 @@ import java.util.Base64
 
 class MacUpdateClientTest {
   @Test
+  fun candidateMetadataIsNewerThanPublished105() {
+    assertEquals("1.0.6", MacUpdateClient.CURRENT_VERSION)
+    assertEquals(10_006, MacUpdateClient.CURRENT_BUILD)
+  }
+
+  @Test
   fun requiresGreaterBuildAndNonDecreasingVersion() {
     val current = MacUpdate(
       version = MacUpdateClient.CURRENT_VERSION,
@@ -30,6 +36,37 @@ class MacUpdateClientTest {
         current.copy(version = "0.9.9", build = MacUpdateClient.CURRENT_BUILD + 1),
       ),
     )
+  }
+
+  @Test
+  fun evaluatesPublishedAndCandidateAcrossHistoricalBuilds() {
+    val published = MacUpdate(
+      version = "1.0.5",
+      build = 10_005,
+      architecture = "arm64",
+      url = "https://updates.example.com/Veilark-1.0.5.dmg",
+      sha256 = "d".repeat(64),
+      notes = "Published release",
+    )
+    listOf(
+      "1.0.2" to 10_002,
+      "1.0.3" to 10_003,
+      "1.0.4" to 10_004,
+    ).forEach { (version, build) ->
+      assertTrue(MacUpdateClient.isNewerThan(published, version, build))
+    }
+    assertFalse(MacUpdateClient.isNewerThan(published, "1.0.5", 10_005))
+    assertFalse(MacUpdateClient.isNewerThan(published, "1.0.6", 10_006))
+
+    val candidate = published.copy(version = "1.0.6", build = 10_006)
+    listOf(
+      "1.0.2" to 10_002,
+      "1.0.3" to 10_003,
+      "1.0.4" to 10_004,
+      "1.0.5" to 10_005,
+    ).forEach { (version, build) ->
+      assertTrue(MacUpdateClient.isNewerThan(candidate, version, build))
+    }
   }
 
   @Test

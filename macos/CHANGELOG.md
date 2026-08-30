@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.0.6 candidate
+
+- Check the signed OTA channel once at application startup and surface the result in Settings; installation remains an explicit user action.
+- Give the candidate a monotonically newer `1.0.6` / `10006` identity so installed `1.0.5` builds can discover it after a future manifest publication.
+- Compile the native updater with the same Gatekeeper policy as the JVM verifier and privileged helper.
+- Add compatibility tests for published `1.0.2` through `1.0.5` metadata.
+
 ## 1.0.5 development preview
 
 - Bump the privileged-helper protocol to version 6 so existing installations must install the hardened helper.

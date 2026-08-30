@@ -165,7 +165,14 @@ object MacUpdateClient {
 
   /** A signed manifest is advisory; it never installs an update on its own. */
   internal fun isNewer(update: MacUpdate): Boolean =
-    update.build > CURRENT_BUILD && compareVersions(update.version, CURRENT_VERSION) >= 0
+    isNewerThan(update, CURRENT_VERSION, CURRENT_BUILD)
+
+  internal fun isNewerThan(
+    update: MacUpdate,
+    currentVersion: String,
+    currentBuild: Int,
+  ): Boolean =
+    update.build > currentBuild && compareVersions(update.version, currentVersion) >= 0
 
   internal fun compareVersions(left: String, right: String): Int {
     val leftParts = left.split('.').map(String::toInt)

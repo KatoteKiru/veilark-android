@@ -305,6 +305,7 @@ val compileUpdater by tasks.registering(Exec::class) {
   commandLine(
     "swiftc",
     "-O",
+    *if (macosOtaRequireGatekeeper) arrayOf("-D", "VEILARK_REQUIRE_GATEKEEPER") else emptyArray(),
     "-o", output.get().asFile.absolutePath,
     file("updater/veilark-updater.swift").absolutePath,
   )

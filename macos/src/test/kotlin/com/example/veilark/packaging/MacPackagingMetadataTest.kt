@@ -41,6 +41,15 @@ class MacPackagingMetadataTest {
   }
 
   @Test
+  fun nativeUpdaterReceivesTheGatekeeperReleaseFlag() {
+    val build = File("build.gradle.kts").readText()
+    val updaterTask = build.substringAfter("val compileUpdater by tasks.registering")
+      .substringBefore("onlyIf { isMacOs }")
+    assertTrue(updaterTask.contains("VEILARK_REQUIRE_GATEKEEPER"))
+    assertTrue(updaterTask.contains("macosOtaRequireGatekeeper"))
+  }
+
+  @Test
   fun helperTreatsAStalePidAsAnIdempotentStop() {
     val helper = File("helper/veilark-helper.swift").readText()
     val stalePidBranch = helper.substringAfter("guard isManagedProcess(pid) else {")

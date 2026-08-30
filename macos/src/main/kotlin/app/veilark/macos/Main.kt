@@ -138,7 +138,17 @@ fun main() = application {
   var selectedSection by remember { mutableStateOf(MacSection.OVERVIEW) }
   var tick by remember { mutableStateOf(0) }
   var windowVisible by remember { mutableStateOf(true) }
+  var startupUpdate by remember { mutableStateOf<MacUpdate?>(null) }
+  var startupUpdateError by remember { mutableStateOf<String?>(null) }
   val trayIcon = remember { BitmapPainter(trayBitmap().toComposeImageBitmap()) }
+
+  LaunchedEffect(Unit) {
+    if (MacUpdateClient.configured) {
+      runCatching { MacUpdateClient.check() }
+        .onSuccess { startupUpdate = it }
+        .onFailure { startupUpdateError = it.message ?: Strings.updateCheckFailed }
+    }
+  }
 
   LaunchedEffect(session) {
     while (true) {
@@ -217,6 +227,8 @@ fun main() = application {
           tick = tick,
           refresh = ::refresh,
           onToggleConnection = ::toggleConnection,
+          startupUpdate = startupUpdate,
+          startupUpdateError = startupUpdateError,
           onUpdaterLaunched = {
             exitApplication()
           },
@@ -244,6 +256,8 @@ private fun MacShell(
   tick: Int,
   refresh: () -> Unit,
   onToggleConnection: () -> Unit,
+  startupUpdate: MacUpdate?,
+  startupUpdateError: String?,
   onUpdaterLaunched: () -> Unit,
 ) {
   tick
@@ -282,7 +296,13 @@ private fun MacShell(
           MacSection.PROFILES -> ProfilesSection(session, refresh)
           MacSection.ROUTING -> RoutingSection(session)
           MacSection.DIAGNOSTICS -> DiagnosticsSection(session)
-          MacSection.SETTINGS -> SettingsSection(session, refresh, onUpdaterLaunched)
+          MacSection.SETTINGS -> SettingsSection(
+            session,
+            refresh,
+            startupUpdate,
+            startupUpdateError,
+            onUpdaterLaunched,
+          )
         }
       }
     }
@@ -1074,15 +1094,17 @@ private fun DiagnosticsSection(session: VeilarkSession) {
 private fun SettingsSection(
   session: VeilarkSession,
   refresh: () -> Unit,
+  startupUpdate: MacUpdate?,
+  startupUpdateError: String?,
   onUpdaterLaunched: () -> Unit,
 ) {
   val scope = rememberCoroutineScope()
   var helperBusy by remember { mutableStateOf(false) }
   var helperError by remember { mutableStateOf<String?>(null) }
-  var update by remember { mutableStateOf<MacUpdate?>(null) }
+  var update by remember(startupUpdate) { mutableStateOf(startupUpdate) }
   var updateBusy by remember { mutableStateOf(false) }
   var updateStatus by remember { mutableStateOf<String?>(null) }
-  var updateError by remember { mutableStateOf<String?>(null) }
+  var updateError by remember(startupUpdateError) { mutableStateOf(startupUpdateError) }
   Column(
     modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
     verticalArrangement = Arrangement.spacedBy(16.dp),
