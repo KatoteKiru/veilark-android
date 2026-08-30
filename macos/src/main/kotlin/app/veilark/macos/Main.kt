@@ -613,8 +613,32 @@ private fun ProfilesSection(session: VeilarkSession, refresh: () -> Unit) {
   val scope = rememberCoroutineScope()
   var importText by remember { mutableStateOf("") }
   var importError by remember { mutableStateOf<String?>(null) }
+  var subscriptionBotError by remember { mutableStateOf<String?>(null) }
   Column(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(18.dp)) {
     SectionHeading(Strings.profiles, Strings.profilesSubtitle)
+    Row(
+      modifier = Modifier.fillMaxWidth(),
+      horizontalArrangement = Arrangement.End,
+    ) {
+      OutlinedButton(
+        onClick = {
+          subscriptionBotError = if (TelegramBotLink.openConfigured()) {
+            null
+          } else {
+            Strings.telegramOpenFailed
+          }
+        },
+      ) {
+        Text(Strings.getOrRenewSubscription)
+      }
+    }
+    subscriptionBotError?.let { message ->
+      Text(
+        message,
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.error,
+      )
+    }
     Surface(
       modifier = Modifier.fillMaxWidth(),
       shape = RoundedCornerShape(14.dp),
