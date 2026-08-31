@@ -88,11 +88,18 @@ def connect_node(env: dict[str, str]) -> paramiko.SSHClient:
         or env.get("NETHERLANDS_NEW_PASSWORD")
         or env.get("NETHERLANDS_PASSWORD")
     )
+    key_file = (
+        os.environ.get("OTA_SSH_KEY_FILE")
+        or env.get("OTA_SSH_KEY_FILE")
+        or str(ROOT.parent / "secrets" / "veilark-automation-ed25519-20260831")
+    )
+    if not Path(key_file).is_file():
+        key_file = ""
     host_key_sha256 = (
         os.environ.get("OTA_SSH_HOST_KEY_SHA256")
         or env.get("OTA_SSH_HOST_KEY_SHA256")
     )
-    if not host or not user or not password or not host_key_sha256:
+    if not host or not user or (not password and not key_file) or not host_key_sha256:
         raise ValueError(
             "SSH environment is missing OTA credentials or pinned host key fingerprint"
         )
@@ -103,7 +110,8 @@ def connect_node(env: dict[str, str]) -> paramiko.SSHClient:
     client.connect(
         host,
         username=user,
-        password=password,
+        key_filename=key_file or None,
+        password=None if key_file else password,
         timeout=20,
         banner_timeout=20,
         auth_timeout=20,
