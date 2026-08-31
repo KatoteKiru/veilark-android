@@ -2,6 +2,17 @@
 
 All notable changes to the public distribution are documented here.
 
+## 0.8.0-rc24
+
+- restored selectable Russia-direct routing for TrustTunnel using the pinned
+  offline IPv4/IPv6 network set; a failed exclusion update now keeps a working
+  full tunnel instead of leaving a false connected state;
+- excluded the Veilark process from its own sing-box TUN in every application
+  routing mode, preventing a self-routing loop with geo and app filters;
+- fenced asynchronous TrustTunnel route updates by session so a late result
+  cannot modify a newer connection or restart a stopped tunnel;
+- retained existing subscriptions, profile selection and OTA identity.
+
 ## 0.8.0-rc23
 
 - made saved sing-box profile switching reapply and validate the currently
