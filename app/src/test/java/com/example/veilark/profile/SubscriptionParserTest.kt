@@ -128,7 +128,8 @@ class SubscriptionParserTest {
     )
     val packages = root.getJSONArray("inbounds").getJSONObject(0)
       .getJSONArray("include_package")
-    assertEquals(2, packages.length())
+    assertEquals(1, packages.length())
+    assertEquals("org.telegram.messenger", packages.getString(0))
     val tls = root.getJSONArray("outbounds").getJSONObject(1).getJSONObject("tls")
     assertTrue(tls.getBoolean("fragment"))
     assertEquals("20ms", tls.getString("fragment_fallback_delay"))
@@ -160,7 +161,7 @@ class SubscriptionParserTest {
   }
 
   @Test
-  fun bypassModeExcludesSelectedApplicationButNeverVeilark() {
+  fun bypassModeExcludesSelectedApplicationAndVeilark() {
     val result = parser.compile(
       "trojan://secret@203.0.113.2:443?security=tls&sni=example.com#NL"
         .toByteArray(),
@@ -176,8 +177,33 @@ class SubscriptionParserTest {
     val tun = configured.getJSONArray("inbounds").getJSONObject(0)
     assertFalse(tun.has("include_package"))
     val excluded = tun.getJSONArray("exclude_package")
-    assertEquals(1, excluded.length())
-    assertEquals("com.example.direct", excluded.getString(0))
+    assertEquals(2, excluded.length())
+    assertEquals("app.veilark.test", excluded.getString(0))
+    assertEquals("com.example.direct", excluded.getString(1))
+  }
+
+  @Test
+  fun allTrafficModeExcludesTheVpnProcessFromItsOwnTun() {
+    val result = parser.compile(
+      "trojan://secret@203.0.113.2:443?security=tls&sni=example.com#NL"
+        .toByteArray(),
+    )
+
+    val configured = JSONObject(
+      ProfileSelection.applyApplications(
+        result.json,
+        ProfileSelection.APPS_ALL,
+        emptySet(),
+        "app.veilark.test",
+      ),
+    )
+
+    val tun = configured.getJSONArray("inbounds").getJSONObject(0)
+    assertFalse(tun.has("include_package"))
+    assertEquals(
+      "app.veilark.test",
+      tun.getJSONArray("exclude_package").getString(0),
+    )
   }
 
   @Test

@@ -93,6 +93,21 @@ object TrustTunnelManager : AppNotifier {
     NativeRuntimeState.requireTrustTunnel()
     val startupConfig = TrustTunnelGeoRouting.startupConfig(config)
     val geoBypassRequested = TrustTunnelGeoRouting.isRussiaDirect(context)
+    // Start a small, full-tunnel profile first. The native adapter applies the
+    // large, verified CIDR set only after CONNECTED, so TUN admission and the
+    // first handshake are not blocked by route compilation.
+    val directCidrs = if (geoBypassRequested) {
+      runCatching { TrustTunnelGeoRouting.currentDirectCidrs(context) }
+        .onFailure {
+          TechnicalLogStore.warning(
+            "TRUST",
+            "Russia-direct geo data is unavailable; retaining full tunnel",
+          )
+        }
+        .getOrDefault(emptyList())
+    } else {
+      emptyList()
+    }
     check(VpnServiceConfigValidator.isValid(startupConfig)) {
       context.getString(R.string.trust_invalid_configuration)
     }
@@ -100,14 +115,11 @@ object TrustTunnelManager : AppNotifier {
       connectionRequested = true
       activeLifecycleAttempt = attempt
       sessionFence.begin(attempt.attemptId)
-      // TrustTunnel's runtime exclusion update is intentionally disabled. A large
-      // CIDR update is asynchronous in the native core and can reset a just-connected
-      // session; full-tunnel is the safe fallback until physical ARM acceptance.
-      pendingDirectCidrs = emptyList()
+      pendingDirectCidrs = directCidrs
       mutableStopped.value = false
       hasConnected = false
       mutableFailureMessage.value = null
-      mutableRoutingNotice.value = if (geoBypassRequested) {
+      mutableRoutingNotice.value = if (geoBypassRequested && directCidrs.isEmpty()) {
         context.getString(R.string.trust_geo_bypass_disabled)
       } else {
         null
@@ -117,10 +129,10 @@ object TrustTunnelManager : AppNotifier {
       cancelLatencyRefresh()
       ++probeGeneration
     }
-    if (geoBypassRequested) {
-      TechnicalLogStore.warning(
+    if (directCidrs.isNotEmpty()) {
+      TechnicalLogStore.info(
         "TRUST",
-        "Russia-direct geo bypass disabled for stability; using full tunnel",
+        "Russia-direct geo bypass queued; CIDRs=${directCidrs.size}",
       )
     } else {
       TechnicalLogStore.info("TRUST", "Starting tunnel in full-tunnel mode")
@@ -293,10 +305,71 @@ object TrustTunnelManager : AppNotifier {
       }
     }
     if (accepted) {
-      TechnicalLogStore.info(
-        "TRUST",
-        "Tunnel connected; full-tunnel routing active",
+      if (directCidrs.isEmpty()) {
+        TechnicalLogStore.info("TRUST", "Tunnel connected; full-tunnel routing active")
+      } else {
+        applyDirectCidrsAfterConnected(sessionId, directCidrs)
+      }
+    }
+  }
+
+  /**
+   * The patched adapter binds its native client to a session attempt. Keep the
+   * same fence here: a late asynchronous update may never affect a newer
+   * connection after the user stopped or switched profiles.
+   */
+  private fun applyDirectCidrsAfterConnected(sessionId: Long, directCidrs: List<String>) {
+    scope.launch {
+      val update = TrustDirectExclusionUpdate(
+        isCurrent = { isCurrentConnectedTrustSession(sessionId) },
+        // Do not hold TrustTunnelManager's lifecycle monitor while the native
+        // core compiles a large exclusion set. Stop/Switch can therefore
+        // terminalize this attempt immediately; the second fence discards a
+        // late completion without altering a newer UI state.
+        update = { cidrs ->
+          runCatching { VpnService.updateExclusions(cidrs) }
+            .getOrElse {
+              TechnicalLogStore.warning("TRUST", "Russia-direct geo update was rejected")
+              false
+            }
+        },
+        publish = { applied -> publishDirectCidrsResult(sessionId, directCidrs.size, applied) },
       )
+      synchronized(this@TrustTunnelManager) {
+        if (isCurrentConnectedTrustSessionLocked(sessionId)) {
+          pendingDirectCidrs = emptyList()
+        }
+      }
+      update.run(directCidrs)
+    }
+  }
+
+  private fun isCurrentConnectedTrustSession(sessionId: Long): Boolean =
+    synchronized(this) { isCurrentConnectedTrustSessionLocked(sessionId) }
+
+  private fun isCurrentConnectedTrustSessionLocked(sessionId: Long): Boolean =
+    connectionRequested &&
+      activeLifecycleAttempt?.attemptId == sessionId &&
+      sessionFence.isConnected(sessionId)
+
+  private fun publishDirectCidrsResult(
+    sessionId: Long,
+    cidrCount: Int,
+    applied: Boolean,
+  ) {
+    synchronized(this) {
+      if (!isCurrentConnectedTrustSessionLocked(sessionId)) return
+      if (applied) {
+        mutableRoutingNotice.value = null
+        TechnicalLogStore.info(
+          "TRUST",
+          "Russia-direct geo bypass active; CIDRs=$cidrCount",
+        )
+      } else {
+        // A failed bypass update must not take down a healthy tunnel or turn
+        // into a reconnect storm. Full tunnel is the safe, visible fallback.
+        mutableRoutingNotice.value = appContext.getString(R.string.trust_geo_bypass_disabled)
+      }
     }
   }
 

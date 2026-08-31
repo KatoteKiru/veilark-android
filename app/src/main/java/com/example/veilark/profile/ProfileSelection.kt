@@ -156,13 +156,17 @@ object ProfileSelection {
     tun.remove("include_package")
     tun.remove("exclude_package")
     when (mode) {
+      // The VPN process must never send its own protected transport through the
+      // TUN it owns. In allow-list mode it is implicitly outside the tunnel;
+      // Android does not permit mixing allowed and disallowed application rules.
+      APPS_ALL -> tun.put("exclude_package", JSONArray(listOfNotNull(vpnPackage).sorted()))
       APPS_ONLY -> tun.put(
         "include_package",
-        JSONArray((packages + listOfNotNull(vpnPackage)).sorted()),
+        JSONArray((packages - listOfNotNull(vpnPackage).toSet()).sorted()),
       )
       APPS_BYPASS -> tun.put(
         "exclude_package",
-        JSONArray((packages - listOfNotNull(vpnPackage).toSet()).sorted()),
+        JSONArray((packages + listOfNotNull(vpnPackage)).sorted()),
       )
     }
     return root.toString(2)
