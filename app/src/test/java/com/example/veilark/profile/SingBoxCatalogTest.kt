@@ -143,4 +143,36 @@ class SingBoxCatalogTest {
 
     assertEquals(listOf(refreshed), SingBoxCatalog.replaceSource(listOf(legacy), refreshed))
   }
+
+  @Test
+  fun refreshingOneRemoteSubscriptionPreservesOtherRemoteSubscriptions() {
+    val first = SingBoxCatalog.create(
+      config = """{"outbounds":[{"tag":"first"}]}""",
+      nodes = emptyList(),
+      selectedNodeTag = ProfileSelection.AUTOMATIC_TAG,
+      sourceUrl = "https://first.example/sub/token",
+      suggestedName = null,
+    )
+    val second = SingBoxCatalog.create(
+      config = """{"outbounds":[{"tag":"second"}]}""",
+      nodes = emptyList(),
+      selectedNodeTag = ProfileSelection.AUTOMATIC_TAG,
+      sourceUrl = "https://second.example/sub/token",
+      suggestedName = null,
+    )
+    val refreshedFirst = SingBoxCatalog.create(
+      config = """{"outbounds":[{"tag":"first-refreshed"}]}""",
+      nodes = emptyList(),
+      selectedNodeTag = ProfileSelection.AUTOMATIC_TAG,
+      sourceUrl = "https://first.example/sub/token",
+      suggestedName = null,
+    )
+
+    val result = SingBoxCatalog.replaceSource(listOf(first, second), refreshedFirst)
+
+    assertEquals(setOf(first.id, second.id), result.mapTo(linkedSetOf()) { it.id })
+    assertEquals("first-refreshed", result.first { it.id == first.id }.config.let {
+      org.json.JSONObject(it).getJSONArray("outbounds").getJSONObject(0).getString("tag")
+    })
+  }
 }

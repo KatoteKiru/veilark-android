@@ -2098,7 +2098,10 @@ private fun RoutingSettingsDialog(
 ) {
   var route by remember(routingMode, trustTunnelActive) {
     mutableStateOf(
-      if (trustTunnelActive && routingMode == ProfileSelection.ROUTING_MANUAL) {
+      // The Trust native runtime intentionally falls back to full tunnel while
+      // its large Russia-direct CIDR update is disabled for connection stability.
+      // Do not present a selectable mode whose runtime behavior is different.
+      if (trustTunnelActive && routingMode != ProfileSelection.ROUTING_ALL) {
         ProfileSelection.ROUTING_ALL
       } else {
         routingMode
@@ -2179,21 +2182,15 @@ private fun RoutingSettingsDialog(
                 onClick = { route = ProfileSelection.ROUTING_ALL },
               )
             }
-            item {
-              SettingChoice(
-                title = stringResource(R.string.russia_direct),
-                subtitle = stringResource(
-                  if (trustTunnelActive) {
-                    R.string.trust_russia_direct_description
-                  } else {
-                    R.string.russia_direct_description
-                  },
-                ),
-                selected = route == ProfileSelection.ROUTING_RU_DIRECT,
-                onClick = { route = ProfileSelection.ROUTING_RU_DIRECT },
-              )
-            }
             if (!trustTunnelActive) {
+              item {
+                SettingChoice(
+                  title = stringResource(R.string.russia_direct),
+                  subtitle = stringResource(R.string.russia_direct_description),
+                  selected = route == ProfileSelection.ROUTING_RU_DIRECT,
+                  onClick = { route = ProfileSelection.ROUTING_RU_DIRECT },
+                )
+              }
               item {
                 SettingChoice(
                   title = stringResource(R.string.custom_rules),

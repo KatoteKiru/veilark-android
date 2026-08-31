@@ -42,6 +42,7 @@ import com.example.veilark.profile.GeoRoutingAssets
 import com.example.veilark.profile.ProfileSelection
 import com.example.veilark.profile.InstalledApp
 import com.example.veilark.profile.InstalledAppLoader
+import com.example.veilark.profile.NetworkProfileMigration
 import com.example.veilark.profile.SecureSubscriptionStore
 import com.example.veilark.profile.SecureProfileStore
 import com.example.veilark.profile.SingBoxCatalog
@@ -1091,20 +1092,38 @@ class MainActivity : ComponentActivity() {
                 }
                 val entry = singBoxProfiles.firstOrNull { it.id == id }
                   ?: error(getString(R.string.subscription_missing))
-                SingBoxCatalog.activate(this, entry)
-                selectedSingBoxId = entry.id
-                profileName = entry.name
-                connectionNodes = entry.nodes
-                selectedNodeTag = entry.selectedNodeTag
-                subscriptionRefreshAvailable = entry.sourceUrl != null
+                // Routing controls are global in the UI. A profile imported before
+                // a later routing change must not silently restore stale TUN, geo
+                // or DPI rules when the user switches back to it.
+                val selectedEntry = entry.copy(
+                  config = NetworkProfileMigration.reconcile(
+                    config = entry.config,
+                    routingMode = routingMode,
+                    directRoutes = directRoutes,
+                    vpnRoutes = vpnRoutes,
+                    applicationMode = applicationMode,
+                    selectedApplications = selectedApplications,
+                    vpnPackage = packageName,
+                    dpiMode = dpiMode,
+                    geoRuleSets = geoRuleSets(routingMode),
+                  ),
+                )
+                Libbox.checkConfig(selectedEntry.config)
+                singBoxProfiles = SingBoxCatalog.upsert(this, selectedEntry)
+                SingBoxCatalog.activate(this, selectedEntry)
+                selectedSingBoxId = selectedEntry.id
+                profileName = selectedEntry.name
+                connectionNodes = selectedEntry.nodes
+                selectedNodeTag = selectedEntry.selectedNodeTag
+                subscriptionRefreshAvailable = selectedEntry.sourceUrl != null
                 profilePreferences.edit()
-                  .putString("selected_sing_profile", entry.id)
-                  .putString("sing_display_name", entry.name)
-                  .putString("display_name", entry.name)
-                  .putString("nodes", ProfileSelection.encodeNodes(entry.nodes))
-                  .putString("selected_node", entry.selectedNodeTag)
+                  .putString("selected_sing_profile", selectedEntry.id)
+                  .putString("sing_display_name", selectedEntry.name)
+                  .putString("display_name", selectedEntry.name)
+                  .putString("nodes", ProfileSelection.encodeNodes(selectedEntry.nodes))
+                  .putString("selected_node", selectedEntry.selectedNodeTag)
                   .apply()
-                TechnicalLogStore.info("PROFILE", "Selected subscription=${entry.name}")
+                TechnicalLogStore.info("PROFILE", "Selected subscription=${selectedEntry.name}")
               }
               importError = null
             }.onFailure {
