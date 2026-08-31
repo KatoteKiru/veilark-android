@@ -2,6 +2,17 @@
 
 All notable changes to the public distribution are documented here.
 
+## 0.8.0-rc23
+
+- made saved sing-box profile switching reapply and validate the currently
+  selected application, geo and DPI routing settings instead of retaining a
+  stale runtime configuration;
+- hardened CameraX and ML Kit teardown so camera bind or recreation failures
+  reach a recoverable error state instead of crashing the QR import screen;
+- kept independent remote subscriptions intact when one source is refreshed;
+- removed the unsupported TrustTunnel Russia-direct control from the current
+  release UI while preserving Android per-application split tunnelling.
+
 ## 0.8.0-rc22
 
 - restored stable TrustTunnel traffic by disabling the unverified runtime
