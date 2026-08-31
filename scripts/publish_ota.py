@@ -74,19 +74,16 @@ def connect_node(env: dict[str, str]) -> paramiko.SSHClient:
         os.environ.get("OTA_SSH_HOST")
         or env.get("OTA_SSH_HOST")
         or env.get("NETHERLANDS_NEW_HOST")
-        or env.get("NETHERLANDS_HOST")
     )
     user = (
         os.environ.get("OTA_SSH_USER")
         or env.get("OTA_SSH_USER")
         or env.get("NETHERLANDS_NEW_USER")
-        or env.get("NETHERLANDS_USER")
     )
     password = (
         os.environ.get("OTA_SSH_PASSWORD")
         or env.get("OTA_SSH_PASSWORD")
         or env.get("NETHERLANDS_NEW_PASSWORD")
-        or env.get("NETHERLANDS_PASSWORD")
     )
     key_file = (
         os.environ.get("OTA_SSH_KEY_FILE")
