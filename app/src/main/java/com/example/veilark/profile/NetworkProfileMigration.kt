@@ -18,10 +18,12 @@ object NetworkProfileMigration {
   fun reconcileStoredSettings(context: Context) {
     if (!SecureProfileStore.exists(context, SecureProfileStore.SING_BOX)) return
     val preferences = context.getSharedPreferences("profile_meta", Context.MODE_PRIVATE)
-    var routingMode = preferences.getString(
+    val legacyRoutingMode = preferences.getString(
       "routing_mode",
       ProfileSelection.ROUTING_ALL,
     ) ?: ProfileSelection.ROUTING_ALL
+    var routingMode = preferences.getString("sing_routing_mode", legacyRoutingMode)
+      ?: legacyRoutingMode
     var applicationMode = preferences.getString(
       "application_mode",
       ProfileSelection.APPS_ALL,
@@ -86,7 +88,7 @@ object NetworkProfileMigration {
       SecureProfileStore.save(context, SecureProfileStore.SING_BOX, reconciled)
     }
     preferences.edit()
-      .putString("routing_mode", routingMode)
+      .putString("sing_routing_mode", routingMode)
       .putString("application_mode", applicationMode)
       .putString("dpi_mode", dpiMode)
       .apply()

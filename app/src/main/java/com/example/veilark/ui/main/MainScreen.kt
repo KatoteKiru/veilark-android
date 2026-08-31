@@ -183,6 +183,8 @@ fun MainScreen(
   selectedApplications: Set<String> = emptySet(),
   installedApplications: List<InstalledApp> = emptyList(),
   routingAvailable: Boolean = true,
+  geoUpdating: Boolean = false,
+  geoUpdateMessage: String? = null,
   trustTunnelActive: Boolean = false,
   singBoxAvailable: Boolean = true,
   trustTunnelAvailable: Boolean = false,
@@ -208,6 +210,7 @@ fun MainScreen(
   onSwitchProfile: () -> Unit = {},
   onRefreshLatency: () -> Unit = {},
   onOpenRouting: () -> Unit = {},
+  onRefreshGeo: () -> Unit = {},
   onApplyRouting: (String, String, String, String, String, Set<String>) -> Boolean =
     { _, _, _, _, _, _ -> true },
   onCopyDiagnostic: () -> Unit = {},
@@ -361,6 +364,11 @@ fun MainScreen(
       selectedApplications = selectedApplications,
       installedApplications = installedApplications,
       trustTunnelActive = trustTunnelActive,
+      geoRefreshEnabled = connectionState == ConnectionState.Disconnected ||
+        connectionState == ConnectionState.Failed,
+      geoUpdating = geoUpdating,
+      geoUpdateMessage = geoUpdateMessage,
+      onRefreshGeo = onRefreshGeo,
       onApply = { route, direct, vpn, apps, dpi, packages ->
         val reconnectRequired = connectionState != ConnectionState.Disconnected &&
           connectionState != ConnectionState.Failed
@@ -2093,6 +2101,10 @@ private fun RoutingSettingsDialog(
   selectedApplications: Set<String>,
   installedApplications: List<InstalledApp>,
   trustTunnelActive: Boolean,
+  geoRefreshEnabled: Boolean,
+  geoUpdating: Boolean,
+  geoUpdateMessage: String?,
+  onRefreshGeo: () -> Unit,
   onApply: (String, String, String, String, String, Set<String>) -> Unit,
   onDismiss: () -> Unit,
 ) {
@@ -2163,6 +2175,13 @@ private fun RoutingSettingsDialog(
               )
             }
             CompactIconAction(
+              glyph = ActionGlyph.Refresh,
+              description = stringResource(R.string.update_geo_data),
+              onClick = onRefreshGeo,
+              enabled = geoRefreshEnabled && !trustTunnelActive && !geoUpdating,
+              loading = geoUpdating,
+            )
+            CompactIconAction(
               glyph = ActionGlyph.Close,
               description = stringResource(R.string.close_routing),
               onClick = onDismiss,
@@ -2174,6 +2193,15 @@ private fun RoutingSettingsDialog(
             verticalArrangement = Arrangement.spacedBy(10.dp),
           ) {
             item { SettingsSectionTitle(stringResource(R.string.traffic)) }
+            if (geoUpdateMessage != null) {
+              item {
+                Text(
+                  text = geoUpdateMessage,
+                  style = MaterialTheme.typography.bodySmall,
+                  color = MaterialTheme.colorScheme.primary,
+                )
+              }
+            }
             item {
               SettingChoice(
                 title = stringResource(R.string.all_traffic_vpn),

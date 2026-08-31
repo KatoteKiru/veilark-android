@@ -154,6 +154,8 @@ class MainActivity : ComponentActivity() {
       var importError by remember { mutableStateOf<String?>(null) }
       var importing by remember { mutableStateOf(false) }
       var refreshingSubscription by remember { mutableStateOf(false) }
+      var geoUpdating by remember { mutableStateOf(false) }
+      var geoUpdateMessage by remember { mutableStateOf<String?>(null) }
       var subscriptionRefreshAvailable by remember {
         mutableStateOf(
           if (profileEngine == ProfileEngine.TRUST_TUNNEL) {
@@ -196,17 +198,24 @@ class MainActivity : ComponentActivity() {
         )
       }
       var routingMode by remember {
-        val storedMode = profilePreferences.getString(
+        val legacyMode = profilePreferences.getString(
           "routing_mode",
           ProfileSelection.ROUTING_ALL,
-        )
+        ) ?: ProfileSelection.ROUTING_ALL
+        val key = if (profileEngine == ProfileEngine.TRUST_TUNNEL) {
+          "trust_routing_mode"
+        } else {
+          "sing_routing_mode"
+        }
+        val storedMode = profilePreferences.getString(key, legacyMode)
         mutableStateOf(
           storedMode.takeIf {
             it in setOf(
               ProfileSelection.ROUTING_ALL,
               ProfileSelection.ROUTING_MANUAL,
               ProfileSelection.ROUTING_RU_DIRECT,
-            )
+            ) && !(profileEngine == ProfileEngine.TRUST_TUNNEL &&
+              it == ProfileSelection.ROUTING_MANUAL)
           } ?: ProfileSelection.ROUTING_ALL,
         )
       }
@@ -236,6 +245,21 @@ class MainActivity : ComponentActivity() {
       }
       var installedApplications by remember { mutableStateOf<List<InstalledApp>>(emptyList()) }
       val coroutineScope = rememberCoroutineScope()
+      fun storedRoutingModeFor(engine: String, fallback: String): String {
+        val key = if (engine == ProfileEngine.TRUST_TUNNEL) {
+          "trust_routing_mode"
+        } else {
+          "sing_routing_mode"
+        }
+        return profilePreferences.getString(key, fallback).takeIf {
+          it in setOf(
+            ProfileSelection.ROUTING_ALL,
+            ProfileSelection.ROUTING_MANUAL,
+            ProfileSelection.ROUTING_RU_DIRECT,
+          ) && !(engine == ProfileEngine.TRUST_TUNNEL &&
+            it == ProfileSelection.ROUTING_MANUAL)
+        } ?: ProfileSelection.ROUTING_ALL
+      }
       val singBoxConnectionState by VeilarkVpnService.state.collectAsStateWithLifecycle()
       val trustTunnelConnectionState by TrustTunnelManager.state.collectAsStateWithLifecycle()
       val connectionState = if (profileEngine == ProfileEngine.TRUST_TUNNEL) {
@@ -598,6 +622,8 @@ class MainActivity : ComponentActivity() {
           selectedApplications = selectedApplications,
           installedApplications = installedApplications,
           routingAvailable = true,
+          geoUpdating = geoUpdating,
+          geoUpdateMessage = geoUpdateMessage,
           trustTunnelActive = profileEngine == ProfileEngine.TRUST_TUNNEL,
           singBoxAvailable = singBoxProfiles.isNotEmpty(),
           trustTunnelAvailable =
@@ -653,6 +679,10 @@ class MainActivity : ComponentActivity() {
                   TrustTunnelCatalog.activate(this@MainActivity, trustProfiles, active.id)
                   stopTunnelsAfterProfileCommit()
                   profileEngine = ProfileEngine.TRUST_TUNNEL
+                  routingMode = storedRoutingModeFor(
+                    ProfileEngine.TRUST_TUNNEL,
+                    ProfileSelection.ROUTING_ALL,
+                  )
                   profileName = active.name
                   selectedTrustId = active.id
                   connectionNodes = TrustTunnelCatalog.nodes(trustProfiles)
@@ -662,6 +692,7 @@ class MainActivity : ComponentActivity() {
                     .putString("trust_display_name", compiled.displayName)
                     .putString("selected_trust_profile", active.id)
                     .putString("profile_engine", profileEngine)
+                    .putString("routing_mode", routingMode)
                     .apply()
                   subscriptionRefreshAvailable = active.sourceUrl != null
                   TechnicalLogStore.info("IMPORT", "TrustTunnel profile added")
@@ -706,6 +737,10 @@ class MainActivity : ComponentActivity() {
                     )
                     stopTunnelsAfterProfileCommit()
                     profileEngine = ProfileEngine.TRUST_TUNNEL
+                    routingMode = storedRoutingModeFor(
+                      ProfileEngine.TRUST_TUNNEL,
+                      ProfileSelection.ROUTING_ALL,
+                    )
                     profileName = active.name
                     selectedTrustId = active.id
                     connectionNodes = TrustTunnelCatalog.nodes(trustProfiles)
@@ -715,6 +750,7 @@ class MainActivity : ComponentActivity() {
                       .putString("trust_display_name", active.name)
                       .putString("selected_trust_profile", active.id)
                       .putString("profile_engine", profileEngine)
+                      .putString("routing_mode", routingMode)
                       .apply()
                     subscriptionRefreshAvailable = active.sourceUrl != null
                     TechnicalLogStore.info(
@@ -766,12 +802,17 @@ class MainActivity : ComponentActivity() {
                   selectedSingBoxId = singEntry.id
                   stopTunnelsAfterProfileCommit()
                   profileEngine = ProfileEngine.SING_BOX
+                  routingMode = storedRoutingModeFor(
+                    ProfileEngine.SING_BOX,
+                    routingMode,
+                  )
                   connectionNodes = compiled.nodes
                   selectedNodeTag = ProfileSelection.AUTOMATIC_TAG
                   profilePreferences.edit()
                     .putString("display_name", singEntry.name)
                     .putString("sing_display_name", singEntry.name)
                     .putString("selected_sing_profile", singEntry.id)
+                    .putString("routing_mode", routingMode)
                     .putString("profile_engine", profileEngine)
                     .putString("nodes", ProfileSelection.encodeNodes(compiled.nodes))
                     .putString("selected_node", selectedNodeTag)
@@ -988,6 +1029,15 @@ class MainActivity : ComponentActivity() {
               VeilarkVpnService.stop(this)
             }
             profileEngine = target
+            val targetRoutingFallback = if (
+              target == ProfileEngine.TRUST_TUNNEL &&
+              routingMode == ProfileSelection.ROUTING_MANUAL
+            ) {
+              ProfileSelection.ROUTING_ALL
+            } else {
+              routingMode
+            }
+            routingMode = storedRoutingModeFor(target, targetRoutingFallback)
             TechnicalLogStore.info(
               "APP",
               "Selected engine=${if (target == ProfileEngine.TRUST_TUNNEL) "TrustTunnel" else "sing-box"}",
@@ -1020,7 +1070,10 @@ class MainActivity : ComponentActivity() {
               singBoxProfiles.firstOrNull { it.id == selectedSingBoxId }
                 ?.sourceUrl != null
             }
-            profilePreferences.edit().putString("profile_engine", target).apply()
+            profilePreferences.edit()
+              .putString("profile_engine", target)
+              .putString("routing_mode", routingMode)
+              .apply()
             importError = null
           },
           onSelectNode = { tag ->
@@ -1299,6 +1352,40 @@ class MainActivity : ComponentActivity() {
               }
             }
           },
+          onRefreshGeo = {
+            if (
+              !geoUpdating &&
+              profileEngine == ProfileEngine.SING_BOX &&
+              (connectionState == ConnectionState.Disconnected ||
+                connectionState == ConnectionState.Failed)
+            ) {
+              geoUpdating = true
+              geoUpdateMessage = null
+              coroutineScope.launch {
+                runCatching {
+                  GeoRoutingAssets.refreshFromGitHub(this@MainActivity) { candidate ->
+                    val base = SecureProfileStore.load(
+                      this@MainActivity,
+                      SecureProfileStore.SING_BOX,
+                    )
+                    val configured = ProfileSelection.applyRouting(
+                      base,
+                      ProfileSelection.ROUTING_RU_DIRECT,
+                      geoRuleSets = candidate,
+                    )
+                    Libbox.checkConfig(configured)
+                  }
+                }.onSuccess {
+                  geoUpdateMessage = getString(R.string.geo_update_success)
+                  TechnicalLogStore.info("GEO", "GitHub geo rule sets updated")
+                }.onFailure {
+                  geoUpdateMessage = getString(R.string.geo_update_failed)
+                  TechnicalLogStore.warning("GEO", "Geo update rejected; last-known-good retained")
+                }
+                geoUpdating = false
+              }
+            }
+          },
           onApplyRouting = {
               newRoutingMode,
               newDirectRoutes,
@@ -1362,8 +1449,6 @@ class MainActivity : ComponentActivity() {
                   getString(R.string.trust_profile_not_found)
                 }
                 routingMode = newRoutingMode
-                directRoutes = ""
-                vpnRoutes = ""
               }
               applicationMode = newApplicationMode
               selectedApplications = packages
@@ -1373,11 +1458,14 @@ class MainActivity : ComponentActivity() {
               if (profileEngine == ProfileEngine.SING_BOX) {
                 routingEditor
                   .putString("routing_mode", routingMode)
+                  .putString("sing_routing_mode", routingMode)
                   .putString("direct_routes", directRoutes)
                   .putString("vpn_routes", vpnRoutes)
                   .putString("dpi_mode", dpiMode)
               } else {
-                routingEditor.putString("routing_mode", routingMode)
+                routingEditor
+                  .putString("routing_mode", routingMode)
+                  .putString("trust_routing_mode", routingMode)
               }
               check(routingEditor.commit()) { getString(R.string.routing_save_failed) }
               importError = null

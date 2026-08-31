@@ -179,6 +179,9 @@
     <string name="routing_save_failed">Не удалось сохранить маршрутизацию приложений</string>
     <string name="routing_saved">Маршрутизация сохранена</string>
     <string name="routing_saved_reconnect">Маршрутизация сохранена. Переподключитесь, чтобы применить её.</string>
+    <string name="update_geo_data">Обновить GEO-данные с GitHub</string>
+    <string name="geo_update_success">GEO-данные обновлены. Они применятся при следующем подключении sing-box.</string>
+    <string name="geo_update_failed">Не удалось обновить GEO-данные. Предыдущая проверенная версия сохранена.</string>
     <string name="routing_apply_failed">Не удалось применить маршрутизацию</string>
     <string name="stage_idle">Ожидание</string>
     <string name="stage_config">Проверка профиля</string>

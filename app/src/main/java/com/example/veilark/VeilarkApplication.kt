@@ -18,7 +18,8 @@ class VeilarkApplication : Application() {
     SecureProfileStore.migrateLegacy(this)
     BuiltInTrustProfileMigration.migrate(this)
     runCatching { NetworkProfileMigration.migrateStored(this) }
-    runCatching { NetworkProfileMigration.recoverStableDefaults(this) }
+    // Preserve custom routes on upgrade. Earlier emergency recovery builds
+    // cleared them once; current migrations reconcile valid settings in place.
     runCatching { NetworkProfileMigration.reconcileStoredSettings(this) }
     runCatching {
       TrustTunnelManager.initialize(this)

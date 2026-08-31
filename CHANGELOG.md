@@ -2,6 +2,22 @@
 
 All notable changes to the public distribution are documented here.
 
+## 0.8.0-rc26
+
+- disabled GEO refresh while a tunnel is active so a running configuration
+  always retains its complete rule-set generation until disconnect.
+
+## 0.8.0-rc25
+
+- kept independent routing preferences for sing-box and TrustTunnel so engine
+  switching no longer discards custom direct/VPN rules;
+- added an explicit GEO update action backed by the current official SagerNet
+  GitHub rule sets;
+- validated GEO downloads in a staging generation before atomic activation;
+  failed updates retain the previous verified data;
+- removed the obsolete one-time recovery step that could clear saved routing
+  and per-application selections during an upgrade.
+
 ## 0.8.0-rc24
 
 - restored selectable Russia-direct routing for TrustTunnel using the pinned
