@@ -77,6 +77,9 @@ object Strings {
   val routingSaved get() = if (russian) "Настройки маршрутизации сохранены" else "Routing settings saved"
   val routingError get() = if (russian) "Не удалось сохранить маршрутизацию" else "Could not save routing"
   val saveRouting get() = if (russian) "Сохранить маршрутизацию" else "Save routing"
+  val updateGeo get() = if (russian) "Обновить GEO" else "Update GEO"
+  val geoUpdated get() = if (russian) "GEO-данные обновлены. Они применятся при следующем подключении." else "GEO data updated. It will apply on the next connection."
+  val geoUpdateFailed get() = if (russian) "Не удалось обновить GEO-данные. Предыдущая версия сохранена." else "Could not update GEO data. The previous version was retained."
   val healthDetail get() = if (russian) "Последняя проверка" else "Last health check"
   val storageWarning get() = if (russian) "Проблема защищённого хранилища" else "Secure storage warning"
   val diagnosticsSubtitle get() = if (russian) "Технические события запуска и работы туннеля" else "Technical events from tunnel startup and operation"
@@ -165,7 +168,7 @@ object Strings {
   } else {
     "Russian GeoIP IPv4 networks go direct; other IPv4 uses TrustTunnel; IPv6 is not tunneled"
   }
-  val manualRouting get() = if (russian) "Ручные правила" else "Manual rules"
+  val manualRouting get() = if (russian) "Свои правила" else "Custom rules"
   val manualRoutingHint get() = if (russian) {
     "Списки доменов и CIDR для прямого доступа или VPN"
   } else {

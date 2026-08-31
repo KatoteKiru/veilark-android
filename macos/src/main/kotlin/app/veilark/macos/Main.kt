@@ -903,6 +903,7 @@ private fun RoutingSection(session: VeilarkSession) {
   var vpnEntries by remember(session.manualVpnEntries) { mutableStateOf(session.manualVpnEntries) }
   var saveMessage by remember { mutableStateOf<String?>(null) }
   var saveError by remember { mutableStateOf<String?>(null) }
+  var geoUpdating by remember { mutableStateOf(false) }
   val scope = rememberCoroutineScope()
   val canEdit = session.status == TunnelStatus.DISCONNECTED && !session.busy
   val geoAvailable = if (singBox) session.geoRuleSetsPresent() else session.geoIpRuPresent()
@@ -922,7 +923,31 @@ private fun RoutingSection(session: VeilarkSession) {
     modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
     verticalArrangement = Arrangement.spacedBy(18.dp),
   ) {
-    SectionHeading(Strings.routing, Strings.routingSubtitle)
+    Row(verticalAlignment = Alignment.CenterVertically) {
+      SectionHeading(Strings.routing, Strings.routingSubtitle, Modifier.weight(1f))
+      OutlinedButton(
+        onClick = {
+          geoUpdating = true
+          saveMessage = null
+          saveError = null
+          scope.launch {
+            runCatching { session.refreshGeoData() }
+              .onSuccess { saveMessage = Strings.geoUpdated }
+              .onFailure { saveError = Strings.geoUpdateFailed }
+            geoUpdating = false
+          }
+        },
+        enabled = canEdit && !geoUpdating,
+      ) {
+        if (geoUpdating) {
+          CircularProgressIndicator(Modifier.size(17.dp), strokeWidth = 2.dp)
+        } else {
+          Icon(Icons.Outlined.Refresh, contentDescription = null, modifier = Modifier.size(17.dp))
+        }
+        Spacer(Modifier.width(8.dp))
+        Text(Strings.updateGeo)
+      }
+    }
     if (!singBox) {
       CapabilityRow(Icons.Outlined.Tune, Strings.trustTunnel, Strings.trustRoutingDescription, Strings.engine)
     } else {

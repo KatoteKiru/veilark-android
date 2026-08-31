@@ -6,6 +6,7 @@ import com.example.veilark.engine.TunnelController
 import com.example.veilark.engine.TunnelEngineKind
 import com.example.veilark.engine.TunnelStatus
 import com.example.veilark.profile.ConnectionNode
+import com.example.veilark.profile.GeoRoutingRepository
 import com.example.veilark.profile.ProfileSelection
 import com.example.veilark.profile.SingBoxCatalog
 import com.example.veilark.profile.SingBoxCatalogEntry
@@ -51,6 +52,7 @@ class VeilarkSession(
   private val healthChecker: ConnectionHealthChecker = NetworkHealthProbe,
 ) {
   private val operationMutex = Mutex()
+  private val geoRepository = GeoRoutingRepository()
   @Volatile private var stopRequested = false
   var engine by mutableStateOf(TunnelEngineKind.TRUST_TUNNEL)
   var status by mutableStateOf(TunnelStatus.DISCONNECTED)
@@ -67,6 +69,8 @@ class VeilarkSession(
     private set
   var routingMode by mutableStateOf(ProfileSelection.ROUTING_ALL)
     private set
+  private var singBoxRoutingMode = ProfileSelection.ROUTING_ALL
+  private var trustRoutingMode = ProfileSelection.ROUTING_ALL
   var manualDirectEntries by mutableStateOf("")
     private set
   var manualVpnEntries by mutableStateOf("")
@@ -116,7 +120,7 @@ class VeilarkSession(
     selectedTrustId = preferences.optString("selectedTrustId")
       .takeIf { id -> trustEntries.any { it.id == id } }
       ?: trustEntries.firstOrNull()?.id
-    routingMode = preferences.optString("routingMode")
+    val legacyRoutingMode = preferences.optString("routingMode")
       .takeIf {
         it in setOf(
           ProfileSelection.ROUTING_ALL,
@@ -125,6 +129,26 @@ class VeilarkSession(
         )
       }
       ?: ProfileSelection.ROUTING_ALL
+    singBoxRoutingMode = preferences.optString("singBoxRoutingMode")
+      .takeIf {
+        it in setOf(
+          ProfileSelection.ROUTING_ALL,
+          ProfileSelection.ROUTING_MANUAL,
+          ProfileSelection.ROUTING_RU_DIRECT,
+        )
+      }
+      ?: legacyRoutingMode
+    trustRoutingMode = preferences.optString("trustRoutingMode")
+      .takeIf {
+        it == ProfileSelection.ROUTING_ALL || it == ProfileSelection.ROUTING_RU_DIRECT
+      }
+      ?: legacyRoutingMode.takeIf { it != ProfileSelection.ROUTING_MANUAL }
+      ?: ProfileSelection.ROUTING_ALL
+    routingMode = if (engine == TunnelEngineKind.SING_BOX) {
+      singBoxRoutingMode
+    } else {
+      trustRoutingMode
+    }
     manualDirectEntries = preferences.optString("manualDirectEntries")
     manualVpnEntries = preferences.optString("manualVpnEntries")
   }
@@ -133,11 +157,32 @@ class VeilarkSession(
 
   fun enginePresent(kind: TunnelEngineKind = engine): Boolean = helper.enginePresent(kind)
 
-  fun geoRuleSetsPresent(): Boolean = BundledPaths.resolve().let {
-    it.geoIpRu.isFile && it.geoSiteRu.isFile
-  }
+  fun geoRuleSetsPresent(): Boolean = runCatching {
+    geoRepository.currentOrBundled().let { it.geoIpSrs.isFile && it.geoSiteSrs.isFile }
+  }.getOrDefault(false)
 
-  fun geoIpRuPresent(): Boolean = BundledPaths.resolve().geoIpRuJson.isFile
+  fun geoIpRuPresent(): Boolean = runCatching {
+    geoRepository.currentOrBundled().let { it.geoIpJson.isFile && it.geoSiteJson.isFile }
+  }.getOrDefault(false)
+
+  suspend fun refreshGeoData() {
+    exclusiveOperation {
+      check(status == TunnelStatus.DISCONNECTED) { RuntimeMessages.disconnectBeforeRouting }
+      runCatching { geoRepository.refreshFromGitHub() }
+        .onSuccess {
+          log(RuntimeMessages.geoUpdated, component = "geo", code = "GEO_UPDATE_OK")
+        }
+        .onFailure {
+          log(
+            RuntimeMessages.geoUpdateFailed,
+            level = LogLevel.ERROR,
+            component = "geo",
+            code = "GEO_UPDATE_FAILED",
+          )
+        }
+        .getOrElse { throw IllegalStateException(RuntimeMessages.geoUpdateFailed, it) }
+    }
+  }
 
   suspend fun installHelper(): Result<Unit> = exclusiveOperation {
     check(status != TunnelStatus.CONNECTED && status != TunnelStatus.CONNECTING) {
@@ -216,7 +261,7 @@ class VeilarkSession(
         selectedTrustId = trustEntries.firstOrNull { it.sourceId == importedSourceId }?.id
           ?: trustEntries.firstOrNull()?.id
         store.save(EncryptedStore.TRUST_TUNNEL_CATALOG, TrustTunnelCatalog.encode(trustEntries))
-        engine = TunnelEngineKind.TRUST_TUNNEL
+        activateEngine(TunnelEngineKind.TRUST_TUNNEL)
         persistPreferences()
         log(
           RuntimeMessages.trustImported(compiled.size),
@@ -239,7 +284,7 @@ class VeilarkSession(
       singBoxEntries = SingBoxCatalog.replaceSource(singBoxEntries, entry)
       selectedSingBoxId = entry.id
       store.save(EncryptedStore.SING_BOX_CATALOG, SingBoxCatalog.encode(singBoxEntries))
-      engine = TunnelEngineKind.SING_BOX
+      activateEngine(TunnelEngineKind.SING_BOX)
       persistPreferences()
       log(
         RuntimeMessages.singBoxImported(compiled.profileCount),
@@ -271,7 +316,7 @@ class VeilarkSession(
           SubscriptionFetcher.fetch(sourceUrl, SubscriptionFetcher.desktopHeaders())
         }
         importPayload(payload, sourceUrl, expectedEngine = selectedEngine)
-        engine = selectedEngine
+        activateEngine(selectedEngine)
         persistPreferences()
         log(
           RuntimeMessages.subscriptionRefreshed,
@@ -440,7 +485,7 @@ class VeilarkSession(
       check(status != TunnelStatus.CONNECTED && status != TunnelStatus.CONNECTING) {
         RuntimeMessages.disconnectBeforeEngineSwitch
       }
-      engine = kind
+      activateEngine(kind)
       persistPreferences()
     }
   }
@@ -458,6 +503,7 @@ class VeilarkSession(
         ),
       ) { RuntimeMessages.unknownRoutingMode }
       if (mode == ProfileSelection.ROUTING_MANUAL) {
+        require(engine == TunnelEngineKind.SING_BOX) { RuntimeMessages.chooseSingBoxForRouting }
         runCatching {
           ProfileSelection.applyRouting(
             config = selectedSingBoxEntry()?.config
@@ -474,8 +520,13 @@ class VeilarkSession(
         }
       }
       routingMode = mode
-      manualDirectEntries = directEntries.trim()
-      manualVpnEntries = vpnEntries.trim()
+      if (engine == TunnelEngineKind.SING_BOX) {
+        singBoxRoutingMode = mode
+        manualDirectEntries = directEntries.trim()
+        manualVpnEntries = vpnEntries.trim()
+      } else {
+        trustRoutingMode = mode
+      }
       persistPreferences()
       log(RuntimeMessages.routingUpdated, component = "routing", code = "ROUTING_UPDATED")
     }
@@ -564,6 +615,21 @@ class VeilarkSession(
   private fun selectedTrustEntry(): TrustTunnelCatalogEntry? =
     trustEntries.firstOrNull { it.id == selectedTrustId }
 
+  private fun activateEngine(kind: TunnelEngineKind) {
+    if (engine == kind) return
+    if (engine == TunnelEngineKind.SING_BOX) {
+      singBoxRoutingMode = routingMode
+    } else {
+      trustRoutingMode = routingMode
+    }
+    engine = kind
+    routingMode = if (kind == TunnelEngineKind.SING_BOX) {
+      singBoxRoutingMode
+    } else {
+      trustRoutingMode
+    }
+  }
+
   private fun selectedRemoteSourceUrl(kind: TunnelEngineKind): String? = when (kind) {
     TunnelEngineKind.SING_BOX -> selectedSingBoxEntry()?.sourceUrl
     TunnelEngineKind.TRUST_TUNNEL -> selectedTrustEntry()?.sourceUrl
@@ -572,19 +638,19 @@ class VeilarkSession(
   private fun startSelectedSingBox() {
     val entry = selectedSingBoxEntry() ?: error(RuntimeMessages.chooseSingBox)
     val selected = ProfileSelection.select(entry.config, entry.selectedNodeTag, entry.nodes)
-    val paths = BundledPaths.resolve()
+    val paths = geoRepository.currentOrBundled()
     val routed = ProfileSelection.applyRouting(
       config = selected,
       mode = routingMode,
       directEntries = manualDirectEntries,
       vpnEntries = manualVpnEntries,
       geoRuleSets = if (routingMode == ProfileSelection.ROUTING_RU_DIRECT) {
-        require(paths.geoIpRu.isFile && paths.geoSiteRu.isFile) {
+        require(paths.geoIpSrs.isFile && paths.geoSiteSrs.isFile) {
           RuntimeMessages.geoFilesMissing
         }
         ProfileSelection.GeoRuleSets(
-          geoIpRuPath = paths.geoIpRu.absolutePath,
-          geoSiteRuPath = paths.geoSiteRu.absolutePath,
+          geoIpRuPath = paths.geoIpSrs.absolutePath,
+          geoSiteRuPath = paths.geoSiteSrs.absolutePath,
         )
       } else {
         null
@@ -599,15 +665,15 @@ class VeilarkSession(
   private fun startSelectedTrustTunnel() {
     val entry = selectedTrustEntry() ?: error(RuntimeMessages.chooseTrust)
     val prepared = if (routingMode == ProfileSelection.ROUTING_RU_DIRECT) {
-      val paths = BundledPaths.resolve()
-      require(paths.geoIpRuJson.isFile && paths.geoSiteRuJson.isFile) {
+      val paths = geoRepository.currentOrBundled()
+      require(paths.geoIpJson.isFile && paths.geoSiteJson.isFile) {
         RuntimeMessages.geoFilesMissing
       }
       TrustTunnelProfile.applyGeoIpRuDirect(
         entry.config,
-        runCatching { GeoIpRuCatalog.load(paths.geoIpRuJson) }
+        runCatching { GeoIpRuCatalog.load(paths.geoIpJson) }
           .getOrElse { error(RuntimeMessages.geoIpInvalid) },
-        runCatching { GeoSiteRuCatalog.load(paths.geoSiteRuJson) }
+        runCatching { GeoSiteRuCatalog.load(paths.geoSiteJson) }
           .getOrElse { error(RuntimeMessages.geoIpInvalid) },
       )
     } else {
@@ -669,6 +735,8 @@ class VeilarkSession(
           .put("selectedSingBoxId", selectedSingBoxId ?: JSONObject.NULL)
           .put("selectedTrustId", selectedTrustId ?: JSONObject.NULL)
           .put("routingMode", routingMode)
+          .put("singBoxRoutingMode", singBoxRoutingMode)
+          .put("trustRoutingMode", trustRoutingMode)
           .put("manualDirectEntries", manualDirectEntries)
           .put("manualVpnEntries", manualVpnEntries)
           .toString(),

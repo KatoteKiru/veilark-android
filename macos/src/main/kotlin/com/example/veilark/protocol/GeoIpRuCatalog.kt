@@ -5,13 +5,10 @@ import org.json.JSONObject
 import java.io.File
 import java.security.MessageDigest
 
-/** Reads the build-time decompiled, hash-verified GeoIP asset without work at connect time. */
+/** Reads a structurally validated GeoIP asset from a hash-verified local generation. */
 object GeoIpRuCatalog {
   private const val MAX_RULES = 50_000
   private const val MAX_JSON_BYTES = 8L * 1024L * 1024L
-  internal const val EXPECTED_CIDR_COUNT = 10_859
-  internal const val EXPECTED_TOKEN_SHA256 =
-    "e8f53102eab91db9fb6329d79a1dd528564818dfe603018a9261138334bcbc1d"
 
   @Volatile private var cachedKey: String? = null
   @Volatile private var cachedCidrs: List<String>? = null
@@ -22,8 +19,6 @@ object GeoIpRuCatalog {
     val key = "${json.canonicalPath}:${json.length()}:${json.lastModified()}"
     if (key == cachedKey) return requireNotNull(cachedCidrs)
     val parsed = parse(json.readText())
-    require(parsed.size == EXPECTED_CIDR_COUNT) { "GeoIP RU network count is invalid" }
-    require(tokenSha256(parsed) == EXPECTED_TOKEN_SHA256) { "GeoIP RU content hash is invalid" }
     cachedKey = key
     cachedCidrs = parsed
     return parsed

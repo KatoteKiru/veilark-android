@@ -53,6 +53,35 @@ class VeilarkSessionTest {
   }
 
   @Test
+  fun keepsIndependentRoutingModesWhenSwitchingEngines() {
+    val key = EncryptedStore.ephemeralKey()
+    val store = EncryptedStore(folder.newFolder("routing-per-engine")) { key }
+    val parsed = SubscriptionParser().compile(LINKS.toByteArray())
+    val entry = SingBoxCatalog.create(
+      parsed.json,
+      parsed.nodes,
+      ProfileSelection.AUTOMATIC_TAG,
+      null,
+      "Local",
+    )
+    store.save(EncryptedStore.SING_BOX_CATALOG, SingBoxCatalog.encode(listOf(entry)))
+    val session = VeilarkSession(store, FakeController())
+
+    session.switchEngine(TunnelEngineKind.SING_BOX)
+    session.updateRouting(ProfileSelection.ROUTING_MANUAL, "example.ru", "youtube.com")
+    session.switchEngine(TunnelEngineKind.TRUST_TUNNEL)
+    session.updateRouting(ProfileSelection.ROUTING_RU_DIRECT, "", "")
+    session.switchEngine(TunnelEngineKind.SING_BOX)
+
+    assertEquals(ProfileSelection.ROUTING_MANUAL, session.routingMode)
+    assertEquals("example.ru", session.manualDirectEntries)
+    assertEquals("youtube.com", session.manualVpnEntries)
+    val reopened = VeilarkSession(store, FakeController())
+    assertEquals(TunnelEngineKind.SING_BOX, reopened.engine)
+    assertEquals(ProfileSelection.ROUTING_MANUAL, reopened.routingMode)
+  }
+
+  @Test
   fun connectStaysConnectedWhenAdvisoryHealthCheckFails() = runBlocking {
     val fake = FakeController()
     val session = sessionWithSingBox(fake, NetworkHealth(false, "public probe blocked"))
