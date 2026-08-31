@@ -33,9 +33,10 @@ class GeoRoutingRepository(
 ) {
   private val lock = Any()
   private val updateMutex = Mutex()
+  @Volatile private var cached: GeoRoutingBundle? = null
 
   fun currentOrBundled(): GeoRoutingBundle = synchronized(lock) {
-    loadActive() ?: bundled().also(::validateBundle)
+    cached ?: (loadActive() ?: bundled().also(::validateBundle)).also { cached = it }
   }
 
   suspend fun refreshFromGitHub(): GeoRoutingBundle = withContext(Dispatchers.IO) {
@@ -64,6 +65,7 @@ class GeoRoutingRepository(
         synchronized(lock) {
           move(staging, completed)
           publish(generation, hashes)
+          cached = bundleAt(completed)
           prune(generations, generation)
         }
         val active = bundleAt(completed)

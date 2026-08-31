@@ -638,13 +638,13 @@ class VeilarkSession(
   private fun startSelectedSingBox() {
     val entry = selectedSingBoxEntry() ?: error(RuntimeMessages.chooseSingBox)
     val selected = ProfileSelection.select(entry.config, entry.selectedNodeTag, entry.nodes)
-    val paths = geoRepository.currentOrBundled()
     val routed = ProfileSelection.applyRouting(
       config = selected,
       mode = routingMode,
       directEntries = manualDirectEntries,
       vpnEntries = manualVpnEntries,
       geoRuleSets = if (routingMode == ProfileSelection.ROUTING_RU_DIRECT) {
+        val paths = geoRepository.currentOrBundled()
         require(paths.geoIpSrs.isFile && paths.geoSiteSrs.isFile) {
           RuntimeMessages.geoFilesMissing
         }

@@ -11,6 +11,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -132,7 +133,7 @@ class VeilarkSessionTest {
     }).also { it.switchEngine(TunnelEngineKind.SING_BOX) }
 
     val connect = launch { session.connect() }
-    healthStarted.await()
+    withTimeout(5_000) { healthStarted.await() }
     session.disconnect()
     finishHealth.complete(Unit)
     connect.join()
