@@ -303,8 +303,11 @@ class QrScannerActivity : ComponentActivity() {
 
   override fun onDestroy() {
     runCatching { cameraProvider?.unbindAll() }
-    scanner?.close()
-    analysisExecutor?.shutdownNow()
+    // CameraX/ML Kit may already have closed these resources after a failed
+    // bind or an Activity recreation. Teardown must never turn that recoverable
+    // scanner failure into a process crash.
+    runCatching { scanner?.close() }
+    runCatching { analysisExecutor?.shutdownNow() }
     super.onDestroy()
   }
   companion object {
