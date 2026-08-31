@@ -1,6 +1,7 @@
 package com.example.veilark.profile
 
 import com.example.veilark.io.readAtMost
+import com.example.veilark.update.MacUpdateClient
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.net.ConnectException
@@ -32,7 +33,7 @@ object SubscriptionFetcher {
         connection.readTimeout = 20_000
         connection.setRequestProperty(
           "User-Agent",
-          "SFA/1.13.14 Veilark/$VERSION",
+          "SFA/1.13.19 Veilark/${MacUpdateClient.CURRENT_VERSION}-macos",
         )
         connection.setRequestProperty("X-Client", "Veilark")
         headers.forEach(connection::setRequestProperty)
@@ -132,7 +133,6 @@ object SubscriptionFetcher {
   private const val MAX_REDIRECTS = 3
   private const val MAX_BYTES = 4 * 1024 * 1024
   private const val HTML_PROBE_BYTES = 2_048
-  private const val VERSION = "0.1.0-macos"
 }
 
 private object SubscriptionClientIdentity {

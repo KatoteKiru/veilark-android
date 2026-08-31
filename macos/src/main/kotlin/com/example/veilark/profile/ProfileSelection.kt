@@ -15,6 +15,11 @@ object ProfileSelection {
   const val DPI_OFF = "off"
   const val DPI_TLS_FRAGMENT = "tls_fragment"
 
+  data class GeoRuleSets(
+    val geoIpRuPath: String,
+    val geoSiteRuPath: String,
+  )
+
   fun encodeNodes(nodes: List<ConnectionNode>): String =
     JSONArray().apply {
       nodes.forEach { node ->
@@ -76,27 +81,62 @@ object ProfileSelection {
     mode: String,
     directEntries: String = "",
     vpnEntries: String = "",
+    geoRuleSets: GeoRuleSets? = null,
   ): String {
-    require(mode in setOf(ROUTING_ALL, ROUTING_MANUAL))
+    require(mode in setOf(ROUTING_ALL, ROUTING_MANUAL, ROUTING_RU_DIRECT))
     val root = JSONObject(config)
     val route = root.getJSONObject("route")
-    route.remove("rules")
-    if (mode == ROUTING_MANUAL) {
-      val direct = parseRoutingEntries(directEntries)
-      val vpn = parseRoutingEntries(vpnEntries)
-      require(
-        direct.domains.isNotEmpty() || direct.networks.isNotEmpty() ||
-          vpn.domains.isNotEmpty() || vpn.networks.isNotEmpty(),
-      ) {
-        "Добавьте хотя бы один домен или IP-диапазон"
+    val finalOutbound = route.getString("final")
+    val rules = essentialRules()
+    route.remove("rule_set")
+    when (mode) {
+      ROUTING_ALL -> Unit
+      ROUTING_MANUAL -> {
+        val direct = parseRoutingEntries(directEntries)
+        val vpn = parseRoutingEntries(vpnEntries)
+        require(
+          direct.domains.isNotEmpty() || direct.networks.isNotEmpty() ||
+            vpn.domains.isNotEmpty() || vpn.networks.isNotEmpty(),
+        ) {
+          "Добавьте хотя бы один домен или IP-диапазон"
+        }
+        addRule(rules, vpn, finalOutbound)
+        addRule(rules, direct, "direct")
       }
-      val rules = JSONArray().put(JSONObject().put("action", "sniff"))
-      addRule(rules, vpn, route.getString("final"))
-      addRule(rules, direct, "direct")
-      route.put("rules", rules)
+      ROUTING_RU_DIRECT -> {
+        val local = requireNotNull(geoRuleSets) {
+          "Файлы геомаршрутизации не установлены"
+        }
+        require(local.geoIpRuPath.isNotBlank() && local.geoSiteRuPath.isNotBlank()) {
+          "Файлы геомаршрутизации не установлены"
+        }
+        route.put(
+          "rule_set",
+          JSONArray()
+            .put(localRuleSet("geoip-ru", local.geoIpRuPath))
+            .put(localRuleSet("geosite-category-ru", local.geoSiteRuPath)),
+        )
+        rules.put(
+          JSONObject()
+            .put("rule_set", JSONArray().put("geosite-category-ru").put("geoip-ru"))
+            .put("outbound", "direct"),
+        )
+      }
     }
+    route.put("rules", rules)
     return root.toString(2)
   }
+
+  private fun essentialRules(): JSONArray = JSONArray()
+    .put(JSONObject().put("action", "sniff"))
+    .put(JSONObject().put("protocol", "dns").put("action", "hijack-dns"))
+
+  private fun localRuleSet(tag: String, path: String): JSONObject =
+    JSONObject()
+      .put("type", "local")
+      .put("tag", tag)
+      .put("format", "binary")
+      .put("path", path)
 
   fun applyApplications(
     config: String,

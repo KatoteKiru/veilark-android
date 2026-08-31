@@ -994,9 +994,9 @@ class SubscriptionParser {
         repeat(servers.length()) { index ->
           val server = servers.optJSONObject(index) ?: return@repeat
           if (server.optString("tag") != "bootstrap-dns") return@repeat
-          server.put("type", "udp")
-          server.put("server", "1.1.1.1")
-          server.put("server_port", 53)
+          if (server.optString("type") == "local") server.put("type", "udp")
+          if (server.optString("server").isBlank()) server.put("server", "1.1.1.1")
+          if (!server.has("server_port")) server.put("server_port", 53)
           server.put("detour", "direct")
           if (iface != null) server.put("bind_interface", iface)
         }
@@ -1005,18 +1005,35 @@ class SubscriptionParser {
         repeat(inbounds.length()) { index ->
           val inbound = inbounds.optJSONObject(index) ?: return@repeat
           if (inbound.optString("type") != "tun") return@repeat
-          inbound.put("address", JSONArray().put("172.19.0.1/30"))
+          val existingAddresses = inbound.optJSONArray("address")
+            ?.let { addresses ->
+              JSONArray().apply {
+                repeat(addresses.length()) { addressIndex ->
+                  addresses.optString(addressIndex).trim().takeIf(String::isNotEmpty)?.let(::put)
+                }
+              }
+            }
+            ?: JSONArray()
+          if (existingAddresses.length() == 0) existingAddresses.put("172.19.0.1/30")
+          // Do not silently discard an IPv6 TUN address supplied by the profile.
+          // Whether a specific engine/host can route it remains a runtime capability check.
+          inbound.put("address", existingAddresses)
           inbound.put("stack", "system")
           inbound.put("strict_route", false)
-          inbound.put(
-            "route_exclude_address",
-            JSONArray()
-              .put("1.1.1.1/32")
-              .put("10.0.0.0/8")
-              .put("172.16.0.0/12")
-              .put("192.168.0.0/16")
-              .put("169.254.0.0/16"),
+          val excluded = linkedSetOf<String>()
+          inbound.optJSONArray("route_exclude_address")?.let { values ->
+            repeat(values.length()) { valueIndex ->
+              values.optString(valueIndex).trim().takeIf(String::isNotEmpty)?.let(excluded::add)
+            }
+          }
+          excluded += listOf(
+            "1.1.1.1/32",
+            "10.0.0.0/8",
+            "172.16.0.0/12",
+            "192.168.0.0/16",
+            "169.254.0.0/16",
           )
+          inbound.put("route_exclude_address", JSONArray(excluded.toList()))
         }
       }
       root.optJSONArray("outbounds")?.let { outbounds ->

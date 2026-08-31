@@ -18,6 +18,10 @@ data class EnginePaths(
   val helper: File,
   val singBox: File,
   val trustTunnel: File,
+  val geoIpRu: File,
+  val geoIpRuJson: File,
+  val geoSiteRu: File,
+  val geoSiteRuJson: File,
   val runtimeDir: File,
 ) {
   fun configFile(kind: TunnelEngineKind): File = File(
@@ -26,29 +30,50 @@ data class EnginePaths(
   )
 }
 
-class PrivilegedHelper(private val paths: EnginePaths) {
-  fun installed(): Boolean = installedHelper().isFile &&
-    paths.singBox.isFile &&
-    paths.trustTunnel.isFile &&
+/**
+ * Small boundary around the platform-specific privileged helper.
+ *
+ * Keeping the lifecycle code dependent on this interface lets JVM tests exercise
+ * cancellation, state recovery and persistence without pretending to create a
+ * macOS TUN device.
+ */
+interface TunnelController {
+  fun installed(): Boolean
+  fun enginePresent(kind: TunnelEngineKind): Boolean
+  fun install(): Result<Unit>
+  fun start(kind: TunnelEngineKind, config: String): Result<Unit>
+  fun stop(): Result<Unit>
+  fun status(): String
+  fun lastLog(): String
+  fun tunFailed(): Boolean
+  fun outboundUnresolved(): Boolean
+}
+
+class PrivilegedHelper(private val paths: EnginePaths) : TunnelController {
+  override fun installed(): Boolean = installedHelper().isFile &&
+    installedSingBox.isFile &&
+    installedTrustTunnel.isFile &&
     versionFile.takeIf { it.isFile }?.readText()?.trim() == VERSION
 
-  fun install(): Result<Unit> = runCatching {
+  override fun enginePresent(kind: TunnelEngineKind): Boolean = when (kind) {
+    TunnelEngineKind.SING_BOX -> paths.singBox.isFile
+    TunnelEngineKind.TRUST_TUNNEL -> paths.trustTunnel.isFile
+  }
+
+  override fun install(): Result<Unit> = runCatching {
+    listOf(paths.helper, paths.singBox, paths.trustTunnel).forEach { source ->
+      require(source.canonicalFile.isFile) { "Не найден компонент: ${source.name}" }
+    }
     val script = """
       set -euo pipefail
-      mkdir -p /Library/PrivilegedHelperTools/VeilarkEngines
-      mkdir -p /Library/Application\ Support/Veilark/runtime
-      cp '${paths.helper.absolutePath}' /Library/PrivilegedHelperTools/veilark-helper
-      cp '${paths.singBox.absolutePath}' /Library/PrivilegedHelperTools/VeilarkEngines/sing-box
-      cp '${paths.trustTunnel.absolutePath}' /Library/PrivilegedHelperTools/VeilarkEngines/trusttunnel_client
-      chown root:wheel /Library/PrivilegedHelperTools/veilark-helper
-      chown -R root:wheel /Library/PrivilegedHelperTools/VeilarkEngines
-      chmod 4755 /Library/PrivilegedHelperTools/veilark-helper
-      chmod 755 /Library/PrivilegedHelperTools/VeilarkEngines/sing-box
-      chmod 755 /Library/PrivilegedHelperTools/VeilarkEngines/trusttunnel_client
-      xattr -c /Library/PrivilegedHelperTools/veilark-helper || true
-      xattr -cr /Library/PrivilegedHelperTools/VeilarkEngines || true
-      echo ${VERSION} > /Library/Application\ Support/Veilark/helper.version
-      chmod 644 /Library/Application\ Support/Veilark/helper.version
+      install -d -o root -g wheel -m 0755 /Library/PrivilegedHelperTools/VeilarkEngines
+      install -d -o root -g wheel -m 0755 ${shellQuote("/Library/Application Support/Veilark/runtime")}
+      install -o root -g admin -m 4750 ${shellQuote(paths.helper.canonicalPath)} /Library/PrivilegedHelperTools/veilark-helper
+      install -o root -g wheel -m 0755 ${shellQuote(paths.singBox.canonicalPath)} /Library/PrivilegedHelperTools/VeilarkEngines/sing-box
+      install -o root -g wheel -m 0755 ${shellQuote(paths.trustTunnel.canonicalPath)} /Library/PrivilegedHelperTools/VeilarkEngines/trusttunnel_client
+      printf '%s\n' ${shellQuote(VERSION)} > ${shellQuote("/Library/Application Support/Veilark/helper.version")}
+      chown root:wheel ${shellQuote("/Library/Application Support/Veilark/helper.version")}
+      chmod 0644 ${shellQuote("/Library/Application Support/Veilark/helper.version")}
     """.trimIndent()
     val process = ProcessBuilder(
       "osascript",
@@ -59,25 +84,39 @@ class PrivilegedHelper(private val paths: EnginePaths) {
     check(process.waitFor() == 0) { output.ifBlank { "Не удалось установить VPN helper" } }
   }
 
-  fun start(kind: TunnelEngineKind, config: String): Result<Unit> = runCatching {
+  override fun start(kind: TunnelEngineKind, config: String): Result<Unit> = runCatching {
     paths.runtimeDir.mkdirs()
     val configFile = paths.configFile(kind)
-    configFile.writeText(config)
+    val temp = File(configFile.parentFile, ".${configFile.name}.tmp")
+    temp.writeText(config)
+    temp.setReadable(false, false)
+    temp.setWritable(false, false)
+    temp.setExecutable(false, false)
+    check(temp.setReadable(true, true) && temp.setWritable(true, true)) {
+      "Не удалось защитить VPN-конфигурацию"
+    }
+    check(temp.renameTo(configFile) || run {
+      configFile.writeBytes(temp.readBytes())
+      temp.delete()
+      configFile.setReadable(false, false)
+      configFile.setWritable(false, false)
+      configFile.setReadable(true, true) && configFile.setWritable(true, true)
+    }) { "Не удалось сохранить VPN-конфигурацию" }
     invoke("start", engineName(kind), configFile.absolutePath)
   }
 
-  fun stop(): Result<Unit> = runCatching { invoke("stop") }
+  override fun stop(): Result<Unit> = runCatching { invoke("stop") }
 
-  fun status(): String = runCatching { invoke("status") }.getOrDefault("disconnected")
+  override fun status(): String = runCatching { invoke("status") }.getOrDefault("disconnected")
 
-  fun lastLog(): String = runCatching { engineLog.readText() }.getOrDefault("")
+  override fun lastLog(): String = runCatching { engineLog.readText() }.getOrDefault("")
 
-  fun tunFailed(): Boolean {
+  override fun tunFailed(): Boolean {
     val log = lastLog()
     return TUN_FAILURES.any { it in log }
   }
 
-  fun outboundUnresolved(): Boolean {
+  override fun outboundUnresolved(): Boolean {
     val log = lastLog()
     return "empty result" in log ||
       Regex("""outbound connection to :\d+""").containsMatchIn(log)
@@ -103,10 +142,16 @@ class PrivilegedHelper(private val paths: EnginePaths) {
   private fun osascriptQuote(value: String): String =
     "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
 
+  private fun shellQuote(value: String): String =
+    "'" + value.replace("'", "'\"'\"'") + "'"
+
   companion object {
-    const val VERSION = "4"
+    const val VERSION = "6"
     private val versionFile = File("/Library/Application Support/Veilark/helper.version")
     private val engineLog = File("/Library/Application Support/Veilark/runtime/engine.log")
+    private val installedSingBox = File("/Library/PrivilegedHelperTools/VeilarkEngines/sing-box")
+    private val installedTrustTunnel =
+      File("/Library/PrivilegedHelperTools/VeilarkEngines/trusttunnel_client")
     private val TUN_FAILURES = listOf(
       "Failed to create listener",
       "Unable to setup routes",
@@ -135,6 +180,10 @@ object BundledPaths {
         File(root, "trusttunnel_client"),
         File(root, "engines/trusttunnel_client"),
       ),
+      geoIpRu = firstExisting(File(root, "geo/geoip-ru.srs")),
+      geoIpRuJson = firstExisting(File(root, "geo/geoip-ru.json")),
+      geoSiteRu = firstExisting(File(root, "geo/geosite-category-ru.srs")),
+      geoSiteRuJson = firstExisting(File(root, "geo/geosite-category-ru.json")),
       runtimeDir = File(System.getProperty("user.home"), "Library/Application Support/Veilark/runtime"),
     ).also { paths ->
       listOf(paths.helper, paths.singBox, paths.trustTunnel).forEach { file ->

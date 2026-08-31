@@ -62,6 +62,72 @@ class TrustTunnelProfileTest {
     assertTrue("hostname = \"localhost\"" in profile.config)
   }
 
+  @Test
+  fun geoIpRuDirectUsesNativeExclusionsAndPreservesFullTunnelAndEndpointReachability() {
+    val routed = TrustTunnelProfile.applyGeoIpRuDirect(
+      TrustTunnelProfile.compile(LOCALHOST_FIXTURE).config,
+      listOf("5.136.0.0/13", "2a00:f480::/29"),
+    )
+
+    assertTrue("vpn_mode = \"general\"" in routed)
+    assertTrue("\"5.136.0.0/13\"" in routed)
+    assertTrue("\"2a00:f480::/29\"" in routed)
+    assertTrue("included_routes = [\"0.0.0.0/0\"]" in routed)
+    assertTrue("has_ipv6 = false" in routed)
+    assertTrue("2000::/3" !in routed)
+    assertTrue("\"10.0.0.0/8\"" in routed)
+    assertTrue("\"fc00::/7\"" in routed)
+    assertTrue("\"127.0.0.1/32\"" in routed)
+  }
+
+  @Test
+  fun geoRuDirectAlsoExcludesDomainsForSplitDns() {
+    val routed = TrustTunnelProfile.applyGeoIpRuDirect(
+      TrustTunnelProfile.compile(LOCALHOST_FIXTURE).config,
+      listOf("5.136.0.0/13", "2a00:f480::/29"),
+      listOf("example.ru", "service.example.ru"),
+    )
+
+    assertTrue("\"example.ru\"" in routed)
+    assertTrue("\"service.example.ru\"" in routed)
+    assertTrue("vpn_mode = \"general\"" in routed)
+  }
+
+  @Test
+  fun geoRuDirectRejectsUnsupportedWildcardDomain() {
+    org.junit.Assert.assertThrows(IllegalArgumentException::class.java) {
+      TrustTunnelProfile.applyGeoIpRuDirect(
+        TrustTunnelProfile.compile(LOCALHOST_FIXTURE).config,
+        listOf("5.136.0.0/13", "2a00:f480::/29"),
+        listOf("*.example.ru"),
+      )
+    }
+  }
+
+  @Test
+  fun fullTunnelPreparationRemainsIpv4Only() {
+    val fullTunnel = TrustTunnelProfile.prepareMacConfig(TrustTunnelProfile.compile(LOCALHOST_FIXTURE).config)
+    assertTrue("included_routes = [\"0.0.0.0/0\"]" in fullTunnel)
+    assertTrue("2000::/3" !in fullTunnel)
+  }
+
+  @Test
+  fun geoRoutingPreservesAnIpv6CapableListener() {
+    val capable = TrustTunnelProfile.compile(LOCALHOST_FIXTURE).config
+      .replace("has_ipv6 = false", "has_ipv6 = true")
+      .replace(
+        "included_routes = [\"0.0.0.0/0\"]",
+        "included_routes = [\"0.0.0.0/0\", \"2000::/3\"]",
+      )
+    val routed = TrustTunnelProfile.applyGeoIpRuDirect(
+      capable,
+      listOf("5.136.0.0/13", "2a00:f480::/29"),
+    )
+
+    assertTrue("has_ipv6 = true" in routed)
+    assertTrue("included_routes = [\"0.0.0.0/0\", \"2000::/3\"]" in routed)
+  }
+
   companion object {
     // Public localhost fixture from TrustTunnelClient v1.0.49 instrumentation tests.
     private const val LOCALHOST_FIXTURE =
