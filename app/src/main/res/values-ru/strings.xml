@@ -155,6 +155,7 @@
     <string name="trust_invalid_configuration">Некорректная конфигурация TrustTunnel</string>
     <string name="trust_connection_timeout">TrustTunnel не подключился за 45 секунд. Проверьте профиль и сеть</string>
     <string name="trust_connection_failed">TrustTunnel не установил соединение. Проверьте доступность сервера и профиль</string>
+    <string name="trust_geo_bypass_disabled">TrustTunnel использует полный туннель для стабильности. Прямой обход российских сетей временно отключён.</string>
     <string name="main_profile_not_found">Основной профиль не найден</string>
     <string name="vpn_start_failed">Не удалось запустить VPN</string>
     <string name="profile_read_failed">Не удалось прочитать профиль</string>

@@ -156,6 +156,7 @@
     <string name="trust_invalid_configuration">Invalid TrustTunnel configuration</string>
     <string name="trust_connection_timeout">TrustTunnel did not connect within 45 seconds. Check the profile and network</string>
     <string name="trust_connection_failed">TrustTunnel could not establish a connection. Check the server and profile</string>
+    <string name="trust_geo_bypass_disabled">TrustTunnel is using a full tunnel for stability. Russia-direct bypass is temporarily disabled.</string>
     <string name="main_profile_not_found">Main profile not found</string>
     <string name="vpn_start_failed">Could not start VPN</string>
     <string name="profile_read_failed">Could not read the profile</string>

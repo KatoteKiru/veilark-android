@@ -33,6 +33,7 @@ import com.example.veilark.vpn.ConnectionState
 import com.example.veilark.vpn.VeilarkVpnService
 import com.example.veilark.profile.SubscriptionFetcher
 import com.example.veilark.profile.SubscriptionParser
+import com.example.veilark.profile.ImportDeepLink
 import com.example.veilark.profile.SubscriptionDeletionPolicy
 import com.example.veilark.profile.SubscriptionSelectionPolicy
 import com.example.veilark.profile.SubscriptionRefreshPolicy
@@ -65,10 +66,12 @@ class MainActivity : ComponentActivity() {
   private var pendingTrustConfig: String? = null
   private var pendingUpdateApk: File? = null
   private val tileConnectRequests = MutableStateFlow(0)
+  private val externalImportRequests = MutableStateFlow<String?>(null)
 
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
     consumeTileConnectIntent(intent)
+    externalImportRequests.value = ImportDeepLink.parse(intent)
     SecureProfileStore.migrateLegacy(this)
     val initialProfilePreferences = getSharedPreferences("profile_meta", MODE_PRIVATE)
     TrustTunnelCatalog.migrateSingle(
@@ -106,6 +109,7 @@ class MainActivity : ComponentActivity() {
       var trustProfiles by remember {
         mutableStateOf(TrustTunnelCatalog.load(this))
       }
+      val externalImportUrl by externalImportRequests.collectAsStateWithLifecycle()
       var singBoxProfiles by remember {
         mutableStateOf(SingBoxCatalog.load(this))
       }
@@ -251,6 +255,7 @@ class MainActivity : ComponentActivity() {
       }
       val connectionError by VeilarkVpnService.failureMessage.collectAsStateWithLifecycle()
       val trustTunnelError by TrustTunnelManager.failureMessage.collectAsStateWithLifecycle()
+      val trustRoutingNotice by TrustTunnelManager.routingNotice.collectAsStateWithLifecycle()
       val trustTunnelTransport by TrustTunnelManager.transport.collectAsStateWithLifecycle()
       val failureCode by VeilarkVpnService.failureCode.collectAsStateWithLifecycle()
       val singBoxStartupStage by VeilarkVpnService.startupStage.collectAsStateWithLifecycle()
@@ -542,18 +547,6 @@ class MainActivity : ComponentActivity() {
         }
         pendingQrConsumer = null
       }
-      val cameraPermission = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission(),
-      ) { granted ->
-        if (granted) {
-          qrScanner.launch(Intent(this@MainActivity, QrScannerActivity::class.java))
-        } else {
-          importError = getString(R.string.qr_camera_permission_denied)
-          TechnicalLogStore.warning("QR", "Camera permission denied")
-          pendingQrConsumer = null
-        }
-      }
-
       VeilarkTheme {
         MainScreen(
           profileName = profileName,
@@ -563,6 +556,9 @@ class MainActivity : ComponentActivity() {
             trustTunnelError
           } else {
             connectionError
+          },
+          routingNotice = trustRoutingNotice.takeIf {
+            profileEngine == ProfileEngine.TRUST_TUNNEL
           },
           failureCode = if (profileEngine == ProfileEngine.TRUST_TUNNEL &&
             trustTunnelError != null
@@ -622,22 +618,17 @@ class MainActivity : ComponentActivity() {
           updating = updating,
           updateProgress = updateProgress,
           importing = importing,
+          externalImportUrl = externalImportUrl,
+          onExternalImportConsumed = { externalImportRequests.value = null },
           onImportFile = {
             filePicker.launch(arrayOf("application/json", "text/plain", "*/*"))
           },
           onScanQr = { onScanned ->
             pendingQrConsumer = onScanned
             importError = null
-            if (
-              ContextCompat.checkSelfPermission(
-                this@MainActivity,
-                Manifest.permission.CAMERA,
-              ) == PackageManager.PERMISSION_GRANTED
-            ) {
-              qrScanner.launch(Intent(this@MainActivity, QrScannerActivity::class.java))
-            } else {
-              cameraPermission.launch(Manifest.permission.CAMERA)
-            }
+            // Keep permission and CameraX lifecycle in one activity. This avoids a
+            // second permission launcher racing the scanner activity on Android 13+.
+            qrScanner.launch(Intent(this@MainActivity, QrScannerActivity::class.java))
           },
           onImportUrl = { url ->
             importing = true
@@ -1477,6 +1468,7 @@ class MainActivity : ComponentActivity() {
     super.onNewIntent(intent)
     setIntent(intent)
     consumeTileConnectIntent(intent)
+    ImportDeepLink.parse(intent)?.let { externalImportRequests.value = it }
   }
 
   private fun consumeTileConnectIntent(intent: Intent?) {

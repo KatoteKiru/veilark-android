@@ -2,6 +2,18 @@
 
 All notable changes to the public distribution are documented here.
 
+## 0.8.0-rc22
+
+- restored stable TrustTunnel traffic by disabling the unverified runtime
+  Russia-direct exclusion update; TrustTunnel now falls back to a full tunnel
+  while preserving Android per-application routing;
+- moved QR camera permission and CameraX ownership into one activity and
+  hardened camera, analyzer and ML Kit failure handling;
+- added confirmed Veilark import links for HTTPS subscriptions and `tt://`
+  profiles, including HTTPS sources on non-default ports;
+- kept sing-box routing and imported subscription data unchanged during the
+  compatibility update.
+
 ## 0.8.0-rc19
 
 - hardened TrustTunnel start/stop lifecycle so rejected foreground-service
