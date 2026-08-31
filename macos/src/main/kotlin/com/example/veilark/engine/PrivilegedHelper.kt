@@ -21,6 +21,7 @@ data class EnginePaths(
   val geoIpRu: File,
   val geoIpRuJson: File,
   val geoSiteRu: File,
+  val geoSiteRuJson: File,
   val runtimeDir: File,
 ) {
   fun configFile(kind: TunnelEngineKind): File = File(
@@ -182,6 +183,7 @@ object BundledPaths {
       geoIpRu = firstExisting(File(root, "geo/geoip-ru.srs")),
       geoIpRuJson = firstExisting(File(root, "geo/geoip-ru.json")),
       geoSiteRu = firstExisting(File(root, "geo/geosite-category-ru.srs")),
+      geoSiteRuJson = firstExisting(File(root, "geo/geosite-category-ru.json")),
       runtimeDir = File(System.getProperty("user.home"), "Library/Application Support/Veilark/runtime"),
     ).also { paths ->
       listOf(paths.helper, paths.singBox, paths.trustTunnel).forEach { file ->

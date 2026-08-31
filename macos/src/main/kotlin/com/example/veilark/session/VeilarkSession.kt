@@ -15,6 +15,7 @@ import com.example.veilark.profile.SubscriptionParser
 import com.example.veilark.protocol.TrustTunnelCatalog
 import com.example.veilark.protocol.TrustTunnelCatalogEntry
 import com.example.veilark.protocol.GeoIpRuCatalog
+import com.example.veilark.protocol.GeoSiteRuCatalog
 import com.example.veilark.protocol.TrustTunnelProfile
 import com.example.veilark.storage.EncryptedStore
 import com.example.veilark.storage.MacKeychain
@@ -599,10 +600,14 @@ class VeilarkSession(
     val entry = selectedTrustEntry() ?: error(RuntimeMessages.chooseTrust)
     val prepared = if (routingMode == ProfileSelection.ROUTING_RU_DIRECT) {
       val paths = BundledPaths.resolve()
-      require(paths.geoIpRuJson.isFile) { RuntimeMessages.geoFilesMissing }
+      require(paths.geoIpRuJson.isFile && paths.geoSiteRuJson.isFile) {
+        RuntimeMessages.geoFilesMissing
+      }
       TrustTunnelProfile.applyGeoIpRuDirect(
         entry.config,
         runCatching { GeoIpRuCatalog.load(paths.geoIpRuJson) }
+          .getOrElse { error(RuntimeMessages.geoIpInvalid) },
+        runCatching { GeoSiteRuCatalog.load(paths.geoSiteRuJson) }
           .getOrElse { error(RuntimeMessages.geoIpInvalid) },
       )
     } else {

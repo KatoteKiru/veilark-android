@@ -81,6 +81,30 @@ class TrustTunnelProfileTest {
   }
 
   @Test
+  fun geoRuDirectAlsoExcludesDomainsForSplitDns() {
+    val routed = TrustTunnelProfile.applyGeoIpRuDirect(
+      TrustTunnelProfile.compile(LOCALHOST_FIXTURE).config,
+      listOf("5.136.0.0/13", "2a00:f480::/29"),
+      listOf("example.ru", "service.example.ru"),
+    )
+
+    assertTrue("\"example.ru\"" in routed)
+    assertTrue("\"service.example.ru\"" in routed)
+    assertTrue("vpn_mode = \"general\"" in routed)
+  }
+
+  @Test
+  fun geoRuDirectRejectsUnsupportedWildcardDomain() {
+    org.junit.Assert.assertThrows(IllegalArgumentException::class.java) {
+      TrustTunnelProfile.applyGeoIpRuDirect(
+        TrustTunnelProfile.compile(LOCALHOST_FIXTURE).config,
+        listOf("5.136.0.0/13", "2a00:f480::/29"),
+        listOf("*.example.ru"),
+      )
+    }
+  }
+
+  @Test
   fun fullTunnelPreparationRemainsIpv4Only() {
     val fullTunnel = TrustTunnelProfile.prepareMacConfig(TrustTunnelProfile.compile(LOCALHOST_FIXTURE).config)
     assertTrue("included_routes = [\"0.0.0.0/0\"]" in fullTunnel)

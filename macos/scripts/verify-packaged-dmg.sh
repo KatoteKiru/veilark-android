@@ -20,7 +20,7 @@ hdiutil attach "$DMG" -nobrowse -readonly -mountpoint "$MOUNT" >/dev/null
 APP="$(find "$MOUNT" -maxdepth 1 -type d -name 'Veilark.app' -print -quit)"
 [ -n "$APP" ] || { echo "Veilark.app missing from DMG" >&2; exit 1; }
 RESOURCES="$APP/Contents/app/resources"
-for asset in veilark-helper veilark-updater sing-box trusttunnel_client geo/geoip-ru.srs geo/geoip-ru.json geo/geosite-category-ru.srs; do
+for asset in veilark-helper veilark-updater sing-box trusttunnel_client geo/geoip-ru.srs geo/geoip-ru.json geo/geosite-category-ru.srs geo/geosite-category-ru.json; do
   [ -f "$RESOURCES/$asset" ] || { echo "Packaged asset missing: $asset" >&2; exit 1; }
 done
 [ -x "$RESOURCES/veilark-helper" ]

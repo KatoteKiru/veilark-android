@@ -80,6 +80,9 @@ verify_sha256 "$GEOSITE_SHA256" "$COMMON/geo/geosite-category-ru.srs"
 "$COMMON/sing-box" rule-set decompile "$COMMON/geo/geoip-ru.srs" \
   --output "$COMMON/geo/geoip-ru.json"
 verify_sha256 "$GEOIP_JSON_SHA256" "$COMMON/geo/geoip-ru.json"
+"$COMMON/sing-box" rule-set decompile "$COMMON/geo/geosite-category-ru.srs" \
+  --output "$COMMON/geo/geosite-category-ru.json"
+test -s "$COMMON/geo/geosite-category-ru.json"
 
 file "$COMMON/sing-box" | grep -q 'Mach-O'
 file "$COMMON/trusttunnel_client" | grep -q 'Mach-O'
@@ -88,7 +91,8 @@ shasum -a 256 \
   "$COMMON/trusttunnel_client" \
   "$COMMON/geo/geoip-ru.srs" \
   "$COMMON/geo/geoip-ru.json" \
-  "$COMMON/geo/geosite-category-ru.srs" | tee "$VENDOR/BUNDLED_SHA256SUMS"
+  "$COMMON/geo/geosite-category-ru.srs" \
+  "$COMMON/geo/geosite-category-ru.json" | tee "$VENDOR/BUNDLED_SHA256SUMS"
 cat > "$VENDOR/BUNDLED_UPSTREAM.json" <<EOF
 {
   "sing-box": {
@@ -115,7 +119,8 @@ cat > "$VENDOR/BUNDLED_UPSTREAM.json" <<EOF
   "geosite-category-ru": {
     "commit": "${GEOSITE_COMMIT}",
     "url": "${GEOSITE_URL}",
-    "sha256": "${GEOSITE_SHA256}"
+    "sha256": "${GEOSITE_SHA256}",
+    "derivedBy": "sing-box ${SING_BOX_VERSION} rule-set decompile"
   }
 }
 EOF

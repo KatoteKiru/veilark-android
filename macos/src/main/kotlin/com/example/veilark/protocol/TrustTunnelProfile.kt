@@ -62,10 +62,17 @@ object TrustTunnelProfile {
   }
 
   /**
-   * Applies IP-only RU bypass using TrustTunnel's native general-mode exclusions.
-   * The listener remains a full tunnel; no persistent routes are installed by Veilark itself.
+   * Applies RU IP and domain bypass using TrustTunnel's native general-mode
+   * exclusions. Domain exclusions are important because TrustTunnel otherwise
+   * resolves those names through its configured DNS upstream over the tunnel.
+   * The listener remains a full tunnel; no persistent routes are installed by
+   * Veilark itself.
    */
-  fun applyGeoIpRuDirect(config: String, ruCidrs: List<String>): String {
+  fun applyGeoIpRuDirect(
+    config: String,
+    ruCidrs: List<String>,
+    ruDomains: List<String> = emptyList(),
+  ): String {
     require(ruCidrs.isNotEmpty()) { "GeoIP RU is empty" }
     require(ruCidrs.all { GeoIpRuCatalog.isIpv4Cidr(it) || GeoIpRuCatalog.isIpv6Cidr(it) }) {
       "GeoIP RU contains an invalid network"
@@ -73,10 +80,11 @@ object TrustTunnelProfile {
     require(ruCidrs.any(GeoIpRuCatalog::isIpv4Cidr) && ruCidrs.any(GeoIpRuCatalog::isIpv6Cidr)) {
       "GeoIP RU must contain IPv4 and IPv6 networks"
     }
+    require(ruDomains.all(::isDomain)) { "Geosite RU contains an invalid domain" }
 
     var text = prepareMacConfig(config)
     text = replaceScalar(text, "vpn_mode", "\"general\"")
-    text = replaceArray(text, "exclusions", readArray(text, "exclusions") + ruCidrs)
+    text = replaceArray(text, "exclusions", readArray(text, "exclusions") + ruCidrs + ruDomains)
 
     val listenerExclusions = linkedSetOf<String>().apply {
       addAll(readArray(text, "excluded_routes"))
@@ -143,6 +151,15 @@ object TrustTunnelProfile {
         GeoIpRuCatalog.isIpv6Cidr("$host/128") -> "$host/128"
         else -> null
       }
+    }
+  }
+
+  private fun isDomain(value: String): Boolean {
+    if (value.isBlank() || value.length > 253 || value.startsWith("*")) return false
+    return value.split('.').all { label ->
+      label.isNotEmpty() && label.length <= 63 &&
+        label.first() != '-' && label.last() != '-' &&
+        label.all { it.isLetterOrDigit() || it == '-' || it == '_' }
     }
   }
 

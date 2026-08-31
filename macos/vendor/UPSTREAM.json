@@ -29,6 +29,7 @@
   "geosite-category-ru": {
     "commit": "11fb9814c7de626956aab504f83e066e70b250d4",
     "url": "https://raw.githubusercontent.com/SagerNet/sing-geosite/11fb9814c7de626956aab504f83e066e70b250d4/geosite-category-ru.srs",
-    "sha256": "c36e157adf86edf7b722b51f3acb93bbb2a7f8083932dae29b4b5ef2c1ced870"
+    "sha256": "c36e157adf86edf7b722b51f3acb93bbb2a7f8083932dae29b4b5ef2c1ced870",
+    "derivedBy": "sing-box 1.13.19 rule-set decompile"
   }
 }
