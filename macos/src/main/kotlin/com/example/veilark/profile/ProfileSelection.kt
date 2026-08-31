@@ -89,8 +89,16 @@ object ProfileSelection {
     val finalOutbound = route.getString("final")
     val rules = essentialRules()
     route.remove("rule_set")
+    // Rebuild DNS rules together with route rules.  Leaving a previous RU
+    // rule-set reference behind makes the next full-tunnel/manual config
+    // point at rule-set tags that are no longer declared and can stall all
+    // name resolution after a mode switch.
+    val dns = root.optJSONObject("dns")
+    dns?.remove("rules")
     when (mode) {
-      ROUTING_ALL -> Unit
+      ROUTING_ALL -> {
+        dns?.takeIf { it.optJSONArray("servers") != null }?.put("final", "secure-dns")
+      }
       ROUTING_MANUAL -> {
         val direct = parseRoutingEntries(directEntries)
         val vpn = parseRoutingEntries(vpnEntries)
@@ -119,7 +127,22 @@ object ProfileSelection {
         rules.put(
           JSONObject()
             .put("rule_set", JSONArray().put("geosite-category-ru").put("geoip-ru"))
+            .put("action", "route")
             .put("outbound", "direct"),
+        )
+        // Resolve RU names through the physical interface while foreign DNS
+        // remains on the selected tunnel branch.  This mirrors sing-box's
+        // traffic split and avoids a DNS request being sent to the remote
+        // resolver before the direct rule can be applied.
+        dns?.put("final", "secure-dns")
+        dns?.put(
+          "rules",
+          JSONArray().put(
+            JSONObject()
+              .put("rule_set", JSONArray().put("geosite-category-ru"))
+              .put("action", "route")
+              .put("server", "bootstrap-dns"),
+          ),
         )
       }
     }

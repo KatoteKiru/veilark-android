@@ -225,6 +225,35 @@ class SubscriptionParserTest {
     assertEquals("hijack-dns", rules.getJSONObject(1).getString("action"))
     assertEquals("direct", rules.getJSONObject(2).getString("outbound"))
     assertEquals("geoip-ru", rules.getJSONObject(2).getJSONArray("rule_set").getString(1))
+    assertEquals("route", rules.getJSONObject(2).getString("action"))
+    val dns = configured.getJSONObject("dns")
+    assertEquals("secure-dns", dns.getString("final"))
+    assertEquals(
+      "bootstrap-dns",
+      dns.getJSONArray("rules").getJSONObject(0).getString("server"),
+    )
+  }
+
+  @Test
+  fun routingModeSwitchRemovesStaleGeoDnsRules() {
+    val result = parser.compile(
+      "trojan://secret@203.0.113.2:443?security=tls&sni=example.com#NL"
+        .toByteArray(),
+    )
+    val geo = ProfileSelection.GeoRuleSets(
+      geoIpRuPath = "/Applications/Veilark.app/Contents/app/resources/geo/geoip-ru.srs",
+      geoSiteRuPath = "/Applications/Veilark.app/Contents/app/resources/geo/geosite-category-ru.srs",
+    )
+    val routed = ProfileSelection.applyRouting(
+      result.json,
+      ProfileSelection.ROUTING_RU_DIRECT,
+      geoRuleSets = geo,
+    )
+    val restored = JSONObject(ProfileSelection.applyRouting(routed, ProfileSelection.ROUTING_ALL))
+    val restoredDns = restored.getJSONObject("dns")
+    assertFalse(restoredDns.has("rules"))
+    assertEquals("secure-dns", restoredDns.getString("final"))
+    assertFalse(restored.getJSONObject("route").has("rule_set"))
   }
 
   @Test
