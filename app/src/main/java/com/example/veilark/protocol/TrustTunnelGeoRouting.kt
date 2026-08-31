@@ -38,11 +38,18 @@ object TrustTunnelGeoRouting {
   }
 
   fun currentDirectCidrs(context: Context): List<String> {
-    val mode = context.getSharedPreferences("profile_meta", Context.MODE_PRIVATE)
-      .getString("routing_mode", ProfileSelection.ROUTING_ALL)
-      ?: ProfileSelection.ROUTING_ALL
-    return if (mode == ProfileSelection.ROUTING_RU_DIRECT) ruCidrs(context) else emptyList()
+    return if (isRussiaDirect(context)) ruCidrs(context) else emptyList()
   }
+
+  internal fun isRussiaDirect(context: Context): Boolean =
+    isRussiaDirectMode(
+      context.getSharedPreferences("profile_meta", Context.MODE_PRIVATE)
+        .getString("routing_mode", ProfileSelection.ROUTING_ALL)
+        ?: ProfileSelection.ROUTING_ALL,
+    )
+
+  internal fun isRussiaDirectMode(mode: String): Boolean =
+    mode == ProfileSelection.ROUTING_RU_DIRECT
 
   /** TrustTunnel starts as a full tunnel; direct CIDRs are applied after CONNECTED. */
   fun startupConfig(config: String): String =

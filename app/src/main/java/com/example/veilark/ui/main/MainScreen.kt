@@ -161,6 +161,7 @@ fun MainScreen(
   connectionState: ConnectionState = ConnectionState.Disconnected,
   startupStage: StartupStage = StartupStage.Idle,
   importError: String? = null,
+  routingNotice: String? = null,
   failureCode: String? = null,
   diagnosticReportAvailable: Boolean = false,
   technicalLogs: List<TechnicalLogEntry> = emptyList(),
@@ -195,6 +196,8 @@ fun MainScreen(
   updating: Boolean = false,
   updateProgress: Float? = null,
   importing: Boolean = false,
+  externalImportUrl: String? = null,
+  onExternalImportConsumed: () -> Unit = {},
   onImportFile: () -> Unit = {},
   onImportUrl: (String) -> Unit = {},
   onScanQr: ((String) -> Unit) -> Unit = {},
@@ -265,6 +268,20 @@ fun MainScreen(
       }
       importSubmitted = false
       observedImporting = false
+    }
+  }
+
+  // A validated deep link uses the same import callback as the reviewed manual
+  // surface. LaunchedEffect makes this one-shot for each request value; clearing
+  // the request immediately prevents recomposition from importing it twice.
+  LaunchedEffect(externalImportUrl) {
+    externalImportUrl?.let { value ->
+      subscriptionUrl = value
+      importAttempted = true
+      importSubmitted = true
+      showImport = true
+      onExternalImportConsumed()
+      onImportUrl(value)
     }
   }
 
@@ -448,6 +465,11 @@ fun MainScreen(
             diagnosticReportAvailable = diagnosticReportAvailable,
             onCopyDiagnostic = onCopyDiagnostic,
           )
+        }
+      }
+      if (routingNotice != null) {
+        item {
+          RoutingNoticeCard(message = routingNotice)
         }
       }
       item {
@@ -2541,6 +2563,22 @@ private fun ErrorCard(
         )
       }
     }
+  }
+}
+
+@Composable
+private fun RoutingNoticeCard(message: String) {
+  Surface(
+    modifier = Modifier.fillMaxWidth(),
+    shape = RoundedCornerShape(24.dp),
+    color = MaterialTheme.colorScheme.surfaceContainerHigh,
+  ) {
+    Text(
+      text = message,
+      modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp),
+      style = MaterialTheme.typography.bodyMedium,
+      color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
   }
 }
 

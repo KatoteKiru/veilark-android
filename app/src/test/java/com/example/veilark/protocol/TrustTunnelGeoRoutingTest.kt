@@ -1,5 +1,6 @@
 package com.example.veilark.protocol
 
+import com.example.veilark.profile.ProfileSelection
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertThrows
 import org.junit.Test
@@ -69,6 +70,22 @@ class TrustTunnelGeoRoutingTest {
     assertEquals(
       true,
       TrustTunnelGeoRouting.startupConfig(config).contains("exclusions = []"),
+    )
+  }
+
+  @Test
+  fun onlyRussiaDirectModeRequestsTheTemporarilyDisabledGeoBypass() {
+    assertEquals(
+      true,
+      TrustTunnelGeoRouting.isRussiaDirectMode(ProfileSelection.ROUTING_RU_DIRECT),
+    )
+    assertEquals(
+      false,
+      TrustTunnelGeoRouting.isRussiaDirectMode(ProfileSelection.ROUTING_ALL),
+    )
+    assertEquals(
+      false,
+      TrustTunnelGeoRouting.isRussiaDirectMode(ProfileSelection.ROUTING_MANUAL),
     )
   }
 }

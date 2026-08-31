@@ -39,6 +39,8 @@ object TrustTunnelManager : AppNotifier {
   val state = mutableState.asStateFlow()
   private val mutableFailureMessage = MutableStateFlow<String?>(null)
   val failureMessage = mutableFailureMessage.asStateFlow()
+  private val mutableRoutingNotice = MutableStateFlow<String?>(null)
+  val routingNotice = mutableRoutingNotice.asStateFlow()
   private val mutableTransport = MutableStateFlow<String?>(null)
   val transport = mutableTransport.asStateFlow()
   private val mutableLatencies = MutableStateFlow<Map<String, Int>>(emptyMap())
@@ -90,7 +92,7 @@ object TrustTunnelManager : AppNotifier {
   internal fun startEngine(context: Context, config: String, attempt: LifecycleAttempt) {
     NativeRuntimeState.requireTrustTunnel()
     val startupConfig = TrustTunnelGeoRouting.startupConfig(config)
-    val directCidrs = TrustTunnelGeoRouting.currentDirectCidrs(context)
+    val geoBypassRequested = TrustTunnelGeoRouting.isRussiaDirect(context)
     check(VpnServiceConfigValidator.isValid(startupConfig)) {
       context.getString(R.string.trust_invalid_configuration)
     }
@@ -98,19 +100,31 @@ object TrustTunnelManager : AppNotifier {
       connectionRequested = true
       activeLifecycleAttempt = attempt
       sessionFence.begin(attempt.attemptId)
-      pendingDirectCidrs = directCidrs
+      // TrustTunnel's runtime exclusion update is intentionally disabled. A large
+      // CIDR update is asynchronous in the native core and can reset a just-connected
+      // session; full-tunnel is the safe fallback until physical ARM acceptance.
+      pendingDirectCidrs = emptyList()
       mutableStopped.value = false
       hasConnected = false
       mutableFailureMessage.value = null
+      mutableRoutingNotice.value = if (geoBypassRequested) {
+        context.getString(R.string.trust_geo_bypass_disabled)
+      } else {
+        null
+      }
       mutableTransport.value = null
       mutableState.value = ConnectionState.Connecting
       cancelLatencyRefresh()
       ++probeGeneration
     }
-    TechnicalLogStore.info(
-      "TRUST",
-      "Starting tunnel; deferred direct routes=${directCidrs.size}",
-    )
+    if (geoBypassRequested) {
+      TechnicalLogStore.warning(
+        "TRUST",
+        "Russia-direct geo bypass disabled for stability; using full tunnel",
+      )
+    } else {
+      TechnicalLogStore.info("TRUST", "Starting tunnel in full-tunnel mode")
+    }
     EndpointLatencyProbe.stop()
     try {
       ensureNetworkManager(context.applicationContext)
@@ -165,6 +179,7 @@ object TrustTunnelManager : AppNotifier {
       connectionRequested = false
       hasConnected = false
       pendingDirectCidrs = emptyList()
+      mutableRoutingNotice.value = null
       probeGeneration += 1
       mutableTransport.value = null
       cancelLatencyRefresh()
@@ -269,16 +284,6 @@ object TrustTunnelManager : AppNotifier {
       TechnicalLogStore.warning("TRUST", "Ignored a stale or duplicate CONNECTED event")
       return
     }
-    val routingApplied = directCidrs.isEmpty() || VpnService.updateExclusions(directCidrs)
-    if (!routingApplied) {
-      failAndStop(
-        context = appContext,
-        sessionId = sessionId,
-        message = appContext.getString(R.string.trust_connection_failed),
-        logMessage = "Failed to apply runtime routing policy",
-      )
-      return
-    }
     val accepted = synchronized(this) {
       if (!connectionRequested || !sessionFence.isConnected(sessionId)) false
       else {
@@ -290,7 +295,7 @@ object TrustTunnelManager : AppNotifier {
     if (accepted) {
       TechnicalLogStore.info(
         "TRUST",
-        "Tunnel connected; runtime direct routes=${directCidrs.size}",
+        "Tunnel connected; full-tunnel routing active",
       )
     }
   }
@@ -303,6 +308,7 @@ object TrustTunnelManager : AppNotifier {
       hasConnected = false
       activeLifecycleAttempt = null
       pendingDirectCidrs = emptyList()
+      mutableRoutingNotice.value = null
       mutableStopped.value = true
       cancelLatencyRefresh()
       when {
@@ -332,6 +338,7 @@ object TrustTunnelManager : AppNotifier {
       hasConnected = false
       activeLifecycleAttempt = null
       pendingDirectCidrs = emptyList()
+      mutableRoutingNotice.value = null
       probeGeneration += 1
       mutableTransport.value = null
       mutableFailureMessage.value = message

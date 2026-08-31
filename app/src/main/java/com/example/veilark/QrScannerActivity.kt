@@ -65,6 +65,7 @@ class QrScannerActivity : ComponentActivity() {
   private var analysisExecutor: ExecutorService? = null
   private var delivered = false
   private var frameFailureLogged = false
+  private var cameraStartRequested = false
 
   private val cameraPermission = registerForActivityResult(
     ActivityResultContracts.RequestPermission(),
@@ -171,6 +172,8 @@ class QrScannerActivity : ComponentActivity() {
   }
 
   private fun startCamera() {
+    if (cameraStartRequested || delivered || isFinishing || isDestroyed) return
+    cameraStartRequested = true
     if (!packageManager.hasSystemFeature(PackageManager.FEATURE_CAMERA_ANY)) {
       finishWithCameraFailure("QR-CAMERA-NOT-FOUND", IllegalStateException("camera feature absent"))
       return
@@ -239,20 +242,39 @@ class QrScannerActivity : ComponentActivity() {
       imageProxy.close()
       return
     }
-    val input = InputImage.fromMediaImage(mediaImage, imageProxy.imageInfo.rotationDegrees)
-    detector.process(input)
-      .addOnSuccessListener { barcodes ->
-        barcodes.firstNotNullOfOrNull { barcode ->
-          barcode.rawValue?.trim()?.takeIf(String::isNotEmpty)
-        }?.let { value -> runOnUiThread { finishWithResult(value) } }
-      }
-      .addOnFailureListener { failure ->
-        if (!frameFailureLogged) {
-          frameFailureLogged = true
-          TechnicalLogStore.warning("QR", "QR-FRAME: ${QrDiagnostics.safeFailureSummary(failure)}")
+    val input = runCatching {
+      InputImage.fromMediaImage(mediaImage, imageProxy.imageInfo.rotationDegrees)
+    }.getOrElse { failure ->
+      logFrameFailure(failure)
+      imageProxy.close()
+      return
+    }
+    try {
+      detector.process(input)
+        .addOnSuccessListener { barcodes ->
+          barcodes.firstNotNullOfOrNull { barcode ->
+            barcode.rawValue?.trim()?.takeIf(String::isNotEmpty)
+          }?.let { value ->
+            if (!delivered && !isFinishing && !isDestroyed) {
+              runOnUiThread { finishWithResult(value) }
+            }
+          }
         }
-      }
-      .addOnCompleteListener { imageProxy.close() }
+        .addOnFailureListener(::logFrameFailure)
+        .addOnCompleteListener { imageProxy.close() }
+    } catch (failure: Throwable) {
+      // ML Kit may reject a frame synchronously on devices with a transient camera
+      // reconfiguration. Never let an analyzer exception kill the process.
+      logFrameFailure(failure)
+      imageProxy.close()
+    }
+  }
+
+  @Synchronized
+  private fun logFrameFailure(failure: Throwable) {
+    if (frameFailureLogged) return
+    frameFailureLogged = true
+    TechnicalLogStore.warning("QR", "QR-FRAME: ${QrDiagnostics.safeFailureSummary(failure)}")
   }
 
   @Synchronized
@@ -280,7 +302,7 @@ class QrScannerActivity : ComponentActivity() {
   }
 
   override fun onDestroy() {
-    cameraProvider?.unbindAll()
+    runCatching { cameraProvider?.unbindAll() }
     scanner?.close()
     analysisExecutor?.shutdownNow()
     super.onDestroy()
