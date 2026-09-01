@@ -6,6 +6,7 @@ import Foundation
 private struct Options {
     let dmg: URL
     let expectedSHA256: String
+    let expectedSize: Int64
     let expectedVersion: String
     let expectedBuild: Int
     let architecture: String
@@ -82,6 +83,8 @@ private func parseOptions() -> Options {
         let dmg = values["--dmg"],
         let sha256 = values["--sha256"]?.lowercased(),
         sha256.range(of: "^[0-9a-f]{64}$", options: .regularExpression) != nil,
+        let rawSize = values["--size"],
+        let size = Int64(rawSize), size > 0, size <= 750 * 1024 * 1024,
         let version = values["--version"],
         version.range(of: "^\\d+\\.\\d+\\.\\d+$", options: .regularExpression) != nil,
         let rawBuild = values["--build"],
@@ -104,6 +107,7 @@ private func parseOptions() -> Options {
     return Options(
         dmg: URL(fileURLWithPath: dmg).standardizedFileURL,
         expectedSHA256: sha256,
+        expectedSize: size,
         expectedVersion: version,
         expectedBuild: build,
         architecture: architecture,
@@ -161,13 +165,14 @@ private func sha256(_ url: URL) -> String {
 
 private func canonicalPayload(_ options: Options) -> Data {
     let fields = [
-        "1",
+        "2",
         "macos",
         options.expectedVersion,
         String(options.expectedBuild),
         options.architecture,
         options.sourceURL,
         options.expectedSHA256,
+        String(options.expectedSize),
         options.notes,
     ]
     return Data(fields.map { "\(Data($0.utf8).count):\($0)" }.joined(separator: "\n").utf8)
@@ -199,12 +204,12 @@ private func versionIsAtLeast(_ candidate: String, _ current: String) -> Bool {
     return true
 }
 
-private func validateOwnedRegularFile(_ url: URL) {
+private func validateOwnedRegularFile(_ url: URL, expectedSize: Int64) {
     var info = stat()
     guard lstat(url.path, &info) == 0 else { fail("update image is missing") }
     guard (info.st_mode & S_IFMT) == S_IFREG else { fail("update image is not a regular file") }
     guard info.st_uid == getuid() else { fail("update image owner mismatch") }
-    guard info.st_size > 0 && info.st_size <= 750 * 1024 * 1024 else { fail("update image size is invalid") }
+    guard info.st_size == expectedSize else { fail("update image size does not match signed manifest") }
 }
 
 private func mount(_ dmg: URL) -> URL {
@@ -312,7 +317,7 @@ private func install(_ source: URL, over target: URL) {
 private let options = parseOptions()
 log("START version=\(options.expectedVersion)")
 verifyManifestSignature(options)
-validateOwnedRegularFile(options.dmg)
+validateOwnedRegularFile(options.dmg, expectedSize: options.expectedSize)
 guard sha256(options.dmg) == options.expectedSHA256 else { fail("update SHA-256 changed before installation") }
 guard options.currentApp.pathExtension == "app", fileManager.fileExists(atPath: options.currentApp.path) else {
     fail("current Veilark app bundle is unavailable")

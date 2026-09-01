@@ -1,6 +1,6 @@
 # macOS OTA channel
 
-Veilark's macOS updater is a two-process, fail-closed update path. The running JVM client validates the HTTPS manifest, Ed25519 signature, build number, architecture, DMG SHA-256, disk-image integrity, and—when enabled—Gatekeeper. A bundled native Swift updater then independently verifies the signed manifest and DMG hash, waits for Veilark to stop, replaces the application bundle through a same-volume staging path, restores the previous bundle if replacement fails, and relaunches Veilark.
+Veilark's macOS updater is a two-process, fail-closed update path. The running JVM client accepts the configured HTTPS origin only (exact host and effective port, including redirects), validates the schema-v2 manifest, Ed25519 signature, build number, architecture, mandatory signed DMG byte size, SHA-256, disk-image integrity, and—when enabled—Gatekeeper. It requires `Content-Length` to equal the signed size before streaming, enforces that bound while streaming, and checks the completed file again before hash verification. A bundled native Swift updater independently verifies the signed manifest, exact DMG size, and DMG hash, waits for Veilark to stop, replaces the application bundle through a same-volume staging path, restores the previous bundle if replacement fails, and relaunches Veilark.
 
 ## Channel separation
 
@@ -8,6 +8,10 @@ Veilark's macOS updater is a two-process, fail-closed update path. The running J
 - Only the public key is stored in source. The private key exists only in protected operator storage and the `VEILARK_MACOS_OTA_SIGNING_KEY_B64` GitHub secret.
 - Deployment uses the restricted `veilark-ota` SFTP account. It is chrooted to the public web root and cannot access VPN configuration or execute a shell.
 - The manifest is renamed into place only after the versioned DMG upload completes. Clients therefore never observe a manifest that references a partial artifact.
+
+## Signed manifest schema v2
+
+Every newly published manifest must use `schemaVersion: 2`. The signed, length-prefixed UTF-8 fields are, in order: `2`, `macos`, `version`, `build`, `architecture`, `url`, lowercase `sha256`, decimal `size`, and `notes`. `size` is the exact DMG byte length and must be from 1 through 750 MiB. It is mandatory; the client rejects v1 manifests rather than treating a missing size as advisory. The release preflight still verifies historical v1 manifests only to compare their signed build number before a v2 candidate is published.
 
 ## Preview release
 

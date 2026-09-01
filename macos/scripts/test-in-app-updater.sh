@@ -20,6 +20,7 @@ BUILD="$(value build)"
 ARCHITECTURE="$(value architecture)"
 URL="$(value url)"
 SHA256="$(value sha256)"
+SIZE="$(value size)"
 NOTES="$(value notes)"
 SIGNATURE="$(value signature)"
 
@@ -49,6 +50,7 @@ cp "$DMG" "$WORK/rejected.dmg"
 if "$UPDATER" \
   --dmg "$WORK/rejected.dmg" \
   --sha256 "$SHA256" \
+  --size "$SIZE" \
   --version "$VERSION" \
   --build "$BUILD" \
   --architecture "$ARCHITECTURE" \
@@ -70,6 +72,7 @@ PARENT_PID=$!
 "$UPDATER" \
   --dmg "$WORK/update.dmg" \
   --sha256 "$SHA256" \
+  --size "$SIZE" \
   --version "$VERSION" \
   --build "$BUILD" \
   --architecture "$ARCHITECTURE" \

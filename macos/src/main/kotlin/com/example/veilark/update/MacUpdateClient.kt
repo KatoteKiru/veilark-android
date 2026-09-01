@@ -22,6 +22,7 @@ data class MacUpdate(
   val architecture: String,
   val url: String,
   val sha256: String,
+  val size: Long,
   val notes: String,
   val signature: String = "",
 )
@@ -38,21 +39,22 @@ object MacUpdateClient {
 
   suspend fun check(): MacUpdate? = withContext(Dispatchers.IO) {
     check(configured) { "Канал обновлений не настроен для этой сборки" }
-    val manifestUrl = validateHttps(UpdateChannel.MANIFEST_URL)
+    val manifestUrl = requireTrustedUri(configuredManifestUri)
     val payload = fetch(manifestUrl, MAX_MANIFEST_BYTES).toString(Charsets.UTF_8)
     val update = parseAndVerify(payload, UpdateChannel.PUBLIC_KEY)
     update.takeIf(::isNewer)
   }
 
   suspend fun download(update: MacUpdate): File = withContext(Dispatchers.IO) {
-    val source = validateHttps(update.url)
+    val source = requireTrustedUri(update.url)
     val downloads = File(System.getProperty("user.home"), "Library/Caches/Veilark/updates").apply {
       check(isDirectory || mkdirs()) { "Не удалось подготовить каталог обновлений" }
     }
     val target = File(downloads, "Veilark-${update.version}.dmg")
     val temp = File(downloads, ".Veilark-${update.version}-${System.nanoTime()}.part")
     try {
-      downloadTo(source, temp)
+      downloadTo(source, temp, update.size)
+      require(temp.length() == update.size) { "Размер загруженного обновления не совпадает с манифестом" }
       require(sha256(temp).equals(update.sha256, ignoreCase = true)) {
         "SHA-256 загруженного обновления не совпадает"
       }
@@ -93,6 +95,7 @@ object MacUpdateClient {
       updater.absolutePath,
       "--dmg", file.canonicalPath,
       "--sha256", update.sha256,
+      "--size", update.size.toString(),
       "--version", update.version,
       "--build", update.build.toString(),
       "--architecture", update.architecture,
@@ -119,22 +122,28 @@ object MacUpdateClient {
 
   internal fun parseAndVerify(raw: String, publicKeyBase64: String): MacUpdate {
     val json = JSONObject(raw)
-    require(json.getInt("schemaVersion") == 1) { "Версия OTA-манифеста не поддерживается" }
+    require(json.getInt("schemaVersion") == 2) { "Версия OTA-манифеста не поддерживается" }
     require(json.getString("platform") == "macos") { "Обновление предназначено для другой платформы" }
     val signature = json.getString("signature").trim()
+    val rawSize = json.opt("size") as? Number
+    require(
+      rawSize != null && rawSize.toDouble().isFinite() && rawSize.toLong().toDouble() == rawSize.toDouble(),
+    ) { "Некорректный размер обновления" }
     val update = MacUpdate(
       version = json.getString("version").trim(),
       build = json.getInt("build"),
       architecture = json.getString("architecture").trim().lowercase(),
       url = json.getString("url").trim(),
       sha256 = json.getString("sha256").trim().lowercase(),
+      size = rawSize!!.toLong(),
       notes = json.optString("notes").trim().take(MAX_NOTES),
       signature = signature,
     )
     require(update.version.matches(Regex("""\d+\.\d+\.\d+"""))) { "Некорректная версия обновления" }
     require(update.build > 0) { "Некорректный номер сборки" }
     require(update.sha256.matches(Regex("""[0-9a-f]{64}"""))) { "Некорректный SHA-256 обновления" }
-    validateHttps(update.url)
+    require(update.size in 1..MAX_DMG_BYTES) { "Некорректный размер обновления" }
+    requireTrustedUri(update.url)
     require(update.architecture == "universal" || update.architecture == currentArchitecture()) {
       "Обновление не подходит для архитектуры этого Mac"
     }
@@ -151,13 +160,14 @@ object MacUpdateClient {
   }
 
   internal fun canonicalPayload(update: MacUpdate): ByteArray = listOf(
-    "1",
+    "2",
     "macos",
     update.version,
     update.build.toString(),
     update.architecture,
     update.url,
     update.sha256,
+    update.size.toString(),
     update.notes,
   ).joinToString("\n") { value ->
     "${value.toByteArray(Charsets.UTF_8).size}:$value"
@@ -200,7 +210,7 @@ object MacUpdateClient {
           }
           in 300..399 -> {
             require(redirect < MAX_REDIRECTS) { "Слишком много перенаправлений OTA" }
-            current = validateHttps(current.resolve(connection.getHeaderField("Location") ?: error("OTA redirect без адреса")).toString())
+            current = requireTrustedUri(current.resolve(connection.getHeaderField("Location") ?: error("OTA redirect без адреса")))
           }
           else -> error("OTA-сервер ответил HTTP $code")
         }
@@ -211,7 +221,7 @@ object MacUpdateClient {
     error("Не удалось загрузить OTA-манифест")
   }
 
-  private fun downloadTo(uri: URI, target: File) {
+  private fun downloadTo(uri: URI, target: File, expectedSize: Long) {
     var current = uri
     repeat(MAX_REDIRECTS + 1) { redirect ->
       val connection = URL(current.toString()).openConnection() as HttpURLConnection
@@ -221,8 +231,9 @@ object MacUpdateClient {
         connection.readTimeout = 30_000
         when (val code = connection.responseCode) {
           200 -> {
-            val length = connection.contentLengthLong
-            require(length == -1L || length in 1..MAX_DMG_BYTES) { "Некорректный размер обновления" }
+            require(connection.contentLengthLong == expectedSize) {
+              "Content-Length обновления не совпадает с подписанным размером"
+            }
             var total = 0L
             connection.inputStream.use { input ->
               target.outputStream().buffered().use { output ->
@@ -231,17 +242,17 @@ object MacUpdateClient {
                   val read = input.read(buffer)
                   if (read < 0) break
                   total += read
-                  require(total <= MAX_DMG_BYTES) { "Обновление превышает допустимый размер" }
+                  require(total <= expectedSize) { "Обновление превышает подписанный размер" }
                   output.write(buffer, 0, read)
                 }
               }
             }
-            require(total > 0) { "Сервер вернул пустое обновление" }
+            require(total == expectedSize) { "Размер полученного обновления не совпадает с манифестом" }
             return
           }
           in 300..399 -> {
             require(redirect < MAX_REDIRECTS) { "Слишком много перенаправлений OTA" }
-            current = validateHttps(current.resolve(connection.getHeaderField("Location") ?: error("OTA redirect без адреса")).toString())
+            current = requireTrustedUri(current.resolve(connection.getHeaderField("Location") ?: error("OTA redirect без адреса")))
           }
           else -> error("Сервер обновлений ответил HTTP $code")
         }
@@ -271,10 +282,24 @@ object MacUpdateClient {
     }
   }
 
-  private fun validateHttps(value: String): URI = URI(value).also {
-    require(it.scheme.equals("https", ignoreCase = true) && !it.host.isNullOrBlank()) {
-      "OTA разрешает только HTTPS-адреса"
-    }
+  private fun requireTrustedUri(value: String): URI = requireTrustedUri(URI(value))
+
+  private fun requireTrustedUri(uri: URI): URI = uri.also {
+    require(
+      configuredManifestUri.scheme.equals("https", ignoreCase = true) &&
+        trustedOtaHost.isNotBlank() &&
+        configuredManifestUri.userInfo == null &&
+        it.scheme.equals("https", ignoreCase = true) &&
+        it.userInfo == null &&
+        it.host.equals(trustedOtaHost, ignoreCase = true) &&
+        effectivePort(it) == trustedOtaPort,
+    ) { "OTA разрешает только настроенный HTTPS host и port" }
+  }
+
+  private fun effectivePort(uri: URI): Int = when (uri.port) {
+    -1 -> 443
+    in 1..65_535 -> uri.port
+    else -> error("Некорректный OTA port")
   }
 
   private fun sha256(file: File): String {
@@ -300,4 +325,8 @@ object MacUpdateClient {
   private const val MAX_DMG_BYTES = 750L * 1024 * 1024
   private const val MAX_NOTES = 4_000
   private const val MAX_REDIRECTS = 3
+
+  private val configuredManifestUri = URI(UpdateChannel.MANIFEST_URL)
+  private val trustedOtaHost = configuredManifestUri.host?.lowercase().orEmpty()
+  private val trustedOtaPort = effectivePort(configuredManifestUri)
 }

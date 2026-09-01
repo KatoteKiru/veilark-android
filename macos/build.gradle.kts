@@ -143,12 +143,27 @@ val createOtaManifest by tasks.registering {
     val releaseArchitecture = required("otaArchitecture").lowercase()
     val releaseUrl = required("otaUrl")
     val releaseNotes = required("otaNotes").trim()
+    val manifestUri = URI(channelProperty("macosOtaManifestUrl"))
+    fun effectivePort(uri: URI): Int = when (uri.port) {
+      -1 -> 443
+      in 1..65_535 -> uri.port
+      else -> error("Invalid OTA port")
+    }
+    val releaseUri = URI(releaseUrl)
     require(dmg.isFile && dmg.length() in 1..(750L * 1024 * 1024)) { "Invalid OTA DMG" }
     require(signingKeyFile.isFile) { "OTA signing key is missing" }
     require(releaseVersion == macosVersion) { "OTA version must match macosVersion" }
     require(releaseBuild == macosBuild) { "OTA build must match macosBuild" }
     require(releaseArchitecture in setOf("arm64", "amd64", "universal")) { "Unsupported OTA architecture" }
-    require(URI(releaseUrl).let { it.scheme == "https" && !it.host.isNullOrBlank() }) { "OTA URL must use HTTPS" }
+    require(
+      manifestUri.scheme.equals("https", ignoreCase = true) &&
+        !manifestUri.host.isNullOrBlank() &&
+        manifestUri.userInfo == null &&
+        releaseUri.scheme.equals("https", ignoreCase = true) &&
+        releaseUri.userInfo == null &&
+        releaseUri.host.equals(manifestUri.host, ignoreCase = true) &&
+        effectivePort(releaseUri) == effectivePort(manifestUri),
+    ) { "OTA URL must use the configured HTTPS host and port" }
     require(releaseNotes.isNotBlank() && releaseNotes.length <= 4_000) { "OTA notes must contain 1-4000 characters" }
 
     val digest = MessageDigest.getInstance("SHA-256")
@@ -161,14 +176,16 @@ val createOtaManifest by tasks.registering {
       }
     }
     val sha256 = digest.digest().joinToString("") { "%02x".format(it) }
+    val artifactSize = dmg.length()
     val fields = listOf(
-      "1",
+      "2",
       "macos",
       releaseVersion,
       releaseBuild.toString(),
       releaseArchitecture,
       releaseUrl,
       sha256,
+      artifactSize.toString(),
       releaseNotes,
     )
     val canonical = fields.joinToString("\n") { value ->
@@ -194,13 +211,14 @@ val createOtaManifest by tasks.registering {
 
     val json = """
       {
-        "schemaVersion":1,
+        "schemaVersion":2,
         "platform":"macos",
         "version":${jsonString(releaseVersion)},
         "build":$releaseBuild,
         "architecture":${jsonString(releaseArchitecture)},
         "url":${jsonString(releaseUrl)},
         "sha256":${jsonString(sha256)},
+        "size":$artifactSize,
         "notes":${jsonString(releaseNotes)},
         "signature":${jsonString(Base64.getEncoder().encodeToString(signature))}
       }
@@ -213,7 +231,7 @@ val createOtaManifest by tasks.registering {
       temporary.delete()
     }) { "Could not publish local OTA manifest" }
     File(manifest.parentFile, "${manifest.name}.sha256").writeText("$sha256  ${dmg.name}\n")
-    println("Created signed macOS OTA manifest for $releaseVersion ($releaseBuild), $sha256")
+    println("Created signed macOS OTA manifest for $releaseVersion ($releaseBuild), $artifactSize bytes, $sha256")
   }
 }
 
@@ -242,18 +260,48 @@ val verifyExistingOtaManifest by tasks.registering {
     val version = textField("version")
     val architecture = textField("architecture").lowercase()
     val url = textField("url")
+    val manifestUri = URI(channelProperty("macosOtaManifestUrl"))
+    val artifactUri = URI(url)
+    fun effectivePort(uri: URI): Int = when (uri.port) {
+      -1 -> 443
+      in 1..65_535 -> uri.port
+      else -> error("Invalid OTA port")
+    }
     val sha256 = textField("sha256").lowercase()
+    val rawSize = json["size"] as? Number
+    val size = if (schema == 2) {
+      rawSize?.toLong() ?: error("Existing OTA size is invalid")
+    } else {
+      null
+    }
     val notes = (json["notes"] as? String)?.trim().orEmpty()
     val signature = Base64.getDecoder().decode(textField("signature"))
-    require(schema == 1 && platform == "macos") { "Existing OTA identity is invalid" }
+    require(schema in setOf(1, 2) && platform == "macos") { "Existing OTA identity is invalid" }
     require(version.matches(Regex("""\d+\.\d+\.\d+"""))) { "Existing OTA version is invalid" }
     require(architecture in setOf("arm64", "amd64", "universal")) { "Existing OTA architecture is invalid" }
-    require(URI(url).let { it.scheme == "https" && !it.host.isNullOrBlank() }) { "Existing OTA URL is invalid" }
+    require(
+      manifestUri.scheme.equals("https", ignoreCase = true) &&
+        !manifestUri.host.isNullOrBlank() &&
+        manifestUri.userInfo == null &&
+        artifactUri.scheme.equals("https", ignoreCase = true) &&
+        artifactUri.userInfo == null &&
+        artifactUri.host.equals(manifestUri.host, ignoreCase = true) &&
+        effectivePort(artifactUri) == effectivePort(manifestUri),
+    ) { "Existing OTA URL is invalid" }
     require(sha256.matches(Regex("""[0-9a-f]{64}"""))) { "Existing OTA SHA-256 is invalid" }
+    require(
+      schema == 1 || (
+        rawSize != null && rawSize.toDouble().isFinite() && rawSize.toLong().toDouble() == rawSize.toDouble()
+      ),
+    ) { "Existing OTA size is invalid" }
+    require(size == null || size in 1..(750L * 1024 * 1024)) { "Existing OTA size is invalid" }
     require(notes.length <= 4_000) { "Existing OTA notes are invalid" }
-    val canonical = listOf(
-      schema.toString(), platform, version, build.toString(), architecture, url, sha256, notes,
-    ).joinToString("\n") { value -> "${value.toByteArray(Charsets.UTF_8).size}:$value" }
+    val fields = mutableListOf(
+      schema.toString(), platform, version, build.toString(), architecture, url, sha256,
+    )
+    if (schema == 2) fields += size!!.toString()
+    fields += notes
+    val canonical = fields.joinToString("\n") { value -> "${value.toByteArray(Charsets.UTF_8).size}:$value" }
       .toByteArray(Charsets.UTF_8)
     val publicKey = KeyFactory.getInstance("Ed25519").generatePublic(X509EncodedKeySpec(publicDer))
     val verifier = Signature.getInstance("Ed25519")
