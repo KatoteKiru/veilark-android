@@ -45,4 +45,13 @@ class SubscriptionIdentityTest {
       "ignored",
     )
   }
+
+  @Test(expected = IllegalArgumentException::class)
+  fun remoteIdentityRejectsEmbeddedUserInfo() {
+    SubscriptionIdentity.sourceId(
+      SubscriptionKind.SING_BOX,
+      "https://user:password@provider.example/sub",
+      "ignored",
+    )
+  }
 }

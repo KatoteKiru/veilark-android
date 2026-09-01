@@ -50,6 +50,9 @@ object SubscriptionIdentity {
       "Удалённая подписка должна использовать HTTPS"
     }
     require(!uri.host.isNullOrBlank()) { "В ссылке подписки отсутствует сервер" }
+    require(uri.userInfo == null) {
+      "Ссылка подписки не должна содержать имя пользователя или пароль"
+    }
     URI(
       uri.scheme.lowercase(),
       uri.userInfo,

@@ -2,9 +2,11 @@ package com.example.veilark
 
 import android.Manifest
 import android.app.Activity
+import android.app.AlertDialog
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Bundle
+import android.provider.Settings
 import android.view.ViewGroup
 import android.widget.FrameLayout
 import androidx.activity.ComponentActivity
@@ -43,7 +45,10 @@ import androidx.compose.ui.platform.ViewCompositionStrategy
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import androidx.core.content.edit
+import androidx.core.net.toUri
 import com.example.veilark.diagnostics.TechnicalLogStore
 import com.example.veilark.theme.VeilarkTheme
 import com.google.mlkit.vision.barcode.BarcodeScanner
@@ -66,6 +71,7 @@ class QrScannerActivity : ComponentActivity() {
   private var delivered = false
   private var frameFailureLogged = false
   private var cameraStartRequested = false
+  private var permissionDialog: AlertDialog? = null
 
   private val cameraPermission = registerForActivityResult(
     ActivityResultContracts.RequestPermission(),
@@ -73,7 +79,7 @@ class QrScannerActivity : ComponentActivity() {
     if (granted) {
       startCamera()
     } else {
-      finishWithError(getString(R.string.qr_permission_required))
+      showCameraPermissionGuidance()
     }
   }
 
@@ -88,13 +94,80 @@ class QrScannerActivity : ComponentActivity() {
       ) {
         startCamera()
       } else {
-        cameraPermission.launch(Manifest.permission.CAMERA)
+        requestOrExplainCameraPermission()
       }
     }.onFailure { failure ->
       finishWithError(
         getString(R.string.qr_scanner_failed, failure.javaClass.simpleName),
       )
     }
+  }
+
+  private fun requestOrExplainCameraPermission() {
+    if (cameraPermissionRequestCount() == 0) {
+      requestCameraPermission()
+    } else {
+      showCameraPermissionGuidance()
+    }
+  }
+
+  private fun requestCameraPermission() {
+    val preferences = getPreferences(MODE_PRIVATE)
+    val count = preferences.getInt(KEY_CAMERA_PERMISSION_REQUESTS, 0) + 1
+    preferences.edit { putInt(KEY_CAMERA_PERMISSION_REQUESTS, count) }
+    runCatching { cameraPermission.launch(Manifest.permission.CAMERA) }
+      .onFailure { failure ->
+        finishWithCameraFailure("QR-PERMISSION-REQUEST", failure)
+      }
+  }
+
+  private fun cameraPermissionRequestCount(): Int =
+    getPreferences(MODE_PRIVATE).getInt(KEY_CAMERA_PERMISSION_REQUESTS, 0)
+
+  private fun showCameraPermissionGuidance() {
+    if (isFinishing || isDestroyed || permissionDialog?.isShowing == true) return
+    val guidance = cameraPermissionGuidance(
+      deniedRequestCount = cameraPermissionRequestCount(),
+      shouldShowRationale = ActivityCompat.shouldShowRequestPermissionRationale(
+        this,
+        Manifest.permission.CAMERA,
+      ),
+    )
+    val permanent = guidance == CameraPermissionGuidance.APP_SETTINGS
+    permissionDialog = AlertDialog.Builder(this)
+      .setTitle(R.string.qr_permission_required)
+      .setMessage(
+        if (permanent) R.string.qr_permission_settings_message
+        else R.string.qr_permission_rationale_message,
+      )
+      .setNegativeButton(R.string.cancel) { _, _ ->
+        finishWithError(getString(R.string.qr_permission_cancelled))
+      }
+      .setPositiveButton(
+        if (permanent) R.string.qr_permission_open_settings
+        else R.string.qr_permission_retry,
+      ) { _, _ ->
+        if (permanent) openCameraSettings() else requestCameraPermission()
+      }
+      .create()
+      .also { dialog ->
+        dialog.setOnCancelListener { finishWithError(getString(R.string.qr_permission_cancelled)) }
+        dialog.setOnDismissListener { permissionDialog = null }
+        dialog.show()
+      }
+  }
+
+  private fun openCameraSettings() {
+    val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+      data = "package:$packageName".toUri()
+    }
+    runCatching { startActivity(intent) }
+      .onSuccess {
+        finishWithError(getString(R.string.qr_permission_settings_opened))
+      }
+      .onFailure { failure ->
+        finishWithCameraFailure("QR-PERMISSION-SETTINGS", failure)
+      }
   }
 
   private fun createScannerView(): FrameLayout {
@@ -302,6 +375,8 @@ class QrScannerActivity : ComponentActivity() {
   }
 
   override fun onDestroy() {
+    permissionDialog?.dismiss()
+    permissionDialog = null
     runCatching { cameraProvider?.unbindAll() }
     // CameraX/ML Kit may already have closed these resources after a failed
     // bind or an Activity recreation. Teardown must never turn that recoverable
@@ -311,7 +386,24 @@ class QrScannerActivity : ComponentActivity() {
     super.onDestroy()
   }
   companion object {
+    private const val KEY_CAMERA_PERMISSION_REQUESTS = "camera_permission_requests"
     const val EXTRA_RESULT = "qr_result"
     const val EXTRA_ERROR = "qr_error"
   }
 }
+
+internal enum class CameraPermissionGuidance {
+  RATIONALE,
+  APP_SETTINGS,
+}
+
+/** Treat the first denial as recoverable even on Android versions that hide rationale initially. */
+internal fun cameraPermissionGuidance(
+  deniedRequestCount: Int,
+  shouldShowRationale: Boolean,
+): CameraPermissionGuidance =
+  if (deniedRequestCount > 1 && !shouldShowRationale) {
+    CameraPermissionGuidance.APP_SETTINGS
+  } else {
+    CameraPermissionGuidance.RATIONALE
+  }

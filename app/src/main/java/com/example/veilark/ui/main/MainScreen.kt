@@ -1036,7 +1036,7 @@ private fun AboutScreen(
         Surface(
           modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onOpenSubscriptionAccount),
+            .clickable(role = Role.Button, onClick = onOpenSubscriptionAccount),
           shape = RoundedCornerShape(16.dp),
           color = MaterialTheme.colorScheme.secondaryContainer,
         ) {
@@ -1143,7 +1143,7 @@ private fun LegalDocumentItem(
   onClick: () -> Unit,
 ) {
   Surface(
-    modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
+    modifier = Modifier.fillMaxWidth().clickable(role = Role.Button, onClick = onClick),
     shape = RoundedCornerShape(16.dp),
     color = MaterialTheme.colorScheme.surfaceContainer,
   ) {
@@ -1896,7 +1896,11 @@ private fun RoutingCard(
       color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
     Surface(
-      modifier = Modifier.fillMaxWidth().clickable(enabled = available, onClick = onClick),
+      modifier = Modifier.fillMaxWidth().clickable(
+        enabled = available,
+        role = Role.Button,
+        onClick = onClick,
+      ),
       shape = RoundedCornerShape(24.dp),
       color = MaterialTheme.colorScheme.surfaceContainer,
     ) {
