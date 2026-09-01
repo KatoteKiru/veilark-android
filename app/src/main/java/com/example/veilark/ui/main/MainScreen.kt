@@ -104,6 +104,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.res.pluralStringResource
@@ -1173,9 +1174,9 @@ private fun LegalDocumentScreen(
   document: LegalDocument,
   onBack: () -> Unit,
 ) {
-  val context = LocalContext.current
-  val content = remember(document) {
-    context.resources.openRawResource(document.contentRes)
+  val resources = LocalResources.current
+  val content = remember(document, resources.configuration) {
+    resources.openRawResource(document.contentRes)
       .bufferedReader(Charsets.UTF_8)
       .use { it.readText() }
   }
