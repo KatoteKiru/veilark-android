@@ -106,6 +106,99 @@ class MacUpdateClientTest {
     assertEquals(update.copy(signature = signature), parsed)
   }
 
+  @Test
+  fun acceptsSignedHistoricalSchema1ManifestWithoutMakingItInstallable() {
+    val pair = KeyPairGenerator.getInstance("Ed25519").generateKeyPair()
+    val legacy = LegacyMacManifest(
+      version = "1.0.5",
+      build = 10_005,
+      architecture = "arm64",
+      url = trustedUrl.replace("Veilark-1.0.2.dmg", "veilark-macos-1.0.5-arm64.dmg"),
+      sha256 = "c".repeat(64),
+      notes = "Published preview",
+      signature = "",
+    )
+    val manifest = signedLegacyManifest(legacy, pair)
+
+    val parsed = MacUpdateClient.parseAndVerifyLegacyV1(
+      manifest,
+      Base64.getEncoder().encodeToString(pair.public.encoded),
+    )
+
+    assertEquals(legacy.copy(signature = JSONObject(manifest).getString("signature")), parsed)
+    assertTrue(MacUpdateClient.isHistoricalLegacyManifest(parsed))
+  }
+
+  @Test
+  fun acceptsThePublished105Schema1ManifestWithThePinnedKey() {
+    val publishedManifest = """
+      {
+        "schemaVersion":1,
+        "platform":"macos",
+        "version":"1.0.5",
+        "build":10005,
+        "architecture":"arm64",
+        "url":"https://nl2.senyasenyavski.uk:2096/veilark-macos/veilark-macos-1.0.5-arm64.dmg",
+        "sha256":"7b5b18fbe14d7fbd4bde989818f714ddcbd7d94cdb3e57e5df1610f1d068c3f3",
+        "notes":"Veilark 1.0.5 preview: privileged-helper lifecycle hardening, checked shutdown before quit or OTA, lower background polling, and consistent OTA build verification. TrustTunnel remains IPv4-only on macOS pending physical IPv6 validation. Apple signing and notarization are not configured.",
+        "signature":"uNx+/e2R/WvZ3ycQYtJJR8hTIVaj+rDX3F7sMrTV3jEMzyh4kmKSM7IuiPY8iplIX1bYeZcgKfyth+m5D4EDCQ=="
+      }
+    """.trimIndent()
+
+    val parsed = MacUpdateClient.parseAndVerifyLegacyV1(publishedManifest, UpdateChannel.PUBLIC_KEY)
+
+    assertEquals("1.0.5", parsed.version)
+    assertEquals(10_005, parsed.build)
+    assertTrue(MacUpdateClient.isHistoricalLegacyManifest(parsed))
+    assertNull(MacUpdateClient.parseAvailableUpdate(publishedManifest, UpdateChannel.PUBLIC_KEY))
+  }
+
+  @Test
+  fun rejectsSchema1ManifestTamperedAfterSigning() {
+    val pair = KeyPairGenerator.getInstance("Ed25519").generateKeyPair()
+    val legacy = LegacyMacManifest(
+      version = "1.0.5",
+      build = 10_005,
+      architecture = "arm64",
+      url = trustedUrl,
+      sha256 = "d".repeat(64),
+      notes = "Original notes",
+      signature = "",
+    )
+    val tampered = JSONObject(signedLegacyManifest(legacy, pair))
+      .put("notes", "Changed after signing")
+      .toString()
+
+    assertTrue(
+      runCatching {
+        MacUpdateClient.parseAndVerifyLegacyV1(
+          tampered,
+          Base64.getEncoder().encodeToString(pair.public.encoded),
+        )
+      }.isFailure,
+    )
+  }
+
+  @Test
+  fun schema1ManifestCannotBecomeANewerUpdate() {
+    val legacy = LegacyMacManifest(
+      version = "1.0.5",
+      build = 10_005,
+      architecture = "arm64",
+      url = trustedUrl,
+      sha256 = "e".repeat(64),
+      notes = "Historical only",
+      signature = "unused",
+    )
+
+    assertTrue(MacUpdateClient.isHistoricalLegacyManifest(legacy))
+    assertFalse(
+      MacUpdateClient.isHistoricalLegacyManifest(
+        legacy.copy(version = "1.0.7", build = MacUpdateClient.CURRENT_BUILD + 1),
+      ),
+    )
+  }
+
   @Test(expected = IllegalArgumentException::class)
   fun rejectsManifestChangedAfterSigning() {
     val pair = KeyPairGenerator.getInstance("Ed25519").generateKeyPair()
@@ -219,6 +312,23 @@ class MacUpdateClientTest {
       .put("sha256", update.sha256)
       .put("size", update.size)
       .put("notes", update.notes)
+      .put("signature", Base64.getEncoder().encodeToString(signer.sign()))
+      .toString()
+  }
+
+  private fun signedLegacyManifest(manifest: LegacyMacManifest, pair: KeyPair): String {
+    val signer = Signature.getInstance("Ed25519")
+    signer.initSign(pair.private)
+    signer.update(MacUpdateClient.canonicalPayloadV1(manifest))
+    return JSONObject()
+      .put("schemaVersion", 1)
+      .put("platform", "macos")
+      .put("version", manifest.version)
+      .put("build", manifest.build)
+      .put("architecture", manifest.architecture)
+      .put("url", manifest.url)
+      .put("sha256", manifest.sha256)
+      .put("notes", manifest.notes)
       .put("signature", Base64.getEncoder().encodeToString(signer.sign()))
       .toString()
   }

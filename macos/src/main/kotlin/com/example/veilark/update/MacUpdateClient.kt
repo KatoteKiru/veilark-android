@@ -27,6 +27,21 @@ data class MacUpdate(
   val signature: String = "",
 )
 
+/**
+ * Schema 1 did not sign a byte size, so it is retained only to acknowledge the
+ * already-published channel while a newer schema-2 client is installed. It is
+ * deliberately not an installable update type.
+ */
+internal data class LegacyMacManifest(
+  val version: String,
+  val build: Int,
+  val architecture: String,
+  val url: String,
+  val sha256: String,
+  val notes: String,
+  val signature: String,
+)
+
 object MacUpdateClient {
   const val CURRENT_VERSION = UpdateChannel.CURRENT_VERSION
   const val CURRENT_BUILD = UpdateChannel.CURRENT_BUILD
@@ -41,9 +56,21 @@ object MacUpdateClient {
     check(configured) { "Канал обновлений не настроен для этой сборки" }
     val manifestUrl = requireTrustedUri(configuredManifestUri)
     val payload = fetch(manifestUrl, MAX_MANIFEST_BYTES).toString(Charsets.UTF_8)
-    val update = parseAndVerify(payload, UpdateChannel.PUBLIC_KEY)
-    update.takeIf(::isNewer)
+    parseAvailableUpdate(payload, UpdateChannel.PUBLIC_KEY)
   }
+
+  internal fun parseAvailableUpdate(raw: String, publicKeyBase64: String): MacUpdate? =
+    when (JSONObject(raw).getInt("schemaVersion")) {
+      1 -> {
+        val legacy = parseAndVerifyLegacyV1(raw, publicKeyBase64)
+        require(isHistoricalLegacyManifest(legacy)) {
+          "Schema 1 не может публиковать новое OTA-обновление без подписанного размера"
+        }
+        null
+      }
+      2 -> parseAndVerify(raw, publicKeyBase64).takeIf(::isNewer)
+      else -> error("Версия OTA-манифеста не поддерживается")
+    }
 
   suspend fun download(update: MacUpdate): File = withContext(Dispatchers.IO) {
     val source = requireTrustedUri(update.url)
@@ -147,16 +174,39 @@ object MacUpdateClient {
     require(update.architecture == "universal" || update.architecture == currentArchitecture()) {
       "Обновление не подходит для архитектуры этого Mac"
     }
-    val publicKey = KeyFactory.getInstance("Ed25519").generatePublic(
-      X509EncodedKeySpec(Base64.getDecoder().decode(publicKeyBase64)),
-    )
-    val verifier = Signature.getInstance("Ed25519")
-    verifier.initVerify(publicKey)
-    verifier.update(canonicalPayload(update))
-    require(verifier.verify(Base64.getDecoder().decode(signature))) {
-      "Подпись OTA-манифеста недействительна"
-    }
+    verifySignature(canonicalPayload(update), signature, publicKeyBase64)
     return update
+  }
+
+  /**
+   * Verify the pre-size schema exactly as it was signed in the public 1.0.5
+   * channel. Callers must keep this result advisory: schema 1 cannot enter the
+   * download path because it has no signed byte length.
+   */
+  internal fun parseAndVerifyLegacyV1(raw: String, publicKeyBase64: String): LegacyMacManifest {
+    val json = JSONObject(raw)
+    require(json.getInt("schemaVersion") == 1) { "Версия OTA-манифеста не поддерживается" }
+    require(json.getString("platform") == "macos") { "Обновление предназначено для другой платформы" }
+    val legacy = LegacyMacManifest(
+      version = json.getString("version").trim(),
+      build = json.getInt("build"),
+      architecture = json.getString("architecture").trim().lowercase(),
+      url = json.getString("url").trim(),
+      sha256 = json.getString("sha256").trim().lowercase(),
+      notes = json.optString("notes").trim().take(MAX_NOTES),
+      signature = json.getString("signature").trim(),
+    )
+    require(legacy.version.matches(Regex("""\d+\.\d+\.\d+"""))) { "Некорректная версия обновления" }
+    require(legacy.build > 0) { "Некорректный номер сборки" }
+    require(legacy.architecture in setOf("arm64", "amd64", "universal")) {
+      "Некорректная архитектура обновления"
+    }
+    require(legacy.sha256.matches(Regex("""[0-9a-f]{64}"""))) {
+      "Некорректный SHA-256 обновления"
+    }
+    requireTrustedUri(legacy.url)
+    verifySignature(canonicalPayloadV1(legacy), legacy.signature, publicKeyBase64)
+    return legacy
   }
 
   internal fun canonicalPayload(update: MacUpdate): ByteArray = listOf(
@@ -172,6 +222,25 @@ object MacUpdateClient {
   ).joinToString("\n") { value ->
     "${value.toByteArray(Charsets.UTF_8).size}:$value"
   }.toByteArray(Charsets.UTF_8)
+
+  internal fun canonicalPayloadV1(manifest: LegacyMacManifest): ByteArray = listOf(
+    "1",
+    "macos",
+    manifest.version,
+    manifest.build.toString(),
+    manifest.architecture,
+    manifest.url,
+    manifest.sha256,
+    manifest.notes,
+  ).joinToString("\n") { value ->
+    "${value.toByteArray(Charsets.UTF_8).size}:$value"
+  }.toByteArray(Charsets.UTF_8)
+
+  /** A verified v1 manifest is historical metadata only, never an updater input. */
+  internal fun isHistoricalLegacyManifest(manifest: LegacyMacManifest): Boolean =
+    manifest.build < CURRENT_BUILD || (
+      manifest.build == CURRENT_BUILD && compareVersions(manifest.version, CURRENT_VERSION) <= 0
+    )
 
   /** A signed manifest is advisory; it never installs an update on its own. */
   internal fun isNewer(update: MacUpdate): Boolean =
@@ -193,6 +262,18 @@ object MacUpdateClient {
       if (comparison != 0) return comparison
     }
     return 0
+  }
+
+  private fun verifySignature(payload: ByteArray, signatureValue: String, publicKeyBase64: String) {
+    val publicKey = KeyFactory.getInstance("Ed25519").generatePublic(
+      X509EncodedKeySpec(Base64.getDecoder().decode(publicKeyBase64)),
+    )
+    val verifier = Signature.getInstance("Ed25519")
+    verifier.initVerify(publicKey)
+    verifier.update(payload)
+    require(verifier.verify(Base64.getDecoder().decode(signatureValue))) {
+      "Подпись OTA-манифеста недействительна"
+    }
   }
 
   private fun fetch(uri: URI, limit: Int): ByteArray {
