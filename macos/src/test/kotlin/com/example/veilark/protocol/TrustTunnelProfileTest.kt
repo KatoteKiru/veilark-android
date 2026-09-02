@@ -112,6 +112,22 @@ class TrustTunnelProfileTest {
   }
 
   @Test
+  fun manualRoutingUsesDirectExclusionsWithVpnPriority() {
+    val routed = TrustTunnelProfile.applyManualRouting(
+      TrustTunnelProfile.compile(LOCALHOST_FIXTURE).config,
+      directEntries = "example.ru youtube.com 10.0.0.0/8",
+      vpnEntries = "youtube.com",
+    )
+
+    assertTrue("vpn_mode = \"general\"" in routed)
+    assertTrue("\"example.ru\"" in routed)
+    assertTrue("\"*.example.ru\"" in routed)
+    assertTrue("\"10.0.0.0/8\"" in routed)
+    assertTrue("\"youtube.com\"" !in routed)
+    assertTrue("included_routes = [\"0.0.0.0/0\"]" in routed)
+  }
+
+  @Test
   fun geoRoutingPreservesAnIpv6CapableListener() {
     val capable = TrustTunnelProfile.compile(LOCALHOST_FIXTURE).config
       .replace("has_ipv6 = false", "has_ipv6 = true")

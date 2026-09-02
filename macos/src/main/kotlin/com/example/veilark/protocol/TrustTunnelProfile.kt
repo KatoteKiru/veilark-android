@@ -1,5 +1,7 @@
 package com.example.veilark.protocol
 
+import com.example.veilark.profile.ProfileSelection
+
 data class CompiledTrustTunnelProfile(
   val displayName: String,
   val config: String,
@@ -94,6 +96,34 @@ object TrustTunnelProfile {
     text = replaceArray(text, "excluded_routes", listenerExclusions.toList())
     require(text.toByteArray(Charsets.UTF_8).size < 4 * 1024 * 1024) {
       "TrustTunnel GeoIP configuration is too large"
+    }
+    return text
+  }
+
+  /** Applies the same VPN-default custom route semantics as the sing-box client. */
+  fun applyManualRouting(config: String, directEntries: String, vpnEntries: String): String {
+    val direct = ProfileSelection.routingEntries(directEntries)
+    val vpn = ProfileSelection.routingEntries(vpnEntries)
+    require(
+      direct.domains.isNotEmpty() || direct.networks.isNotEmpty() ||
+        vpn.domains.isNotEmpty() || vpn.networks.isNotEmpty(),
+    ) { "Добавьте хотя бы один домен или IP-диапазон" }
+    val vpnOverrides = (vpn.domains + vpn.networks).toSet()
+    val exclusions = direct.networks + direct.domains
+      .filterNot(vpnOverrides::contains)
+      .flatMap { domain -> listOf(domain, "*.$domain") }
+
+    var text = prepareMacConfig(config)
+    text = replaceScalar(text, "vpn_mode", "\"general\"")
+    text = replaceArray(text, "exclusions", exclusions)
+    val listenerExclusions = linkedSetOf<String>().apply {
+      addAll(readArray(text, "excluded_routes"))
+      addAll(IPV6_LOCAL_ROUTES)
+      addAll(endpointLiteralRoutes(text))
+    }
+    text = replaceArray(text, "excluded_routes", listenerExclusions)
+    require(text.toByteArray(Charsets.UTF_8).size < 4 * 1024 * 1024) {
+      "TrustTunnel routing configuration is too large"
     }
     return text
   }

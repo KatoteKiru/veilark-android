@@ -55,8 +55,8 @@ class GeoRoutingRepository(
           geoIpJson = File(staging, GEOIP_JSON),
           geoSiteJson = File(staging, GEOSITE_JSON),
         )
-        download(GEOIP_URL, bundle.geoIpSrs)
-        download(GEOSITE_URL, bundle.geoSiteSrs)
+        download(GEOIP_URLS, bundle.geoIpSrs)
+        download(GEOSITE_URLS, bundle.geoSiteSrs)
         val singBox = BundledPaths.resolve().singBox
         decompile(singBox, bundle.geoIpSrs, bundle.geoIpJson)
         decompile(singBox, bundle.geoSiteSrs, bundle.geoSiteJson)
@@ -122,9 +122,22 @@ class GeoRoutingRepository(
     GeoSiteRuCatalog.load(bundle.geoSiteJson)
   }
 
-  private fun download(url: String, destination: File) {
+  private fun download(urls: List<String>, destination: File) {
+    require(urls.isNotEmpty())
+    val succeeded = urls.any { url ->
+      destination.delete()
+      runCatching { downloadOne(url, destination) }.isSuccess
+    }
+    check(succeeded && destination.isFile) { "GEO download failed" }
+  }
+
+  private fun downloadOne(url: String, destination: File) {
     val uri = URI(url)
-    require(uri.scheme == "https" && uri.host == "raw.githubusercontent.com")
+    require(uri.scheme == "https")
+    require(
+      (uri.host == "raw.githubusercontent.com" && uri.port == -1) ||
+        (uri.host == "nl2.senyasenyavski.uk" && uri.port == 2096),
+    )
     val connection = uri.toURL().openConnection() as HttpURLConnection
     connection.instanceFollowRedirects = false
     connection.connectTimeout = 8_000
@@ -132,7 +145,7 @@ class GeoRoutingRepository(
     connection.setRequestProperty("Accept", "application/octet-stream")
     connection.setRequestProperty("User-Agent", "Veilark-macOS")
     try {
-      check(connection.responseCode == HttpURLConnection.HTTP_OK) { "GitHub download failed" }
+      check(connection.responseCode == HttpURLConnection.HTTP_OK) { "GEO download failed" }
       val declared = connection.contentLengthLong
       check(declared == -1L || declared in 1..MAX_SRS_BYTES)
       connection.inputStream.buffered().use { input ->
@@ -246,10 +259,14 @@ class GeoRoutingRepository(
     const val GEOSITE_SRS = "geosite-category-ru.srs"
     const val GEOIP_JSON = "geoip-ru.json"
     const val GEOSITE_JSON = "geosite-category-ru.json"
-    const val GEOIP_URL =
-      "https://raw.githubusercontent.com/SagerNet/sing-geoip/rule-set/geoip-ru.srs"
-    const val GEOSITE_URL =
-      "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-category-ru.srs"
+    val GEOIP_URLS = listOf(
+      "https://raw.githubusercontent.com/SagerNet/sing-geoip/rule-set/geoip-ru.srs",
+      "https://nl2.senyasenyavski.uk:2096/veilark/geo/geoip-ru.srs",
+    )
+    val GEOSITE_URLS = listOf(
+      "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-category-ru.srs",
+      "https://nl2.senyasenyavski.uk:2096/veilark/geo/geosite-category-ru.srs",
+    )
     const val MAX_SRS_BYTES = 32L * 1024L * 1024L
     const val MAX_JSON_BYTES = 64L * 1024L * 1024L
     val GENERATION_PATTERN = Regex("[0-9a-f]{32}")

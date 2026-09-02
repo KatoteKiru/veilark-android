@@ -100,8 +100,8 @@ object ProfileSelection {
         dns?.takeIf { it.optJSONArray("servers") != null }?.put("final", "secure-dns")
       }
       ROUTING_MANUAL -> {
-        val direct = parseRoutingEntries(directEntries)
-        val vpn = parseRoutingEntries(vpnEntries)
+        val direct = routingEntries(directEntries)
+        val vpn = routingEntries(vpnEntries)
         require(
           direct.domains.isNotEmpty() || direct.networks.isNotEmpty() ||
             vpn.domains.isNotEmpty() || vpn.networks.isNotEmpty(),
@@ -221,7 +221,7 @@ object ProfileSelection {
     }
   }
 
-  private fun parseRoutingEntries(value: String): RoutingEntries {
+  fun routingEntries(value: String): RoutingEntries {
     val domains = linkedSetOf<String>()
     val networks = linkedSetOf<String>()
     value.split(Regex("""[\s,;]+"""))
@@ -276,7 +276,7 @@ object ProfileSelection {
     }
   }
 
-  private data class RoutingEntries(
+  data class RoutingEntries(
     val domains: List<String>,
     val networks: List<String>,
   )

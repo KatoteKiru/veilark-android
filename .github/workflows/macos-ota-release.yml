@@ -85,7 +85,7 @@ jobs:
           cp "$SOURCE_DMG" "build/ota/$ARTIFACT"
           printf '%s' "$OTA_SIGNING_KEY_B64" | base64 --decode > "$RUNNER_TEMP/veilark-macos-ota.pem"
           chmod 0600 "$RUNNER_TEMP/veilark-macos-ota.pem"
-          NOTES="Veilark $VERSION preview: privileged-helper lifecycle hardening, checked shutdown before quit or OTA, lower background polling, and consistent OTA build verification. TrustTunnel remains IPv4-only on macOS pending physical IPv6 validation. Apple signing and notarization are not configured."
+          NOTES="Veilark $VERSION preview: custom direct/VPN rules now work with both sing-box and TrustTunnel; GEO refresh falls back to the Veilark mirror when GitHub is unavailable; routing settings remain isolated per engine. TrustTunnel remains IPv4-only on macOS pending physical IPv6 validation. Apple signing and notarization are not configured."
           ./gradlew --no-daemon createOtaManifest \
             "-PotaDmg=build/ota/$ARTIFACT" \
             "-PotaManifestOutput=build/ota/manifest.json" \

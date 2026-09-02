@@ -6,6 +6,8 @@ import com.example.veilark.engine.TunnelStatus
 import com.example.veilark.profile.ProfileSelection
 import com.example.veilark.profile.SingBoxCatalog
 import com.example.veilark.profile.SubscriptionParser
+import com.example.veilark.protocol.TrustTunnelCatalog
+import com.example.veilark.protocol.TrustTunnelCatalogEntry
 import com.example.veilark.storage.EncryptedStore
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.CompletableDeferred
@@ -84,6 +86,24 @@ class VeilarkSessionTest {
     val reopened = VeilarkSession(store, FakeController())
     assertEquals(TunnelEngineKind.SING_BOX, reopened.engine)
     assertEquals(ProfileSelection.ROUTING_MANUAL, reopened.routingMode)
+  }
+
+  @Test
+  fun persistsManualTrustRoutingIndependentlyFromSingBox() {
+    val key = EncryptedStore.ephemeralKey()
+    val store = EncryptedStore(folder.newFolder("trust-manual-routing")) { key }
+    val trust = TrustTunnelCatalogEntry("trust", "Trust", TRUST_CONFIG)
+    store.save(EncryptedStore.TRUST_TUNNEL_CATALOG, TrustTunnelCatalog.encode(listOf(trust)))
+    val session = VeilarkSession(store, FakeController())
+
+    session.switchEngine(TunnelEngineKind.TRUST_TUNNEL)
+    session.updateRouting(ProfileSelection.ROUTING_MANUAL, "example.ru", "youtube.com")
+
+    val reopened = VeilarkSession(store, FakeController())
+    assertEquals(TunnelEngineKind.TRUST_TUNNEL, reopened.engine)
+    assertEquals(ProfileSelection.ROUTING_MANUAL, reopened.routingMode)
+    assertEquals("example.ru", reopened.manualDirectEntries)
+    assertEquals("youtube.com", reopened.manualVpnEntries)
   }
 
   @Test
@@ -328,6 +348,16 @@ class VeilarkSessionTest {
   }
 
   private companion object {
+    const val TRUST_CONFIG = """
+      vpn_mode = "general"
+      exclusions = []
+      [endpoint]
+      addresses = ["127.0.0.1:443"]
+      has_ipv6 = false
+      [listener.tun]
+      included_routes = ["0.0.0.0/0"]
+      excluded_routes = ["10.0.0.0/8"]
+    """
     const val LINKS = """
       trojan://secret@203.0.113.2:443?security=tls&sni=example.com#NL
       trojan://other@203.0.113.3:443?security=tls&sni=example.com#DE

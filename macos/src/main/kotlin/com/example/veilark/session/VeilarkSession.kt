@@ -74,6 +74,10 @@ class VeilarkSession(
     private set
   private var singBoxRoutingMode = ProfileSelection.ROUTING_ALL
   private var trustRoutingMode = ProfileSelection.ROUTING_ALL
+  private var singBoxManualDirectEntries = ""
+  private var singBoxManualVpnEntries = ""
+  private var trustManualDirectEntries = ""
+  private var trustManualVpnEntries = ""
   var manualDirectEntries by mutableStateOf("")
     private set
   var manualVpnEntries by mutableStateOf("")
@@ -143,17 +147,37 @@ class VeilarkSession(
       ?: legacyRoutingMode
     trustRoutingMode = preferences.optString("trustRoutingMode")
       .takeIf {
-        it == ProfileSelection.ROUTING_ALL || it == ProfileSelection.ROUTING_RU_DIRECT
+        it in setOf(
+          ProfileSelection.ROUTING_ALL,
+          ProfileSelection.ROUTING_MANUAL,
+          ProfileSelection.ROUTING_RU_DIRECT,
+        )
       }
-      ?: legacyRoutingMode.takeIf { it != ProfileSelection.ROUTING_MANUAL }
+      ?: legacyRoutingMode
       ?: ProfileSelection.ROUTING_ALL
     routingMode = if (engine == TunnelEngineKind.SING_BOX) {
       singBoxRoutingMode
     } else {
       trustRoutingMode
     }
-    manualDirectEntries = preferences.optString("manualDirectEntries")
-    manualVpnEntries = preferences.optString("manualVpnEntries")
+    val legacyManualDirect = preferences.optString("manualDirectEntries")
+    val legacyManualVpn = preferences.optString("manualVpnEntries")
+    singBoxManualDirectEntries = preferences.optString("singBoxManualDirectEntries")
+      .ifBlank { legacyManualDirect }
+    singBoxManualVpnEntries = preferences.optString("singBoxManualVpnEntries")
+      .ifBlank { legacyManualVpn }
+    trustManualDirectEntries = preferences.optString("trustManualDirectEntries")
+    trustManualVpnEntries = preferences.optString("trustManualVpnEntries")
+    manualDirectEntries = if (engine == TunnelEngineKind.SING_BOX) {
+      singBoxManualDirectEntries
+    } else {
+      trustManualDirectEntries
+    }
+    manualVpnEntries = if (engine == TunnelEngineKind.SING_BOX) {
+      singBoxManualVpnEntries
+    } else {
+      trustManualVpnEntries
+    }
   }
 
   fun helperReady(): Boolean = helper.installed()
@@ -546,15 +570,22 @@ class VeilarkSession(
         ),
       ) { RuntimeMessages.unknownRoutingMode }
       if (mode == ProfileSelection.ROUTING_MANUAL) {
-        require(engine == TunnelEngineKind.SING_BOX) { RuntimeMessages.chooseSingBoxForRouting }
         runCatching {
-          ProfileSelection.applyRouting(
-            config = selectedSingBoxEntry()?.config
-              ?: error(RuntimeMessages.chooseSingBoxForRouting),
-            mode = mode,
-            directEntries = directEntries,
-            vpnEntries = vpnEntries,
-          )
+          if (engine == TunnelEngineKind.SING_BOX) {
+            ProfileSelection.applyRouting(
+              config = selectedSingBoxEntry()?.config
+                ?: error(RuntimeMessages.chooseSingBoxForRouting),
+              mode = mode,
+              directEntries = directEntries,
+              vpnEntries = vpnEntries,
+            )
+          } else {
+            TrustTunnelProfile.applyManualRouting(
+              selectedTrustEntry()?.config ?: error(RuntimeMessages.chooseTrust),
+              directEntries,
+              vpnEntries,
+            )
+          }
         }.getOrElse { failure ->
           throw IllegalArgumentException(
             RuntimeMessages.localizedFailure(failure.message, RuntimeMessages.unknownRoutingMode),
@@ -565,10 +596,26 @@ class VeilarkSession(
       routingMode = mode
       if (engine == TunnelEngineKind.SING_BOX) {
         singBoxRoutingMode = mode
-        manualDirectEntries = directEntries.trim()
-        manualVpnEntries = vpnEntries.trim()
+        if (mode == ProfileSelection.ROUTING_MANUAL) {
+          singBoxManualDirectEntries = directEntries.trim()
+          singBoxManualVpnEntries = vpnEntries.trim()
+        }
       } else {
         trustRoutingMode = mode
+        if (mode == ProfileSelection.ROUTING_MANUAL) {
+          trustManualDirectEntries = directEntries.trim()
+          trustManualVpnEntries = vpnEntries.trim()
+        }
+      }
+      manualDirectEntries = if (engine == TunnelEngineKind.SING_BOX) {
+        singBoxManualDirectEntries
+      } else {
+        trustManualDirectEntries
+      }
+      manualVpnEntries = if (engine == TunnelEngineKind.SING_BOX) {
+        singBoxManualVpnEntries
+      } else {
+        trustManualVpnEntries
       }
       persistPreferences()
       log(RuntimeMessages.routingUpdated, component = "routing", code = "ROUTING_UPDATED")
@@ -662,14 +709,28 @@ class VeilarkSession(
     if (engine == kind) return
     if (engine == TunnelEngineKind.SING_BOX) {
       singBoxRoutingMode = routingMode
+      singBoxManualDirectEntries = manualDirectEntries
+      singBoxManualVpnEntries = manualVpnEntries
     } else {
       trustRoutingMode = routingMode
+      trustManualDirectEntries = manualDirectEntries
+      trustManualVpnEntries = manualVpnEntries
     }
     engine = kind
     routingMode = if (kind == TunnelEngineKind.SING_BOX) {
       singBoxRoutingMode
     } else {
       trustRoutingMode
+    }
+    manualDirectEntries = if (kind == TunnelEngineKind.SING_BOX) {
+      singBoxManualDirectEntries
+    } else {
+      trustManualDirectEntries
+    }
+    manualVpnEntries = if (kind == TunnelEngineKind.SING_BOX) {
+      singBoxManualVpnEntries
+    } else {
+      trustManualVpnEntries
     }
   }
 
@@ -719,6 +780,8 @@ class VeilarkSession(
         runCatching { GeoSiteRuCatalog.load(paths.geoSiteJson) }
           .getOrElse { error(RuntimeMessages.geoIpInvalid) },
       )
+    } else if (routingMode == ProfileSelection.ROUTING_MANUAL) {
+      TrustTunnelProfile.applyManualRouting(entry.config, manualDirectEntries, manualVpnEntries)
     } else {
       TrustTunnelProfile.prepareMacConfig(entry.config)
     }
@@ -783,6 +846,10 @@ class VeilarkSession(
           .put("trustRoutingMode", trustRoutingMode)
           .put("manualDirectEntries", manualDirectEntries)
           .put("manualVpnEntries", manualVpnEntries)
+          .put("singBoxManualDirectEntries", singBoxManualDirectEntries)
+          .put("singBoxManualVpnEntries", singBoxManualVpnEntries)
+          .put("trustManualDirectEntries", trustManualDirectEntries)
+          .put("trustManualVpnEntries", trustManualVpnEntries)
           .toString(),
       )
       storageWarning = null

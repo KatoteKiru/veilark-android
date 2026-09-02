@@ -896,13 +896,7 @@ private fun LazyListScope.singBoxEntryItems(
 private fun RoutingSection(session: VeilarkSession) {
   val singBox = session.engine == TunnelEngineKind.SING_BOX
   var mode by remember(session.engine, session.routingMode) {
-    mutableStateOf(
-      if (!singBox && session.routingMode == ProfileSelection.ROUTING_MANUAL) {
-        ProfileSelection.ROUTING_ALL
-      } else {
-        session.routingMode
-      },
-    )
+    mutableStateOf(session.routingMode)
   }
   var directEntries by remember(session.manualDirectEntries) { mutableStateOf(session.manualDirectEntries) }
   var vpnEntries by remember(session.manualVpnEntries) { mutableStateOf(session.manualVpnEntries) }
@@ -978,17 +972,15 @@ private fun RoutingSection(session: VeilarkSession) {
       },
       onClick = { applyMode(ProfileSelection.ROUTING_RU_DIRECT) },
     )
-    if (singBox) {
-      RoutingOption(
-        selected = mode == ProfileSelection.ROUTING_MANUAL,
-        enabled = canEdit,
-        title = Strings.manualRouting,
-        body = Strings.manualRoutingHint,
-        onClick = { mode = ProfileSelection.ROUTING_MANUAL; saveMessage = null; saveError = null },
-      )
-    }
+    RoutingOption(
+      selected = mode == ProfileSelection.ROUTING_MANUAL,
+      enabled = canEdit,
+      title = Strings.manualRouting,
+      body = Strings.manualRoutingHint,
+      onClick = { mode = ProfileSelection.ROUTING_MANUAL; saveMessage = null; saveError = null },
+    )
 
-    if (singBox && mode == ProfileSelection.ROUTING_MANUAL) {
+    if (mode == ProfileSelection.ROUTING_MANUAL) {
       OutlinedTextField(
         value = directEntries,
         onValueChange = { directEntries = it; saveMessage = null; saveError = null },
