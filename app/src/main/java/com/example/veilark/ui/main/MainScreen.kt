@@ -143,6 +143,7 @@ data class SubscriptionUiItem(
   val nodeCount: Int,
   val refreshable: Boolean,
   val deletable: Boolean,
+  val shareLink: String? = null,
 )
 
 private enum class LegalDocument(
@@ -208,6 +209,7 @@ fun MainScreen(
   onSelectSubscription: (String) -> Unit = {},
   onRefreshSubscription: () -> Unit = {},
   onDeleteSubscription: (String) -> Unit = {},
+  onShareQr: (String, String) -> Unit = { _, _ -> },
   onSwitchProfile: () -> Unit = {},
   onRefreshLatency: () -> Unit = {},
   onOpenRouting: () -> Unit = {},
@@ -258,6 +260,7 @@ fun MainScreen(
           nodeCount = subscription.nodes.size,
           refreshable = subscription.sourceUrl != null,
           deletable = true,
+          shareLink = subscription.sourceUrl,
         )
       }
     }
@@ -522,6 +525,7 @@ fun MainScreen(
             }
           },
           onDeleteSubscription = onDeleteSubscription,
+          onShareQr = onShareQr,
           onOpenSubscriptionAccount = openSubscriptionAccount,
           onRefreshLatency = onRefreshLatency,
           onSelectNode = {
@@ -1350,6 +1354,7 @@ private fun ProfileCard(
   onPasteSubscription: () -> Unit,
   onScanSubscriptionQr: () -> Unit,
   onDeleteSubscription: (String) -> Unit,
+  onShareQr: (String, String) -> Unit,
   onOpenSubscriptionAccount: () -> Unit,
   onRefreshLatency: () -> Unit,
   onSelectNode: (String) -> Unit,
@@ -1493,6 +1498,7 @@ private fun ProfileCard(
         onSelectSubscription = onSelectSubscription,
         onSelectNode = onSelectNode,
         onRequestDelete = { pendingDeletionId = it },
+        onShareQr = onShareQr,
         onOpenSubscriptionAccount = onOpenSubscriptionAccount,
       )
     }
@@ -1522,6 +1528,7 @@ private fun ConnectionPickerSheet(
   onSelectSubscription: (String) -> Unit,
   onSelectNode: (String) -> Unit,
   onRequestDelete: (String) -> Unit,
+  onShareQr: (String, String) -> Unit,
   onOpenSubscriptionAccount: () -> Unit,
 ) {
   val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -1639,6 +1646,9 @@ private fun ConnectionPickerSheet(
                 { onRequestDelete(subscription.id) }
               } else {
                 null
+              },
+              onShare = subscription.shareLink?.let { payload ->
+                { onShareQr(subscription.name, payload) }
               },
             )
           }
@@ -1963,6 +1973,7 @@ private fun SubscriptionChoice(
   selected: Boolean,
   onClick: () -> Unit,
   onDelete: (() -> Unit)?,
+  onShare: (() -> Unit)?,
 ) {
   Surface(
     modifier = Modifier
@@ -2028,6 +2039,13 @@ private fun SubscriptionChoice(
           contentDescription = null,
           tint = MaterialTheme.colorScheme.primary,
           modifier = Modifier.size(21.dp),
+        )
+      }
+      if (onShare != null) {
+        CompactIconAction(
+          glyph = ActionGlyph.Qr,
+          description = stringResource(R.string.subscription_share_qr, name),
+          onClick = onShare,
         )
       }
       if (onDelete != null) {

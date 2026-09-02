@@ -2,6 +2,16 @@
 
 All notable changes to the public distribution are documented here.
 
+## 0.8.0-rc29
+
+- fixed QR imports that reached the camera successfully but failed on Veilark
+  envelopes or uppercase `TT://` and `SS://` schemes;
+- added safe QR generation and sharing for saved HTTPS subscriptions and
+  explicit TrustTunnel links;
+- added privacy-preserving device observation for Veilark-managed subscription
+  endpoints without sending installation metadata to third-party providers or
+  across redirects.
+
 ## 0.8.0-rc28
 
 - replaced the failing ML Kit QR initialization path with an offline ZXing

@@ -603,6 +603,7 @@ class MainActivity : ComponentActivity() {
               nodeCount = source.nodeCount,
               refreshable = source.sourceUrl != null,
               deletable = source.origin != com.example.veilark.profile.SubscriptionOrigin.BUILT_IN,
+              shareLink = source.shareLink,
             )
           },
           selectedSubscriptionId = selectedSingBoxId,
@@ -647,6 +648,16 @@ class MainActivity : ComponentActivity() {
           importing = importing,
           externalImportUrl = externalImportUrl,
           onExternalImportConsumed = { externalImportRequests.value = null },
+          onShareQr = { _, payload ->
+            if (!QrCodeShare.share(
+                this@MainActivity,
+                payload,
+                getString(R.string.subscription_share_qr_title),
+              )
+            ) {
+              importError = getString(R.string.subscription_share_failed)
+            }
+          },
           onImportFile = {
             filePicker.launch(arrayOf("application/json", "text/plain", "*/*"))
           },
@@ -658,13 +669,16 @@ class MainActivity : ComponentActivity() {
             qrScanner.launch(Intent(this@MainActivity, QrScannerActivity::class.java))
           },
           onImportUrl = { url ->
+            // QR results can be a Veilark import envelope or use an uppercase protocol scheme.
+            // Normalize once before dispatching to either the TrustTunnel or sing-box importer.
+            val importUrl = ImportDeepLink.parseQrPayload(url) ?: url.trim()
             importing = true
             importError = null
             coroutineScope.launch {
-              if (url.startsWith("tt://", ignoreCase = true)) {
+              if (importUrl.startsWith("tt://")) {
                 runCatching {
                   val compiled = withContext(Dispatchers.Default) {
-                    TrustTunnelProfile.compile(url)
+                    TrustTunnelProfile.compile(importUrl)
                   }
                   val importedSourceId = TrustTunnelCatalog.sourceId(null, compiled.config)
                   trustProfiles = TrustTunnelCatalog.replaceSource(
@@ -702,16 +716,16 @@ class MainActivity : ComponentActivity() {
                 }
               } else {
                 runCatching {
-                  require(!url.startsWith("http://", ignoreCase = true)) {
+                  require(!importUrl.startsWith("http://", ignoreCase = true)) {
                     getString(R.string.http_subscription_insecure)
                   }
-                  val payload = if (url.startsWith("https://", ignoreCase = true)) {
+                  val payload = if (importUrl.startsWith("https://", ignoreCase = true)) {
                     SubscriptionFetcher.fetch(
-                      url,
-                      SubscriptionFetcher.androidHeaders(this@MainActivity),
+                      importUrl,
+                      SubscriptionFetcher.androidHeaders(this@MainActivity, importUrl),
                     )
                   } else {
-                    url.toByteArray(Charsets.UTF_8)
+                    importUrl.toByteArray(Charsets.UTF_8)
                   }
                   val parser = SubscriptionParser()
                   val trustLinks = parser.extractTrustTunnelLinks(payload)
@@ -720,11 +734,11 @@ class MainActivity : ComponentActivity() {
                     val trustCompiled = withContext(Dispatchers.Default) {
                       trustLinks.map(TrustTunnelProfile::compile)
                     }
-                    val trustSourceId = TrustTunnelCatalog.sourceId(url, url)
+                    val trustSourceId = TrustTunnelCatalog.sourceId(importUrl, importUrl)
                     trustProfiles = TrustTunnelCatalog.replaceSource(
                       context = this@MainActivity,
                       profiles = trustCompiled,
-                      sourceUrl = url,
+                      sourceUrl = importUrl,
                     )
                     val active = trustProfiles.firstOrNull {
                       it.sourceId == trustSourceId
@@ -779,7 +793,7 @@ class MainActivity : ComponentActivity() {
                   val compiledTrustProfiles = withContext(Dispatchers.Default) {
                     compiled.trustTunnelLinks.map(TrustTunnelProfile::compile)
                   }
-                  val sourceUrl = url.takeIf {
+                  val sourceUrl = importUrl.takeIf {
                     it.startsWith("https://", ignoreCase = true)
                   }
                   val singEntry = SingBoxCatalog.create(
@@ -817,7 +831,7 @@ class MainActivity : ComponentActivity() {
                     .putString("nodes", ProfileSelection.encodeNodes(compiled.nodes))
                     .putString("selected_node", selectedNodeTag)
                     .apply()
-                  if (url.startsWith("https://", ignoreCase = true)) {
+                  if (importUrl.startsWith("https://", ignoreCase = true)) {
                     subscriptionRefreshAvailable = true
                   } else {
                     subscriptionRefreshAvailable = false
@@ -878,7 +892,7 @@ class MainActivity : ComponentActivity() {
                 runCatching {
                   val payload = SubscriptionFetcher.fetch(
                     url,
-                    SubscriptionFetcher.androidHeaders(this@MainActivity),
+                    SubscriptionFetcher.androidHeaders(this@MainActivity, url),
                   )
                   if (refreshEngine == ProfileEngine.TRUST_TUNNEL) {
                     val links = SubscriptionParser().extractTrustTunnelLinks(payload)

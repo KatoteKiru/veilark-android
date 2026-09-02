@@ -5,3 +5,5 @@ telegramBotUrl=https://t.me/senyavpn_bot?start=client_android
 otaHost=updates.example.com
 otaPort=443
 otaPublicKey=BASE64_ED25519_PUBLIC_KEY
+subscriptionHost=subscriptions.example.com
+subscriptionPort=443

@@ -15,6 +15,7 @@ data class TrustTunnelCatalogEntry(
   val config: String,
   val sourceId: String = id,
   val sourceUrl: String? = null,
+  val shareLink: String? = null,
   val origin: SubscriptionOrigin = SubscriptionOrigin.LEGACY,
   val fingerprint: String = SubscriptionIdentity.nodeFingerprint(
     SubscriptionKind.TRUST_TUNNEL,
@@ -28,6 +29,7 @@ data class TrustTunnelSourceEntry(
   val sourceUrl: String?,
   val origin: SubscriptionOrigin,
   val nodeCount: Int,
+  val shareLink: String? = null,
 )
 
 object TrustTunnelCatalog {
@@ -152,6 +154,7 @@ object TrustTunnelCatalog {
         sourceUrl = first.sourceUrl,
         origin = first.origin,
         nodeCount = profiles.size,
+        shareLink = first.shareLink ?: first.sourceUrl,
       )
     }.sortedWith(compareBy({ it.name.lowercase() }, { it.id }))
 
@@ -213,6 +216,7 @@ object TrustTunnelCatalog {
                 .put("config", profile.config)
                 .put("sourceId", profile.sourceId)
                 .put("sourceUrl", profile.sourceUrl ?: JSONObject.NULL)
+                .put("shareLink", profile.shareLink ?: JSONObject.NULL)
                 .put("origin", profile.origin.wireName)
                 .put("fingerprint", profile.fingerprint),
             )
@@ -241,6 +245,9 @@ object TrustTunnelCatalog {
         val sourceUrl = item.optString("sourceUrl").takeIf {
           it.isNotBlank() && it != "null"
         }
+        val shareLink = item.optString("shareLink").takeIf {
+          it.isNotBlank() && it != "null"
+        }
         add(
           TrustTunnelCatalogEntry(
             id = item.getString("id"),
@@ -252,6 +259,7 @@ object TrustTunnelCatalog {
               sourceId(null, config)
             },
             sourceUrl = sourceUrl,
+            shareLink = shareLink,
             origin = if (version >= 2) {
               SubscriptionOrigin.fromWireName(item.optString("origin"))
             } else {
@@ -287,6 +295,7 @@ object TrustTunnelCatalog {
         config = profile.config,
         sourceId = sourceId,
         sourceUrl = normalizedUrl,
+        shareLink = profile.shareLink,
         origin = origin,
         fingerprint = fingerprint,
       )

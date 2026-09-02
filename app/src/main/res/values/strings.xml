@@ -19,6 +19,9 @@
     <string name="latency_check">Check server latency</string>
     <string name="latency_checking">Checking server latency</string>
     <string name="subscription_delete">Delete subscription %1$s</string>
+    <string name="subscription_share_qr">Share QR for %1$s</string>
+    <string name="subscription_share_qr_title">Share subscription QR</string>
+    <string name="subscription_share_failed">Could not create a shareable QR code</string>
     <string name="subscription_delete_title">Delete subscription?</string>
     <string name="subscription_delete_message">“%1$s” and its saved servers will be removed from this device.</string>
     <string name="delete">Delete</string>

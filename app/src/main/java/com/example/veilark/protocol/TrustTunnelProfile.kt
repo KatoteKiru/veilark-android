@@ -6,14 +6,17 @@ import com.adguard.trusttunnel.VpnServiceConfig
 data class CompiledTrustTunnelProfile(
   val displayName: String,
   val config: String,
+  /** Original client profile link, retained only for explicit QR sharing. */
+  val shareLink: String? = null,
 )
 
 object TrustTunnelProfile {
   fun compile(deepLink: String): CompiledTrustTunnelProfile {
-    require(deepLink.trim().startsWith("tt://")) {
+    val normalizedLink = deepLink.trim().replaceFirst(Regex("(?i)^tt://"), "tt://")
+    require(normalizedLink.startsWith("tt://")) {
       "Ссылка TrustTunnel должна начинаться с tt://"
     }
-    var endpoint = DeepLink.decode(deepLink.trim()).trim()
+    var endpoint = DeepLink.decode(normalizedLink).trim()
     require(endpoint.startsWith("[endpoint]")) {
       "Ядро TrustTunnel вернуло некорректный профиль"
     }
@@ -29,7 +32,7 @@ object TrustTunnelProfile {
     require(VpnServiceConfig.parseToml(config) != null) {
       "Не удалось проверить конфигурацию TrustTunnel"
     }
-    return CompiledTrustTunnelProfile(name, config)
+    return CompiledTrustTunnelProfile(name, config, normalizedLink)
   }
 
   internal fun buildConfig(endpoint: String, directCidrs: List<String> = emptyList()): String {

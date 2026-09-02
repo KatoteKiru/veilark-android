@@ -94,6 +94,8 @@ val privateOtaManifestUrl = privateProperty("otaManifestUrl").orEmpty()
 val privateOtaHost = privateProperty("otaHost").orEmpty()
 val privateOtaPort = privateProperty("otaPort")?.toIntOrNull() ?: -1
 val privateOtaPublicKey = privateProperty("otaPublicKey").orEmpty()
+val privateSubscriptionHost = privateProperty("subscriptionHost").orEmpty()
+val privateSubscriptionPort = privateProperty("subscriptionPort")?.toIntOrNull() ?: -1
 val telegramBotUrl = privateProperty("telegramBotUrl")
   ?: "https://t.me/senyavpn_bot?start=client_android"
 
@@ -131,8 +133,8 @@ android {
     defaultConfig {
         minSdk = 29
         targetSdk = 36
-    versionCode = 55
-    versionName = "0.8.0-rc28"
+    versionCode = 56
+    versionName = "0.8.0-rc29"
         buildConfigField("boolean", "VEILARK_CORE_ENABLED", "false")
         buildConfigField("String", "TELEGRAM_BOT_URL", quotedBuildConfig(telegramBotUrl))
         ndk {
@@ -166,6 +168,8 @@ android {
         buildConfigField("String", "OTA_HOST", quotedBuildConfig(privateOtaHost))
         buildConfigField("int", "OTA_PORT", privateOtaPort.toString())
         buildConfigField("String", "OTA_PUBLIC_KEY", quotedBuildConfig(privateOtaPublicKey))
+        buildConfigField("String", "SUBSCRIPTION_HOST", quotedBuildConfig(privateSubscriptionHost))
+        buildConfigField("int", "SUBSCRIPTION_PORT", privateSubscriptionPort.toString())
       }
       create("oss") {
         dimension = "distribution"
@@ -176,6 +180,8 @@ android {
         buildConfigField("String", "OTA_HOST", quotedBuildConfig(""))
         buildConfigField("int", "OTA_PORT", "-1")
         buildConfigField("String", "OTA_PUBLIC_KEY", quotedBuildConfig(""))
+        buildConfigField("String", "SUBSCRIPTION_HOST", quotedBuildConfig(""))
+        buildConfigField("int", "SUBSCRIPTION_PORT", "-1")
         if (ossSigningConfigured) {
           signingConfig = signingConfigs.getByName("ossRelease")
         }

@@ -18,6 +18,9 @@
     <string name="latency_check">Проверить задержку до серверов</string>
     <string name="latency_checking">Проверяется задержка до серверов</string>
     <string name="subscription_delete">Удалить подписку %1$s</string>
+    <string name="subscription_share_qr">Поделиться QR-кодом «%1$s»</string>
+    <string name="subscription_share_qr_title">Поделиться QR подписки</string>
+    <string name="subscription_share_failed">Не удалось создать QR-код для отправки</string>
     <string name="subscription_delete_title">Удалить подписку?</string>
     <string name="subscription_delete_message">«%1$s» и сохранённые в ней серверы будут удалены с этого устройства.</string>
     <string name="delete">Удалить</string>

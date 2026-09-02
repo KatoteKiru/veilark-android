@@ -22,6 +22,28 @@ class ImportDeepLinkTest {
   }
 
   @Test
+  fun normalizesQrEnvelopeAndCaseSensitiveProtocolSchemes() {
+    val shadowsocks = "SS://YWVzLTI1Ni1nY206c2VjcmV0@provider.example:8388#Office"
+    assertEquals("ss://" + shadowsocks.substringAfter("://"), ImportDeepLink.parseQrPayload(shadowsocks))
+    assertEquals(
+      "tt://opaque-profile",
+      ImportDeepLink.parseQrPayload("TT://opaque-profile"),
+    )
+    assertEquals(
+      "ss://YWVzLTI1Ni1nY206c2VjcmV0@provider.example:8388#Office",
+      ImportDeepLink.parseQrPayload(
+        "veilark://import?url=ss%3A%2F%2FYWVzLTI1Ni1nY206c2VjcmV0%40provider.example%3A8388%23Office",
+      ),
+    )
+  }
+
+  @Test
+  fun rejectsUnknownQrSchemes() {
+    assertNull(ImportDeepLink.parseQrPayload("ftp://provider.example/profile"))
+    assertNull(ImportDeepLink.parseQrPayload("veilark://import?url=ftp%3A%2F%2Fprovider.example"))
+  }
+
+  @Test
   fun acceptsHttpsSubscriptionOnAnExplicitPort() {
     assertEquals(
       "https://provider.example:2096/sub?token=opaque",

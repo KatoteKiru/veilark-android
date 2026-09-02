@@ -17,6 +17,26 @@ class TrustTunnelCatalogTest {
   }
 
   @Test
+  fun catalogRoundTripPreservesExplicitTrustTunnelShareLink() {
+    val link = "tt://opaque-client-profile"
+    val entry = TrustTunnelCatalog.replaceSourceEntries(
+      entries = emptyList(),
+      profiles = listOf(
+        CompiledTrustTunnelProfile(
+          "DE",
+          "[endpoint]\nname=\"DE\"",
+          shareLink = link,
+        ),
+      ),
+      sourceUrl = null,
+      origin = SubscriptionOrigin.MANUAL,
+      localIdentity = "manual",
+    ).single()
+
+    assertEquals(link, TrustTunnelCatalog.decode(TrustTunnelCatalog.encode(listOf(entry))).single().shareLink)
+  }
+
+  @Test
   fun sourceRefreshReplacesOnlyNodesOwnedByThatSource() {
     val sourceUrl = "https://provider.example/trust/sub"
     val firstVersion = TrustTunnelCatalog.replaceSourceEntries(
