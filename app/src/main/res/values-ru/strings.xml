@@ -148,7 +148,6 @@
     <string name="qr_permission_retry">Попробовать снова</string>
     <string name="qr_permission_settings_message">Доступ к камере заблокирован. Откройте сведения о приложении Veilark, выберите «Разрешения», включите «Камера» и повторите сканирование.</string>
     <string name="qr_permission_open_settings">Открыть настройки приложения</string>
-    <string name="qr_permission_settings_opened">Откройте настройки Veilark и разрешите доступ к камере, затем повторите сканирование.</string>
     <string name="qr_permission_cancelled">Доступ к камере не предоставлен. Повторить попытку можно при следующем сканировании QR-кода.</string>
     <string name="qr_scanner_failed">Не удалось открыть сканер камеры (%1$s)</string>
     <string name="qr_scanner_hint">Наведите камеру на QR-код</string>

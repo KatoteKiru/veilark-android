@@ -83,6 +83,18 @@ class QrScannerActivity : ComponentActivity() {
     }
   }
 
+  private val cameraSettings = registerForActivityResult(
+    ActivityResultContracts.StartActivityForResult(),
+  ) {
+    if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) ==
+      PackageManager.PERMISSION_GRANTED
+    ) {
+      startCamera()
+    } else {
+      showCameraPermissionGuidance()
+    }
+  }
+
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
     enableEdgeToEdge()
@@ -161,10 +173,7 @@ class QrScannerActivity : ComponentActivity() {
     val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
       data = "package:$packageName".toUri()
     }
-    runCatching { startActivity(intent) }
-      .onSuccess {
-        finishWithError(getString(R.string.qr_permission_settings_opened))
-      }
+    runCatching { cameraSettings.launch(intent) }
       .onFailure { failure ->
         finishWithCameraFailure("QR-PERMISSION-SETTINGS", failure)
       }
@@ -266,8 +275,13 @@ class QrScannerActivity : ComponentActivity() {
       Thread(task, "veilark-qr-analysis").apply { priority = Thread.NORM_PRIORITY - 1 }
     }
     analysisExecutor = worker
-    val providerFuture = ProcessCameraProvider.getInstance(this)
-    providerFuture.addListener(
+    val providerFuture = runCatching {
+      ProcessCameraProvider.getInstance(this)
+    }.getOrElse { failure ->
+      finishWithCameraFailure("QR-CAMERA-PROVIDER", failure)
+      return
+    }
+    runCatching { providerFuture.addListener(
       {
         if (isFinishing || isDestroyed || delivered) return@addListener
         runCatching {
@@ -301,7 +315,9 @@ class QrScannerActivity : ComponentActivity() {
         }
       },
       ContextCompat.getMainExecutor(this),
-    )
+    ) }.onFailure { failure ->
+      finishWithCameraFailure("QR-CAMERA-LISTENER", failure)
+    }
   }
 
   @AndroidXOptIn(markerClass = [ExperimentalGetImage::class])

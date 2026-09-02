@@ -2,6 +2,14 @@
 
 All notable changes to the public distribution are documented here.
 
+## 0.8.0-rc27
+
+- shipped the previously source-only QR permission recovery in the private OTA build;
+- kept the scanner open while camera access is granted in Android settings and
+  resumed CameraX automatically after returning;
+- converted synchronous CameraX provider/listener failures into a recoverable
+  diagnostic instead of a process crash.
+
 ## 0.8.0-rc26
 
 - disabled GEO refresh while a tunnel is active so a running configuration

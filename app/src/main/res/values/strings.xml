@@ -149,7 +149,6 @@
     <string name="qr_permission_retry">Try again</string>
     <string name="qr_permission_settings_message">Camera access is blocked. Open Veilark app details, choose Permissions, allow Camera, then scan again.</string>
     <string name="qr_permission_open_settings">Open app settings</string>
-    <string name="qr_permission_settings_opened">Open Veilark app settings and allow Camera, then scan again.</string>
     <string name="qr_permission_cancelled">Camera access was not granted. You can try again when scanning a QR code.</string>
     <string name="qr_scanner_failed">Could not open the camera scanner (%1$s)</string>
     <string name="qr_scanner_hint">Point the camera at a QR code</string>
