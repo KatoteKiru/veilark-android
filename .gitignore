@@ -26,3 +26,6 @@ local.properties
 *.apk
 /vendor/sing-box/artifacts/*.aar
 *.aab
+/macos/build
+/macos/.gradle
+/macos/.jdk

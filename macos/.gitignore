@@ -1,0 +1,12 @@
+# macOS engine binaries (downloaded by scripts/fetch-engines.sh)
+packaging/common/sing-box
+packaging/common/trusttunnel_client
+packaging/common/veilark-helper
+packaging/common/geo/
+vendor/*.tgz
+vendor/*-extract/
+vendor/BUNDLED_SHA256SUMS
+vendor/BUNDLED_UPSTREAM.json
+build/
+.gradle/
+.jdk/
