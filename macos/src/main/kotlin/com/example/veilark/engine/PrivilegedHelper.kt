@@ -10,8 +10,18 @@ enum class TunnelEngineKind {
 enum class TunnelStatus {
   DISCONNECTED,
   CONNECTING,
+  RECONNECTING,
   CONNECTED,
+  DEGRADED,
   FAILED,
+
+  ;
+
+  val blocksOfflineChanges: Boolean
+    get() = this == CONNECTED || this == CONNECTING || this == RECONNECTING || this == DEGRADED
+
+  val isStopAction: Boolean
+    get() = blocksOfflineChanges
 }
 
 data class EnginePaths(

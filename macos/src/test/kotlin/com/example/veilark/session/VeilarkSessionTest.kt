@@ -9,9 +9,13 @@ import com.example.veilark.profile.SubscriptionParser
 import com.example.veilark.storage.EncryptedStore
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
+import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -158,6 +162,52 @@ class VeilarkSessionTest {
   }
 
   @Test
+  fun defaultRouteChangeFromEn0ToEn5PerformsOneControlledReconnect() = runBlocking {
+    val fake = FakeController()
+    val routes = MutableRouteProvider(DefaultRouteFingerprint("en0", "192.0.2.1"))
+    val session = sessionWithSingBox(fake, NetworkHealth(true, "ok"), routes)
+    session.connect()
+    routes.current = DefaultRouteFingerprint("en5", "198.51.100.1")
+
+    assertTrue(session.reconcileDefaultRouteHandover())
+    assertEquals(TunnelStatus.CONNECTED, session.status)
+    assertEquals(2, fake.startCalls)
+    assertEquals(2, fake.stopCalls)
+    assertEquals("en5", JSONObject(fake.lastConfig).getJSONObject("route").getString("default_interface"))
+    assertTrue(session.logs.any { it.code == "NETWORK_HANDOVER_DETECTED" })
+    assertTrue(session.logs.any { it.code == "NETWORK_HANDOVER_RECONNECTING" })
+  }
+
+  @Test
+  fun unchangedDefaultRouteDoesNotReconnect() = runBlocking {
+    val fake = FakeController()
+    val routes = MutableRouteProvider(DefaultRouteFingerprint("en0", "192.0.2.1"))
+    val session = sessionWithSingBox(fake, NetworkHealth(true, "ok"), routes)
+    session.connect()
+
+    assertFalse(session.reconcileDefaultRouteHandover())
+    assertEquals(1, fake.startCalls)
+    assertEquals(1, fake.stopCalls)
+  }
+
+  @Test
+  fun burstRouteEventsAreDeduplicatedWhileReconnectIsSerialized() = runBlocking {
+    val fake = FakeController(startDelayMillis = 100)
+    val routes = MutableRouteProvider(DefaultRouteFingerprint("en0", "192.0.2.1"))
+    val session = sessionWithSingBox(fake, NetworkHealth(true, "ok"), routes)
+    session.connect()
+    routes.current = DefaultRouteFingerprint("en5", "198.51.100.1")
+
+    coroutineScope {
+      List(8) { async { session.reconcileDefaultRouteHandover() } }.awaitAll()
+    }
+
+    assertEquals(TunnelStatus.CONNECTED, session.status)
+    assertEquals(2, fake.startCalls)
+    assertEquals(2, fake.stopCalls)
+  }
+
+  @Test
   fun quitStopFailureIsReturnedAndLeavesTechnicalFailureState() = runBlocking {
     val fake = FakeController()
     val session = sessionWithSingBox(fake, NetworkHealth(true, "ok"))
@@ -225,6 +275,7 @@ class VeilarkSessionTest {
   private fun sessionWithSingBox(
     fake: FakeController,
     health: NetworkHealth,
+    routes: DefaultRouteFingerprintProvider = DefaultRouteFingerprintProvider { null },
   ): VeilarkSession {
     val key = EncryptedStore.ephemeralKey()
     val store = EncryptedStore(folder.newFolder("secure")) { key }
@@ -237,20 +288,25 @@ class VeilarkSessionTest {
       "Local",
     )
     store.save(EncryptedStore.SING_BOX_CATALOG, SingBoxCatalog.encode(listOf(entry)))
-    return VeilarkSession(store, fake, ConnectionHealthChecker { health }).also {
+    return VeilarkSession(store, fake, ConnectionHealthChecker { health }, routes).also {
       it.switchEngine(TunnelEngineKind.SING_BOX)
     }
   }
 
-  private class FakeController : TunnelController {
+  private class FakeController(private val startDelayMillis: Long = 0) : TunnelController {
     var running = false
     var stopCalls = 0
     var failStop = false
+    var startCalls = 0
+    var lastConfig = ""
 
     override fun installed(): Boolean = true
     override fun enginePresent(kind: TunnelEngineKind): Boolean = true
     override fun install(): Result<Unit> = Result.success(Unit)
     override fun start(kind: TunnelEngineKind, config: String): Result<Unit> {
+      if (startDelayMillis > 0) Thread.sleep(startDelayMillis)
+      startCalls += 1
+      lastConfig = config
       running = true
       return Result.success(Unit)
     }
@@ -264,6 +320,11 @@ class VeilarkSessionTest {
     override fun lastLog(): String = ""
     override fun tunFailed(): Boolean = false
     override fun outboundUnresolved(): Boolean = false
+  }
+
+  private class MutableRouteProvider(initial: DefaultRouteFingerprint) : DefaultRouteFingerprintProvider {
+    @Volatile var current: DefaultRouteFingerprint = initial
+    override fun current(): DefaultRouteFingerprint = current
   }
 
   private companion object {

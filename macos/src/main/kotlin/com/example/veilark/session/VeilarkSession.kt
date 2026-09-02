@@ -50,10 +50,13 @@ class VeilarkSession(
   private val store: EncryptedStore,
   private val helper: TunnelController = PrivilegedHelper(BundledPaths.resolve()),
   private val healthChecker: ConnectionHealthChecker = NetworkHealthProbe,
+  private val defaultRouteFingerprintProvider: DefaultRouteFingerprintProvider =
+    MacDefaultRouteFingerprintProvider,
 ) {
   private val operationMutex = Mutex()
   private val geoRepository = GeoRoutingRepository()
   @Volatile private var stopRequested = false
+  private var appliedDefaultRoute: DefaultRouteFingerprint? = null
   var engine by mutableStateOf(TunnelEngineKind.TRUST_TUNNEL)
   var status by mutableStateOf(TunnelStatus.DISCONNECTED)
     private set
@@ -185,7 +188,7 @@ class VeilarkSession(
   }
 
   suspend fun installHelper(): Result<Unit> = exclusiveOperation {
-    check(status != TunnelStatus.CONNECTED && status != TunnelStatus.CONNECTING) {
+    check(!status.blocksOfflineChanges) {
       RuntimeMessages.disconnectBeforeHelper
     }
     withContext(Dispatchers.IO) { helper.install() }
@@ -204,7 +207,7 @@ class VeilarkSession(
 
   suspend fun importText(raw: String) {
     exclusiveOperation {
-      check(status != TunnelStatus.CONNECTED && status != TunnelStatus.CONNECTING) {
+      check(!status.blocksOfflineChanges) {
         RuntimeMessages.disconnectBeforeImport
       }
       val trimmed = raw.trim()
@@ -225,7 +228,7 @@ class VeilarkSession(
 
   suspend fun importFile(file: File) {
     exclusiveOperation {
-      check(status != TunnelStatus.CONNECTED && status != TunnelStatus.CONNECTING) {
+      check(!status.blocksOfflineChanges) {
         RuntimeMessages.disconnectBeforeImport
       }
       importPayload(withContext(Dispatchers.IO) { file.readBytes() }, sourceUrl = null)
@@ -305,7 +308,7 @@ class VeilarkSession(
 
   suspend fun refreshSelectedSubscription() {
     exclusiveOperation {
-      check(status != TunnelStatus.CONNECTED && status != TunnelStatus.CONNECTING) {
+      check(!status.blocksOfflineChanges) {
         RuntimeMessages.disconnectBeforeRefresh
       }
       val selectedEngine = engine
@@ -337,7 +340,7 @@ class VeilarkSession(
 
   fun deleteSelectedSubscription() {
     exclusiveOperationNow(RuntimeMessages.waitForOperation) {
-      check(status != TunnelStatus.CONNECTED && status != TunnelStatus.CONNECTING) {
+      check(!status.blocksOfflineChanges) {
         RuntimeMessages.disconnectBeforeDelete
       }
       when (engine) {
@@ -362,18 +365,30 @@ class VeilarkSession(
   suspend fun connect() {
     exclusiveOperation {
       if (status == TunnelStatus.CONNECTED) return@exclusiveOperation
+      connectLocked(reconnecting = false, routeFingerprint = currentDefaultRouteFingerprint())
+    }
+  }
+
+  private suspend fun connectLocked(
+    reconnecting: Boolean,
+    routeFingerprint: DefaultRouteFingerprint?,
+  ) {
       stopRequested = false
-      status = TunnelStatus.CONNECTING
+      status = if (reconnecting) TunnelStatus.RECONNECTING else TunnelStatus.CONNECTING
       statusDetail = ""
       lastHealthDetail = ""
-      log(RuntimeMessages.connecting, component = "tunnel", code = "CONNECT_START")
+      log(
+        if (reconnecting) RuntimeMessages.reconnecting else RuntimeMessages.connecting,
+        component = "tunnel",
+        code = if (reconnecting) "NETWORK_HANDOVER_RECONNECTING" else "CONNECT_START",
+      )
       runCatching {
         if (!enginePresent()) error(RuntimeMessages.engineMissing)
         if (!helper.installed()) error(RuntimeMessages.installHelperFirst)
         helper.stop().getOrThrow()
         throwIfStopRequested()
         when (engine) {
-          TunnelEngineKind.SING_BOX -> startSelectedSingBox()
+          TunnelEngineKind.SING_BOX -> startSelectedSingBox(routeFingerprint?.interfaceName)
           TunnelEngineKind.TRUST_TUNNEL -> startSelectedTrustTunnel()
         }
         delay(1_200)
@@ -398,6 +413,7 @@ class VeilarkSession(
             code = "CONNECT_HEALTH_DEGRADED",
           )
         }
+        appliedDefaultRoute = routeFingerprint
         status = TunnelStatus.CONNECTED
         log(
           RuntimeMessages.connected(engine.name, health.detail),
@@ -411,20 +427,20 @@ class VeilarkSession(
           statusDetail = ""
           log(RuntimeMessages.connectCancelled, component = "tunnel", code = "CONNECT_CANCELLED")
         } else {
-          status = TunnelStatus.FAILED
-          statusDetail = RuntimeMessages.localizedFailure(
-            failure.message,
-            RuntimeMessages.tunnelStartFailed,
-          )
+          status = if (reconnecting) TunnelStatus.DEGRADED else TunnelStatus.FAILED
+          statusDetail = if (reconnecting) {
+            RuntimeMessages.handoverDegraded
+          } else {
+            RuntimeMessages.localizedFailure(failure.message, RuntimeMessages.tunnelStartFailed)
+          }
           log(
-            RuntimeMessages.connectFailed(statusDetail),
+            if (reconnecting) RuntimeMessages.handoverDegraded else RuntimeMessages.connectFailed(statusDetail),
             level = LogLevel.ERROR,
             component = "tunnel",
-            code = "CONNECT_FAILED",
+            code = if (reconnecting) "NETWORK_HANDOVER_DEGRADED" else "CONNECT_FAILED",
           )
         }
       }
-    }
   }
 
   /** Requests a stop without blocking the tray/UI event thread. */
@@ -460,6 +476,33 @@ class VeilarkSession(
     }
   }
 
+  /**
+   * Rebuilds one existing tunnel when the physical default route changes.
+   * The mutex serializes this with UI actions; repeated route events while a
+   * reconnect is in flight are intentionally ignored rather than queued.
+   */
+  suspend fun reconcileDefaultRouteHandover(): Boolean {
+    if (status != TunnelStatus.CONNECTED || !operationMutex.tryLock()) return false
+    busy = true
+    try {
+      val observed = currentDefaultRouteFingerprint() ?: return false
+      val applied = appliedDefaultRoute
+      if (applied == null) {
+        appliedDefaultRoute = observed
+        return false
+      }
+      if (observed == applied) return false
+      log("Default route changed; rebuilding tunnel", component = "network", code = "NETWORK_HANDOVER_DETECTED")
+      // Take one fresh snapshot so a route-event burst binds the rebuilt config
+      // to the newest physical interface instead of queueing stale reconnects.
+      connectLocked(reconnecting = true, routeFingerprint = currentDefaultRouteFingerprint() ?: observed)
+      return status == TunnelStatus.CONNECTED
+    } finally {
+      busy = false
+      operationMutex.unlock()
+    }
+  }
+
   /** Advisory probe: tunnel state means the engine is alive, not that a chosen public URL responds. */
   suspend fun checkConnectionHealth(): NetworkHealth {
     return exclusiveOperation {
@@ -482,7 +525,7 @@ class VeilarkSession(
 
   fun switchEngine(kind: TunnelEngineKind) {
     exclusiveOperationNow(RuntimeMessages.waitForOperation) {
-      check(status != TunnelStatus.CONNECTED && status != TunnelStatus.CONNECTING) {
+      check(!status.blocksOfflineChanges) {
         RuntimeMessages.disconnectBeforeEngineSwitch
       }
       activateEngine(kind)
@@ -492,7 +535,7 @@ class VeilarkSession(
 
   fun updateRouting(mode: String, directEntries: String, vpnEntries: String) {
     exclusiveOperationNow(RuntimeMessages.waitForOperation) {
-      check(status != TunnelStatus.CONNECTED && status != TunnelStatus.CONNECTING) {
+      check(!status.blocksOfflineChanges) {
         RuntimeMessages.disconnectBeforeRouting
       }
       require(
@@ -534,7 +577,7 @@ class VeilarkSession(
 
   fun selectSingBox(id: String, nodeTag: String? = null) {
     exclusiveOperationNow(RuntimeMessages.waitForOperation) {
-      check(status != TunnelStatus.CONNECTED && status != TunnelStatus.CONNECTING) {
+      check(!status.blocksOfflineChanges) {
         RuntimeMessages.disconnectBeforeProfileSwitch
       }
       val entry = singBoxEntries.firstOrNull { it.id == id }
@@ -555,7 +598,7 @@ class VeilarkSession(
 
   fun selectTrust(id: String) {
     exclusiveOperationNow(RuntimeMessages.waitForOperation) {
-      check(status != TunnelStatus.CONNECTED && status != TunnelStatus.CONNECTING) {
+      check(!status.blocksOfflineChanges) {
         RuntimeMessages.disconnectBeforeProfileSwitch
       }
       require(trustEntries.any { it.id == id }) { RuntimeMessages.trustProfileMissing }
@@ -635,7 +678,7 @@ class VeilarkSession(
     TunnelEngineKind.TRUST_TUNNEL -> selectedTrustEntry()?.sourceUrl
   }
 
-  private fun startSelectedSingBox() {
+  private fun startSelectedSingBox(defaultInterface: String?) {
     val entry = selectedSingBoxEntry() ?: error(RuntimeMessages.chooseSingBox)
     val selected = ProfileSelection.select(entry.config, entry.selectedNodeTag, entry.nodes)
     val routed = ProfileSelection.applyRouting(
@@ -658,7 +701,7 @@ class VeilarkSession(
     )
     helper.start(
       TunnelEngineKind.SING_BOX,
-      SubscriptionParser.migrateSingBoxForMac(routed, macDefaultInterface()),
+      SubscriptionParser.migrateSingBoxForMac(routed, defaultInterface),
     ).onFailure { error(friendlyHelperError(it.message)) }.getOrThrow()
   }
 
@@ -695,6 +738,7 @@ class VeilarkSession(
       status = TunnelStatus.DISCONNECTED
       statusDetail = ""
       lastHealthDetail = ""
+      appliedDefaultRoute = null
       log(RuntimeMessages.disconnected, component = "tunnel", code = "DISCONNECT_OK")
     } else {
       status = TunnelStatus.FAILED
@@ -771,16 +815,8 @@ class VeilarkSession(
     else -> RuntimeMessages.localizedFailure(message, RuntimeMessages.tunnelStartFailed)
   }
 
-  private fun macDefaultInterface(): String? = runCatching {
-    val text = ProcessBuilder("route", "-n", "get", "default")
-      .redirectErrorStream(true)
-      .start()
-      .inputStream
-      .bufferedReader()
-      .readText()
-    Regex("""(?m)^\s*interface:\s+(\S+)""").find(text)?.groupValues?.get(1)
-      ?.takeIf { it.isNotBlank() && !it.startsWith("utun") }
-  }.getOrNull()
+  private suspend fun currentDefaultRouteFingerprint(): DefaultRouteFingerprint? =
+    withContext(Dispatchers.IO) { defaultRouteFingerprintProvider.current() }
 
   companion object {
     private const val MAX_LOG_MESSAGE_LENGTH = 500

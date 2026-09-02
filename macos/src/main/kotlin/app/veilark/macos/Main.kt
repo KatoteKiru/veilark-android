@@ -103,6 +103,7 @@ import com.example.veilark.engine.TunnelStatus
 import com.example.veilark.profile.ProfileSelection
 import com.example.veilark.profile.SingBoxCatalogEntry
 import com.example.veilark.session.LogEntry
+import com.example.veilark.session.RuntimeMessages
 import com.example.veilark.session.VeilarkSession
 import com.example.veilark.theme.VeilarkTheme
 import com.example.veilark.ui.MacClipboard
@@ -154,6 +155,7 @@ fun main() = application {
     while (true) {
       delay(if (session.status == TunnelStatus.CONNECTED) 30_000 else 60_000)
       session.reconcileStatus()
+      session.reconcileDefaultRouteHandover()
     }
   }
 
@@ -163,7 +165,7 @@ fun main() = application {
 
   fun toggleConnection() {
     scope.launch {
-      if (session.status == TunnelStatus.CONNECTED || session.status == TunnelStatus.CONNECTING) {
+      if (session.status.isStopAction) {
         session.disconnect()
       } else {
         session.connect()
@@ -180,11 +182,12 @@ fun main() = application {
       Item(Strings.appName, onClick = { windowVisible = true })
       Item(
         when (session.status) {
-          TunnelStatus.CONNECTED -> Strings.disconnect
-          TunnelStatus.CONNECTING -> Strings.cancelConnection
+          TunnelStatus.CONNECTED, TunnelStatus.DEGRADED -> Strings.disconnect
+          TunnelStatus.CONNECTING, TunnelStatus.RECONNECTING -> Strings.cancelConnection
           else -> Strings.connect
         },
-        enabled = !session.busy || session.status == TunnelStatus.CONNECTING,
+        enabled = !session.busy || session.status == TunnelStatus.CONNECTING ||
+          session.status == TunnelStatus.RECONNECTING,
         onClick = ::toggleConnection,
       )
       Separator()
@@ -453,9 +456,9 @@ private fun ConnectionPanel(
   onCheckHealth: () -> Unit,
 ) {
   val connected = session.status == TunnelStatus.CONNECTED
-  val connecting = session.status == TunnelStatus.CONNECTING
+  val connecting = session.status == TunnelStatus.CONNECTING || session.status == TunnelStatus.RECONNECTING
   val unavailable = session.busy && !connecting
-  val failed = session.status == TunnelStatus.FAILED
+  val failed = session.status == TunnelStatus.FAILED || session.status == TunnelStatus.DEGRADED
   val colors = MaterialTheme.colorScheme
   Surface(
     modifier = Modifier.fillMaxWidth(),
@@ -482,6 +485,8 @@ private fun ConnectionPanel(
           when {
             connected -> Strings.connected
             session.status == TunnelStatus.CONNECTING -> Strings.connecting
+            session.status == TunnelStatus.RECONNECTING -> RuntimeMessages.reconnecting
+            session.status == TunnelStatus.DEGRADED -> RuntimeMessages.handoverDegraded
             failed -> Strings.failed
             else -> Strings.disconnected
           },
@@ -534,7 +539,7 @@ private fun EngineChooser(session: VeilarkSession) {
         title = Strings.trustTunnel,
         subtitle = Strings.trustTunnelSummary,
         selected = session.engine == TunnelEngineKind.TRUST_TUNNEL,
-        enabled = session.status != TunnelStatus.CONNECTED && !session.busy,
+        enabled = !session.status.blocksOfflineChanges && !session.busy,
         icon = Icons.Outlined.Lock,
         onClick = { session.switchEngine(TunnelEngineKind.TRUST_TUNNEL) },
       )
@@ -543,12 +548,12 @@ private fun EngineChooser(session: VeilarkSession) {
         title = Strings.singBox,
         subtitle = Strings.singBoxSummary,
         selected = session.engine == TunnelEngineKind.SING_BOX,
-        enabled = session.status != TunnelStatus.CONNECTED && !session.busy,
+        enabled = !session.status.blocksOfflineChanges && !session.busy,
         icon = Icons.Outlined.Tune,
         onClick = { session.switchEngine(TunnelEngineKind.SING_BOX) },
       )
     }
-    if (session.status == TunnelStatus.CONNECTED) {
+    if (session.status.blocksOfflineChanges) {
       Text(Strings.disconnectBeforeEngineSwitch, style = MaterialTheme.typography.labelSmall)
     }
   }
@@ -1271,7 +1276,7 @@ private fun SectionHeading(title: String, subtitle: String, modifier: Modifier =
 @Composable
 private fun StatusLine(status: TunnelStatus) {
   val connected = status == TunnelStatus.CONNECTED
-  val failed = status == TunnelStatus.FAILED
+  val failed = status == TunnelStatus.FAILED || status == TunnelStatus.DEGRADED
   val color = when {
     connected -> MaterialTheme.colorScheme.primary
     failed -> MaterialTheme.colorScheme.error
@@ -1283,6 +1288,8 @@ private fun StatusLine(status: TunnelStatus) {
       when {
         connected -> Strings.connected
         status == TunnelStatus.CONNECTING -> Strings.connecting
+        status == TunnelStatus.RECONNECTING -> RuntimeMessages.reconnecting
+        status == TunnelStatus.DEGRADED -> RuntimeMessages.handoverDegraded
         failed -> Strings.failed
         else -> Strings.disconnected
       },
@@ -1426,7 +1433,9 @@ private fun formatLog(entry: LogEntry): String = buildString {
 private fun VeilarkSession.statusLabel(): String = when (status) {
   TunnelStatus.CONNECTED -> Strings.connected
   TunnelStatus.CONNECTING -> Strings.connecting
+  TunnelStatus.RECONNECTING -> RuntimeMessages.reconnecting
   TunnelStatus.FAILED -> Strings.failed
+  TunnelStatus.DEGRADED -> RuntimeMessages.handoverDegraded
   TunnelStatus.DISCONNECTED -> Strings.disconnected
 }
 

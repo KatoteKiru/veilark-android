@@ -24,6 +24,8 @@ internal object RuntimeMessages {
   val subscriptionNotSelected get() = text("Подписка не выбрана", "No subscription is selected")
   val subscriptionDeleted get() = text("Подписка удалена", "Subscription deleted")
   val connecting get() = text("Подключение…", "Connecting…")
+  val reconnecting get() = text("Смена сети: переподключение…", "Network changed: reconnecting…")
+  val handoverDegraded get() = text("Смена сети не восстановила туннель", "Network handover did not restore the tunnel")
   val engineMissing get() = text("Выбранное сетевое ядро не найдено", "The selected network engine is missing")
   val installHelperFirst get() = text("Сначала установите VPN helper в настройках", "Install the VPN helper in Settings first")
   val engineDidNotStart get() = text("Ядро не запустилось", "The network engine did not start")
