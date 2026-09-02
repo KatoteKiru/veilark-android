@@ -1,0 +1,55 @@
+name: macOS preview
+
+on:
+  pull_request:
+    paths:
+      - "macos/**"
+      - ".github/workflows/macos.yml"
+  push:
+    branches:
+      - cursor/macos-vpn-client
+      - codex/macos-hardening
+    paths:
+      - "macos/**"
+      - ".github/workflows/macos.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  test-and-package:
+    runs-on: macos-14
+    timeout-minutes: 35
+    defaults:
+      run:
+        working-directory: macos
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+          cache-dependency-path: macos/**/*.gradle*
+      - name: Prepare scripts
+        run: chmod +x gradlew scripts/fetch-engines.sh scripts/verify-bundled-assets.sh scripts/verify-packaged-dmg.sh
+      - name: Assert Apple Silicon runner
+        run: test "$(uname -m)" = arm64
+      - name: Type-check privileged helper
+        run: swiftc -warnings-as-errors -typecheck helper/veilark-helper.swift
+      - name: Type-check in-app updater
+        run: swiftc -warnings-as-errors -typecheck updater/veilark-updater.swift
+      - name: Unit tests
+        run: ./gradlew --no-daemon test
+      - name: Fetch verified engines and geo data
+        run: ./scripts/fetch-engines.sh
+      - name: Package development DMG
+        run: ./gradlew --no-daemon packageDmg
+      - name: Verify bundled asset inventory
+        run: ./scripts/verify-bundled-assets.sh
+      - name: Upload unsigned development artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: veilark-macos-unsigned-${{ runner.arch }}
+          path: macos/build/compose/binaries/main/dmg/*.dmg
+          if-no-files-found: error
