@@ -10,9 +10,9 @@ store-side work that cannot be completed from the source repository alone.
   function; the store description must say so plainly.
 - Explain that Veilark sends user-selected traffic through a user-supplied VPN
   endpoint and does not monetise, inspect, or sell that traffic.
-- Complete Data safety from the final dependency and runtime audit. Account for
-  Google ML Kit performance and utilisation metrics; do not answer solely from
-  the absence of a Veilark analytics account.
+- Complete Data safety from the final dependency and runtime audit. The QR
+  decoder is local ZXing core, but Camera permission and every remaining SDK
+  must still be declared from the final release artifact.
 - Keep the in-app About screen, license texts, third-party notices, independent
   project disclaimer, and privacy link in every production build.
 - Re-check the current Google Play policies before each submission. This file is
@@ -22,7 +22,7 @@ Official references:
 
 - [Google Play VpnService policy](https://support.google.com/googleplay/android-developer/answer/12564964)
 - [Google Play User Data policy](https://support.google.com/googleplay/android-developer/answer/10144311)
-- [ML Kit terms and privacy](https://developers.google.com/ml-kit/terms)
+- [ZXing project and Apache-2.0 license](https://github.com/zxing/zxing)
 
 ## English and Russian listing
 

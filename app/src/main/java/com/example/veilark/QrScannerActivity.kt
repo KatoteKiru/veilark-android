@@ -51,22 +51,16 @@ import androidx.core.content.edit
 import androidx.core.net.toUri
 import com.example.veilark.diagnostics.TechnicalLogStore
 import com.example.veilark.theme.VeilarkTheme
-import com.google.mlkit.vision.barcode.BarcodeScanner
-import com.google.mlkit.vision.barcode.BarcodeScannerOptions
-import com.google.mlkit.vision.barcode.BarcodeScanning
-import com.google.mlkit.vision.barcode.common.Barcode
-import com.google.mlkit.vision.common.InputImage
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 
 /**
- * Self-contained QR scanner backed by CameraX and the bundled ML Kit model. The explicit
+ * Self-contained QR scanner backed by CameraX and the pure-Java ZXing core. The explicit
  * Preview/ImageAnalysis pipeline avoids device-specific controller/use-case negotiation.
  */
 class QrScannerActivity : ComponentActivity() {
   private lateinit var previewView: PreviewView
   private var cameraProvider: ProcessCameraProvider? = null
-  private var scanner: BarcodeScanner? = null
   private var analysisExecutor: ExecutorService? = null
   private var delivered = false
   private var frameFailureLogged = false
@@ -260,17 +254,7 @@ class QrScannerActivity : ComponentActivity() {
       finishWithCameraFailure("QR-CAMERA-NOT-FOUND", IllegalStateException("camera feature absent"))
       return
     }
-    val detector = runCatching {
-      BarcodeScanning.getClient(
-        BarcodeScannerOptions.Builder()
-          .setBarcodeFormats(Barcode.FORMAT_QR_CODE)
-          .build(),
-      )
-    }.getOrElse { failure ->
-      finishWithCameraFailure("QR-SCANNER-INIT", failure)
-      return
-    }
-    scanner = detector
+    val frameDecoder = QrFrameDecoder()
     val worker = Executors.newSingleThreadExecutor { task ->
       Thread(task, "veilark-qr-analysis").apply { priority = Thread.NORM_PRIORITY - 1 }
     }
@@ -302,7 +286,7 @@ class QrScannerActivity : ComponentActivity() {
             .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_YUV_420_888)
             .build()
             .also { useCase ->
-              useCase.setAnalyzer(worker) { image -> analyzeFrame(detector, image) }
+              useCase.setAnalyzer(worker) { image -> analyzeFrame(frameDecoder, image) }
             }
           provider.unbindAll()
           provider.bindToLifecycle(this@QrScannerActivity, selector, preview, analysis)
@@ -321,40 +305,36 @@ class QrScannerActivity : ComponentActivity() {
   }
 
   @AndroidXOptIn(markerClass = [ExperimentalGetImage::class])
-  private fun analyzeFrame(detector: BarcodeScanner, imageProxy: ImageProxy) {
+  private fun analyzeFrame(frameDecoder: QrFrameDecoder, imageProxy: ImageProxy) {
     if (delivered) {
       imageProxy.close()
       return
     }
-    val mediaImage = imageProxy.image
-    if (mediaImage == null) {
-      imageProxy.close()
-      return
-    }
-    val input = runCatching {
-      InputImage.fromMediaImage(mediaImage, imageProxy.imageInfo.rotationDegrees)
-    }.getOrElse { failure ->
-      logFrameFailure(failure)
-      imageProxy.close()
-      return
-    }
     try {
-      detector.process(input)
-        .addOnSuccessListener { barcodes ->
-          barcodes.firstNotNullOfOrNull { barcode ->
-            barcode.rawValue?.trim()?.takeIf(String::isNotEmpty)
-          }?.let { value ->
-            if (!delivered && !isFinishing && !isDestroyed) {
-              runOnUiThread { finishWithResult(value) }
-            }
-          }
+      val mediaImage = imageProxy.image ?: return
+      val yPlane = mediaImage.planes.firstOrNull() ?: return
+      val crop = imageProxy.cropRect
+      val frame = QrLuminance.fromYPlane(
+        buffer = yPlane.buffer,
+        imageWidth = mediaImage.width,
+        imageHeight = mediaImage.height,
+        rowStride = yPlane.rowStride,
+        pixelStride = yPlane.pixelStride,
+        cropLeft = crop.left,
+        cropTop = crop.top,
+        cropRight = crop.right,
+        cropBottom = crop.bottom,
+        rotationDegrees = imageProxy.imageInfo.rotationDegrees,
+      )
+      frameDecoder.decode(frame)?.let { value ->
+        if (!delivered && !isFinishing && !isDestroyed) {
+          runOnUiThread { finishWithResult(value) }
         }
-        .addOnFailureListener(::logFrameFailure)
-        .addOnCompleteListener { imageProxy.close() }
+      }
     } catch (failure: Throwable) {
-      // ML Kit may reject a frame synchronously on devices with a transient camera
-      // reconfiguration. Never let an analyzer exception kill the process.
+      // Camera reconfiguration and malformed plane metadata must never kill the analyzer thread.
       logFrameFailure(failure)
+    } finally {
       imageProxy.close()
     }
   }
@@ -394,10 +374,9 @@ class QrScannerActivity : ComponentActivity() {
     permissionDialog?.dismiss()
     permissionDialog = null
     runCatching { cameraProvider?.unbindAll() }
-    // CameraX/ML Kit may already have closed these resources after a failed
+    // CameraX may already have closed these resources after a failed
     // bind or an Activity recreation. Teardown must never turn that recoverable
     // scanner failure into a process crash.
-    runCatching { scanner?.close() }
     runCatching { analysisExecutor?.shutdownNow() }
     super.onDestroy()
   }

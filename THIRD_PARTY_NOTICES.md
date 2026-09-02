@@ -45,7 +45,7 @@ recorded so a rule update cannot silently change the routing dataset.
 
 ## Other dependencies
 
-The application uses AndroidX, Jetpack Compose, CameraX, ML Kit barcode
+The application uses AndroidX, Jetpack Compose, CameraX, ZXing core barcode
 scanning, SnakeYAML, Kotlin coroutines, RxAndroid, ktoml, SLF4J and
 logback-android. Versions are pinned in `gradle/libs.versions.toml` and
 `app/build.gradle.kts`; downloaded artifacts are checked by

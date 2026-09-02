@@ -24,13 +24,11 @@ When a user imports or refreshes a remote subscription, the app connects to the
 URL supplied by the user. The subscription provider receives ordinary network
 metadata such as the IP address and request headers.
 
-## QR scanning and ML Kit
+## QR scanning
 
-QR images are analysed on the device. Veilark uses Google ML Kit barcode
-scanning. Google states that input images and scan results are not sent to its
-servers, but the SDK may contact Google for fixes, model or accelerator updates,
-and may send API performance and utilisation metrics. See the
-[ML Kit terms and privacy information](https://developers.google.com/ml-kit/terms).
+QR images are analysed locally by the pure-Java ZXing core. The scanner does not
+need a remote recognition service and does not send camera frames or decoded QR
+values to ZXing or Google.
 
 Camera access is requested only when the user opens the QR scanner. Veilark does
 not record video or keep camera frames after scanning.

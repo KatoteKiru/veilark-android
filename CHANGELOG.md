@@ -2,6 +2,14 @@
 
 All notable changes to the public distribution are documented here.
 
+## 0.8.0-rc28
+
+- replaced the failing ML Kit QR initialization path with an offline ZXing
+  decoder while retaining CameraX lifecycle and permission handling;
+- made TrustTunnel read its own saved routing mode instead of the legacy mode
+  last written by sing-box;
+- moved GEO rule-set preparation and GitHub refresh off the Compose UI thread.
+
 ## 0.8.0-rc27
 
 - shipped the previously source-only QR permission recovery in the private OTA build;

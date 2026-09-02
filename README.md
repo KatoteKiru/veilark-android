@@ -84,9 +84,9 @@ libraries currently provide ARM ABIs only.
 The OSS variant contains no VPN account, analytics configuration, advertising
 SDK, private subscription, or private update channel. It connects to endpoints
 imported by the user and to checks explicitly started by the user. The technical
-log redacts sensitive values. QR scanning uses on-device Google ML Kit, whose SDK
-may send performance and utilisation metrics as disclosed in the bilingual
-[`PRIVACY.md`](PRIVACY.md).
+log redacts sensitive values. QR scanning uses the local, pure-Java ZXing core;
+camera frames and decoded values stay inside the app as described in the
+bilingual [`PRIVACY.md`](PRIVACY.md).
 
 Veilark is a client, not an anonymity guarantee. Privacy and availability still
 depend on the imported server and its operator. Report vulnerabilities through

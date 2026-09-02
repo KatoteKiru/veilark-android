@@ -131,8 +131,8 @@ android {
     defaultConfig {
         minSdk = 29
         targetSdk = 36
-        versionCode = 54
-        versionName = "0.8.0-rc27"
+    versionCode = 55
+    versionName = "0.8.0-rc28"
         buildConfigField("boolean", "VEILARK_CORE_ENABLED", "false")
         buildConfigField("String", "TELEGRAM_BOT_URL", quotedBuildConfig(telegramBotUrl))
         ndk {
@@ -263,7 +263,7 @@ dependencies {
   implementation("androidx.camera:camera-core:1.6.1")
   implementation("androidx.camera:camera-lifecycle:1.6.1")
   implementation("androidx.camera:camera-view:1.6.1")
-  implementation("com.google.mlkit:barcode-scanning:17.3.0")
+  implementation("com.google.zxing:core:3.5.3")
   implementation("org.yaml:snakeyaml:2.6")
   // Tooling
   debugImplementation(libs.androidx.compose.ui.tooling)

@@ -1351,6 +1351,16 @@ class MainActivity : ComponentActivity() {
                 }
               }
             }
+            if (profileEngine == ProfileEngine.SING_BOX) {
+              // Prime and validate the packaged/last-known-good rule sets away from
+              // the UI thread so opening or applying Russia-direct never stalls Compose.
+              coroutineScope.launch(Dispatchers.IO) {
+                runCatching { GeoRoutingAssets.prepare(this@MainActivity) }
+                  .onFailure {
+                    TechnicalLogStore.warning("GEO", "Geo rule-set prewarm failed")
+                  }
+              }
+            }
           },
           onRefreshGeo = {
             if (
@@ -1363,17 +1373,19 @@ class MainActivity : ComponentActivity() {
               geoUpdateMessage = null
               coroutineScope.launch {
                 runCatching {
-                  GeoRoutingAssets.refreshFromGitHub(this@MainActivity) { candidate ->
-                    val base = SecureProfileStore.load(
-                      this@MainActivity,
-                      SecureProfileStore.SING_BOX,
-                    )
-                    val configured = ProfileSelection.applyRouting(
-                      base,
-                      ProfileSelection.ROUTING_RU_DIRECT,
-                      geoRuleSets = candidate,
-                    )
-                    Libbox.checkConfig(configured)
+                  withContext(Dispatchers.IO) {
+                    GeoRoutingAssets.refreshFromGitHub(this@MainActivity) { candidate ->
+                      val base = SecureProfileStore.load(
+                        this@MainActivity,
+                        SecureProfileStore.SING_BOX,
+                      )
+                      val configured = ProfileSelection.applyRouting(
+                        base,
+                        ProfileSelection.ROUTING_RU_DIRECT,
+                        geoRuleSets = candidate,
+                      )
+                      Libbox.checkConfig(configured)
+                    }
                   }
                 }.onSuccess {
                   geoUpdateMessage = getString(R.string.geo_update_success)

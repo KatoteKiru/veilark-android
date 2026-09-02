@@ -42,14 +42,23 @@ object TrustTunnelGeoRouting {
   }
 
   internal fun isRussiaDirect(context: Context): Boolean =
-    isRussiaDirectMode(
-      context.getSharedPreferences("profile_meta", Context.MODE_PRIVATE)
-        .getString("routing_mode", ProfileSelection.ROUTING_ALL)
-        ?: ProfileSelection.ROUTING_ALL,
-    )
+    context.getSharedPreferences("profile_meta", Context.MODE_PRIVATE).let { preferences ->
+      isRussiaDirectMode(
+        trustMode = preferences.getString("trust_routing_mode", null),
+        legacyMode = preferences.getString("routing_mode", ProfileSelection.ROUTING_ALL),
+      )
+    }
 
   internal fun isRussiaDirectMode(mode: String): Boolean =
     mode == ProfileSelection.ROUTING_RU_DIRECT
+
+  /**
+   * TrustTunnel and sing-box retain independent routing choices. The legacy
+   * key remains only as a migration fallback for installations that predate
+   * the engine-specific keys; it must not override a saved TrustTunnel choice.
+   */
+  internal fun isRussiaDirectMode(trustMode: String?, legacyMode: String?): Boolean =
+    isRussiaDirectMode(trustMode ?: legacyMode ?: ProfileSelection.ROUTING_ALL)
 
   /** TrustTunnel starts as a full tunnel; direct CIDRs are applied after CONNECTED. */
   fun startupConfig(config: String): String =

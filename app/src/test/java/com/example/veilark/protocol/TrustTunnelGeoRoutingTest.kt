@@ -88,4 +88,29 @@ class TrustTunnelGeoRoutingTest {
       TrustTunnelGeoRouting.isRussiaDirectMode(ProfileSelection.ROUTING_MANUAL),
     )
   }
+
+  @Test
+  fun trustTunnelModeWinsOverTheLegacyModeUsedByTheOtherEngine() {
+    assertEquals(
+      false,
+      TrustTunnelGeoRouting.isRussiaDirectMode(
+        trustMode = ProfileSelection.ROUTING_ALL,
+        legacyMode = ProfileSelection.ROUTING_RU_DIRECT,
+      ),
+    )
+    assertEquals(
+      true,
+      TrustTunnelGeoRouting.isRussiaDirectMode(
+        trustMode = ProfileSelection.ROUTING_RU_DIRECT,
+        legacyMode = ProfileSelection.ROUTING_ALL,
+      ),
+    )
+    assertEquals(
+      true,
+      TrustTunnelGeoRouting.isRussiaDirectMode(
+        trustMode = null,
+        legacyMode = ProfileSelection.ROUTING_RU_DIRECT,
+      ),
+    )
+  }
 }
