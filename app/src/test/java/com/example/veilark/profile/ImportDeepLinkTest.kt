@@ -1,6 +1,7 @@
 package com.example.veilark.profile
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Test
 
@@ -19,6 +20,21 @@ class ImportDeepLinkTest {
       "tt://opaque-profile",
       ImportDeepLink.parseUri("veilark://import?url=tt%3A%2F%2Fopaque-profile"),
     )
+  }
+
+  @Test
+  fun acceptsTrustTunnelQueryOnlyDeepLink() {
+    // `trusttunnel_endpoint -f deeplink` produces `tt://?<base64url>` without a host.
+    val link = "tt://?AAECAwQFBgcICQoLDA0ODw_-"
+    assertEquals(
+      link,
+      ImportDeepLink.parseUri(
+        "veilark://import?url=" + java.net.URLEncoder.encode(link, Charsets.UTF_8.name()),
+      ),
+    )
+    assertEquals(link, ImportDeepLink.validatePayload(link))
+    assertEquals("TT://?AAECAwQ", ImportDeepLink.validatePayload("TT://?AAECAwQ"))
+    assertEquals("tt://?AAECAwQ", ImportDeepLink.parseQrPayload("TT://?AAECAwQ"))
   }
 
   @Test
@@ -64,6 +80,11 @@ class ImportDeepLinkTest {
       "tt://user:password@opaque-profile",
       "tt://opaque-profile#fragment",
       "tt://",
+      "tt://?",
+      "tt://?AAECAwQ#fragment",
+      "tt:///?AAECAwQ",
+      "javascript:alert(1)",
+      "data:text/plain,AAECAwQ",
       "not-a-profile",
     )
 
@@ -86,11 +107,34 @@ class ImportDeepLinkTest {
 
   @Test
   fun rejectsOversizedPayload() {
-    val value = "https://provider.example/sub?payload=" + "x".repeat(ImportDeepLinkTestConstants.MAX_PAYLOAD_LENGTH)
-    assertNull(ImportDeepLink.validatePayload(value))
+    val prefix = "https://provider.example/sub?payload="
+    val limit = "x".repeat(ImportDeepLink.MAX_PAYLOAD_LENGTH - prefix.length)
+    assertEquals(prefix + limit, ImportDeepLink.validatePayload(prefix + limit))
+    assertNull(ImportDeepLink.validatePayload(prefix + limit + "x"))
+    assertNull(ImportDeepLink.validatePayload("tt://?" + "A".repeat(ImportDeepLink.MAX_PAYLOAD_LENGTH)))
   }
 
-  private object ImportDeepLinkTestConstants {
-    const val MAX_PAYLOAD_LENGTH = 8 * 1024
+  @Test
+  fun neverExposesTheInnerUrlThroughExceptions() {
+    // The inner URL is a bearer credential: parsing must fail closed with null
+    // instead of surfacing the value inside an exception message.
+    val secret = "opaque-bearer-secret-6f1c"
+    val inputs = listOf(
+      "veilark://import?url=https%3A%2F%2Fprovider.example%2Fsub%3Ftoken%3D$secret%23fragment",
+      "veilark://import?url=http%3A%2F%2Fprovider.example%2F$secret",
+      "veilark://import?url=tt%3A%2F%2F%3F$secret%23fragment",
+      "veilark://import?url=$secret%ZZ",
+      "veilark://import?url=https://provider.example/$secret bad",
+      "veilark://import?url=https%3A%2F%2Fprovider.example%2F$secret&url=1",
+      "veilark://import?url=javascript%3Aalert(%27$secret%27)",
+      "veilark://import#$secret",
+      "veilark://$secret",
+    )
+    inputs.forEach { input ->
+      val outcome = runCatching { ImportDeepLink.parseUri(input) }
+      assertNull("must fail closed: $input", outcome.getOrNull())
+      val message = outcome.exceptionOrNull()?.toString().orEmpty()
+      assertFalse("exception must not carry the payload", message.contains(secret))
+    }
   }
 }

@@ -18,8 +18,8 @@ internal object ImportDeepLink {
   private const val SCHEME = "veilark"
   private const val HOST = "import"
   private const val PARAM = "url"
-  private const val MAX_INTENT_URI_LENGTH = 16 * 1024
-  private const val MAX_PAYLOAD_LENGTH = 8 * 1024
+  private const val MAX_INTENT_URI_LENGTH = 32 * 1024 // a fully percent-encoded 8192-char payload is ~24 KiB
+  internal const val MAX_PAYLOAD_LENGTH = 8192 // matches the Mini App isVeilarkImportTarget limit; tt://? payloads may embed certificates
 
   fun parse(intent: Intent?): String? {
     if (intent?.action != Intent.ACTION_VIEW) return null
@@ -74,6 +74,14 @@ internal object ImportDeepLink {
         payload.scheme.equals("tt", ignoreCase = true) &&
         payload.host?.isNotBlank() == true &&
         payload.userInfo == null &&
+        payload.fragment == null -> value
+      // `trusttunnel_endpoint -f deeplink` emits the query-only form `tt://?<payload>`:
+      // no authority, no path, the whole profile travels in the query component.
+      value.startsWith("tt://?", ignoreCase = true) &&
+        payload.scheme.equals("tt", ignoreCase = true) &&
+        payload.rawAuthority == null &&
+        payload.rawPath.isNullOrEmpty() &&
+        payload.rawQuery?.isNotBlank() == true &&
         payload.fragment == null -> value
       else -> null
     }
