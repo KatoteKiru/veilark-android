@@ -67,6 +67,7 @@ import androidx.compose.material3.TooltipDefaults
 import androidx.compose.material3.rememberTooltipState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -100,6 +101,7 @@ import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
 import com.example.veilark.engine.TunnelEngineKind
 import com.example.veilark.engine.TunnelStatus
+import com.example.veilark.profile.ImportDeepLink
 import com.example.veilark.profile.ProfileSelection
 import com.example.veilark.profile.SingBoxCatalogEntry
 import com.example.veilark.session.LogEntry
@@ -111,8 +113,10 @@ import com.example.veilark.ui.Strings
 import com.example.veilark.update.MacUpdate
 import com.example.veilark.update.MacUpdateClient
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 import java.awt.Color as AwtColor
+import java.awt.Desktop
 import java.awt.Dimension
 import java.awt.FileDialog
 import java.awt.Frame
@@ -133,7 +137,26 @@ private enum class MacSection(
   SETTINGS(Icons.Outlined.Settings, Strings.settings),
 }
 
-fun main() = application {
+/**
+ * Validated `veilark://import?url=...` payloads delivered by macOS through Launch
+ * Services. Registered before the Compose tree exists so that a cold start opened from a
+ * link is not lost; AWT queues the open-URI event until a handler is installed.
+ */
+private val externalImportRequests = MutableStateFlow<String?>(null)
+
+private fun installImportDeepLinkHandler() {
+  if (!Desktop.isDesktopSupported()) return
+  val desktop = Desktop.getDesktop()
+  if (!desktop.isSupported(Desktop.Action.APP_OPEN_URI)) return
+  desktop.setOpenURIHandler { event ->
+    // The inner URL is a bearer credential; unsupported links are dropped silently.
+    ImportDeepLink.parse(event.uri)?.let { externalImportRequests.value = it }
+  }
+}
+
+fun main() {
+  runCatching(::installImportDeepLinkHandler)
+  application {
   val session = remember { VeilarkSession.createDefault() }
   val scope = rememberCoroutineScope()
   var selectedSection by remember { mutableStateOf(MacSection.OVERVIEW) }
@@ -142,6 +165,14 @@ fun main() = application {
   var startupUpdate by remember { mutableStateOf<MacUpdate?>(null) }
   var startupUpdateError by remember { mutableStateOf<String?>(null) }
   val trayIcon = remember { BitmapPainter(trayBitmap().toComposeImageBitmap()) }
+  val externalImportUrl by externalImportRequests.collectAsState()
+
+  LaunchedEffect(externalImportUrl) {
+    if (externalImportUrl != null) {
+      selectedSection = MacSection.PROFILES
+      windowVisible = true
+    }
+  }
 
   LaunchedEffect(Unit) {
     if (MacUpdateClient.configured) {
@@ -235,9 +266,12 @@ fun main() = application {
           onUpdaterLaunched = {
             exitApplication()
           },
+          externalImportUrl = externalImportUrl,
+          onExternalImportConsumed = { externalImportRequests.value = null },
         )
       }
     }
+  }
   }
 }
 
@@ -262,6 +296,8 @@ private fun MacShell(
   startupUpdate: MacUpdate?,
   startupUpdateError: String?,
   onUpdaterLaunched: () -> Unit,
+  externalImportUrl: String? = null,
+  onExternalImportConsumed: () -> Unit = {},
 ) {
   tick
   val shortcutModifier = Modifier.onPreviewKeyEvent { event ->
@@ -296,7 +332,12 @@ private fun MacShell(
       ) {
         when (selectedSection) {
           MacSection.OVERVIEW -> OverviewSection(session, onSectionSelected, onToggleConnection)
-          MacSection.PROFILES -> ProfilesSection(session, refresh)
+          MacSection.PROFILES -> ProfilesSection(
+            session,
+            refresh,
+            externalImportUrl,
+            onExternalImportConsumed,
+          )
           MacSection.ROUTING -> RoutingSection(session)
           MacSection.DIAGNOSTICS -> DiagnosticsSection(session)
           MacSection.SETTINGS -> SettingsSection(
@@ -635,11 +676,26 @@ private fun CurrentProfile(session: VeilarkSession, onSectionSelected: (MacSecti
 }
 
 @Composable
-private fun ProfilesSection(session: VeilarkSession, refresh: () -> Unit) {
+private fun ProfilesSection(
+  session: VeilarkSession,
+  refresh: () -> Unit,
+  externalImportUrl: String? = null,
+  onExternalImportConsumed: () -> Unit = {},
+) {
   val scope = rememberCoroutineScope()
   var importText by remember { mutableStateOf("") }
   var importError by remember { mutableStateOf<String?>(null) }
   var subscriptionBotError by remember { mutableStateOf<String?>(null) }
+
+  // A validated deep link prefills the same reviewed import field; the request is
+  // cleared at once so that a recomposition cannot overwrite the user's edits.
+  LaunchedEffect(externalImportUrl) {
+    externalImportUrl?.let { value ->
+      importText = value
+      importError = null
+      onExternalImportConsumed()
+    }
+  }
   Column(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(18.dp)) {
     SectionHeading(Strings.profiles, Strings.profilesSubtitle)
     Row(

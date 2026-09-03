@@ -71,6 +71,19 @@ class MacPackagingMetadataTest {
   }
 
   @Test
+  fun bundleRegistersTheVeilarkUrlSchemeAndHandlesIt() {
+    val build = File("build.gradle.kts").readText()
+    val plist = build.substringAfter("extraKeysRawXml = \"\"\"").substringBefore("\"\"\".trimIndent()")
+    assertTrue(plist.contains("<key>CFBundleURLTypes</key>"))
+    assertTrue(plist.contains("<key>CFBundleURLSchemes</key>"))
+    assertTrue(plist.contains("<string>veilark</string>"))
+
+    val main = File("src/main/kotlin/app/veilark/macos/Main.kt").readText()
+    assertTrue(main.contains("setOpenURIHandler"))
+    assertTrue(main.contains("ImportDeepLink.parse(event.uri)"))
+  }
+
+  @Test
   fun packageBuildIsBoundToMacBuildNumber() {
     val build = File("build.gradle.kts").readText()
     val updater = File("updater/veilark-updater.swift").readText()

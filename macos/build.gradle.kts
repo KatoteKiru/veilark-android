@@ -428,11 +428,26 @@ compose.desktop {
         bundleID = "app.veilark.macos"
         dockName = "Veilark"
         infoPlist {
+          // `veilark://import?url=...` hands a subscription to the running app through
+          // Launch Services; Main.kt validates it with ImportDeepLink before use.
           extraKeysRawXml = """
             <key>LSUIElement</key>
             <false/>
             <key>NSHighResolutionCapable</key>
             <true/>
+            <key>CFBundleURLTypes</key>
+            <array>
+              <dict>
+                <key>CFBundleURLName</key>
+                <string>app.veilark.macos.import</string>
+                <key>CFBundleURLSchemes</key>
+                <array>
+                  <string>veilark</string>
+                </array>
+                <key>CFBundleTypeRole</key>
+                <string>Viewer</string>
+              </dict>
+            </array>
           """.trimIndent()
         }
       }
