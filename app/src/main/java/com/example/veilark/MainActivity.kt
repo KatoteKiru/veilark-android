@@ -53,6 +53,7 @@ import com.example.veilark.vpn.EndpointLatencyProbe
 import com.example.veilark.io.readAtMost
 import com.example.veilark.protocol.ProfileEngine
 import com.example.veilark.protocol.TrustTunnelManager
+import com.example.veilark.protocol.TrustTunnelGeoRouting
 import com.example.veilark.protocol.TrustTunnelProfile
 import com.example.veilark.protocol.TrustTunnelCatalog
 import io.nekohasekai.libbox.Libbox
@@ -214,16 +215,25 @@ class MainActivity : ComponentActivity() {
               ProfileSelection.ROUTING_ALL,
               ProfileSelection.ROUTING_MANUAL,
               ProfileSelection.ROUTING_RU_DIRECT,
-            ) && !(profileEngine == ProfileEngine.TRUST_TUNNEL &&
-              it == ProfileSelection.ROUTING_MANUAL)
+            )
           } ?: ProfileSelection.ROUTING_ALL,
         )
       }
       var directRoutes by remember {
-        mutableStateOf(profilePreferences.getString("direct_routes", "").orEmpty())
+        val key = if (profileEngine == ProfileEngine.TRUST_TUNNEL) {
+          "trust_direct_routes"
+        } else {
+          "direct_routes"
+        }
+        mutableStateOf(profilePreferences.getString(key, "").orEmpty())
       }
       var vpnRoutes by remember {
-        mutableStateOf(profilePreferences.getString("vpn_routes", "").orEmpty())
+        val key = if (profileEngine == ProfileEngine.TRUST_TUNNEL) {
+          "trust_vpn_routes"
+        } else {
+          "vpn_routes"
+        }
+        mutableStateOf(profilePreferences.getString(key, "").orEmpty())
       }
       var applicationMode by remember {
         mutableStateOf(
@@ -256,8 +266,7 @@ class MainActivity : ComponentActivity() {
             ProfileSelection.ROUTING_ALL,
             ProfileSelection.ROUTING_MANUAL,
             ProfileSelection.ROUTING_RU_DIRECT,
-          ) && !(engine == ProfileEngine.TRUST_TUNNEL &&
-            it == ProfileSelection.ROUTING_MANUAL)
+          )
         } ?: ProfileSelection.ROUTING_ALL
       }
       val singBoxConnectionState by VeilarkVpnService.state.collectAsStateWithLifecycle()
@@ -1043,15 +1052,15 @@ class MainActivity : ComponentActivity() {
               VeilarkVpnService.stop(this)
             }
             profileEngine = target
-            val targetRoutingFallback = if (
-              target == ProfileEngine.TRUST_TUNNEL &&
-              routingMode == ProfileSelection.ROUTING_MANUAL
-            ) {
-              ProfileSelection.ROUTING_ALL
-            } else {
-              routingMode
-            }
-            routingMode = storedRoutingModeFor(target, targetRoutingFallback)
+            routingMode = storedRoutingModeFor(target, routingMode)
+            directRoutes = profilePreferences.getString(
+              if (target == ProfileEngine.TRUST_TUNNEL) "trust_direct_routes" else "direct_routes",
+              "",
+            ).orEmpty()
+            vpnRoutes = profilePreferences.getString(
+              if (target == ProfileEngine.TRUST_TUNNEL) "trust_vpn_routes" else "vpn_routes",
+              "",
+            ).orEmpty()
             TechnicalLogStore.info(
               "APP",
               "Selected engine=${if (target == ProfileEngine.TRUST_TUNNEL) "TrustTunnel" else "sing-box"}",
@@ -1320,6 +1329,19 @@ class MainActivity : ComponentActivity() {
               }.isSuccess
             }
           },
+          onOpenWebAccount = {
+            val uri = VeilarkWebAccountLink.validate(BuildConfig.WEB_ACCOUNT_URL)
+            if (uri == null) {
+              false
+            } else {
+              runCatching {
+                startActivity(
+                  Intent(Intent.ACTION_VIEW, Uri.parse(uri.toASCIIString()))
+                    .addCategory(Intent.CATEGORY_BROWSABLE),
+                )
+              }.isSuccess
+            }
+          },
           onCheckUpdate = {
             updating = true
             updateStatus = getString(R.string.update_checking)
@@ -1464,8 +1486,12 @@ class MainActivity : ComponentActivity() {
               } else {
                 require(
                   newRoutingMode == ProfileSelection.ROUTING_ALL ||
-                    newRoutingMode == ProfileSelection.ROUTING_RU_DIRECT,
+                    newRoutingMode == ProfileSelection.ROUTING_RU_DIRECT ||
+                    newRoutingMode == ProfileSelection.ROUTING_MANUAL,
                 ) { getString(R.string.trust_routing_mode_unsupported) }
+                if (newRoutingMode == ProfileSelection.ROUTING_MANUAL) {
+                  TrustTunnelGeoRouting.manualExclusions(newDirectRoutes, newVpnRoutes)
+                }
                 if (connectionState != ConnectionState.Disconnected &&
                   connectionState != ConnectionState.Failed
                 ) {
@@ -1475,6 +1501,8 @@ class MainActivity : ComponentActivity() {
                   getString(R.string.trust_profile_not_found)
                 }
                 routingMode = newRoutingMode
+                directRoutes = newDirectRoutes.trim()
+                vpnRoutes = newVpnRoutes.trim()
               }
               applicationMode = newApplicationMode
               selectedApplications = packages
@@ -1492,6 +1520,8 @@ class MainActivity : ComponentActivity() {
                 routingEditor
                   .putString("routing_mode", routingMode)
                   .putString("trust_routing_mode", routingMode)
+                  .putString("trust_direct_routes", directRoutes)
+                  .putString("trust_vpn_routes", vpnRoutes)
               }
               check(routingEditor.commit()) { getString(R.string.routing_save_failed) }
               importError = null

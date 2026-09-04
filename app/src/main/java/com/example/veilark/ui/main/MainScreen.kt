@@ -220,6 +220,7 @@ fun MainScreen(
   onClearTechnicalLogs: () -> Unit = {},
   onRunDiagnostics: () -> Unit = {},
   onOpenSubscriptionAccount: () -> Boolean = { false },
+  onOpenWebAccount: () -> Boolean = { false },
   onCheckUpdate: () -> Unit = {},
   onUpdate: () -> Unit = {},
   onConnect: () -> Unit = {},
@@ -240,6 +241,12 @@ fun MainScreen(
   val openSubscriptionAccount = {
     if (!onOpenSubscriptionAccount()) {
       coroutineScope.launch { snackbarHostState.showSnackbar(subscriptionBotOpenFailed) }
+    }
+  }
+  val webAccountOpenFailed = stringResource(R.string.web_account_open_failed)
+  val openWebAccount = {
+    if (!onOpenWebAccount()) {
+      coroutineScope.launch { snackbarHostState.showSnackbar(webAccountOpenFailed) }
     }
   }
   val routingSavedMessage = stringResource(R.string.routing_saved)
@@ -309,6 +316,7 @@ fun MainScreen(
         onBack = { showAbout = false },
         onOpenDocument = { legalDocument = it },
         onOpenSubscriptionAccount = openSubscriptionAccount,
+        onOpenWebAccount = openWebAccount,
       )
     } else {
       LegalDocumentScreen(
@@ -527,6 +535,7 @@ fun MainScreen(
           onDeleteSubscription = onDeleteSubscription,
           onShareQr = onShareQr,
           onOpenSubscriptionAccount = openSubscriptionAccount,
+          onOpenWebAccount = openWebAccount,
           onRefreshLatency = onRefreshLatency,
           onSelectNode = {
             onSelectNode(it)
@@ -993,6 +1002,7 @@ private fun AboutScreen(
   onBack: () -> Unit,
   onOpenDocument: (LegalDocument) -> Unit,
   onOpenSubscriptionAccount: () -> Unit,
+  onOpenWebAccount: () -> Unit,
 ) {
   val uriHandler = LocalUriHandler.current
   val privacyPolicyUrl = stringResource(R.string.privacy_policy_url)
@@ -1059,6 +1069,31 @@ private fun AboutScreen(
               text = stringResource(R.string.subscription_bot_note),
               style = MaterialTheme.typography.bodySmall,
               color = MaterialTheme.colorScheme.onSecondaryContainer,
+            )
+          }
+        }
+      }
+      item {
+        Surface(
+          modifier = Modifier
+            .fillMaxWidth()
+            .clickable(role = Role.Button, onClick = onOpenWebAccount),
+          shape = RoundedCornerShape(16.dp),
+          color = MaterialTheme.colorScheme.surfaceContainer,
+        ) {
+          Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+          ) {
+            Text(
+              text = stringResource(R.string.web_account_open),
+              style = MaterialTheme.typography.titleSmall,
+              fontWeight = FontWeight.SemiBold,
+            )
+            Text(
+              text = stringResource(R.string.web_account_note),
+              style = MaterialTheme.typography.bodySmall,
+              color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
           }
         }
@@ -1356,6 +1391,7 @@ private fun ProfileCard(
   onDeleteSubscription: (String) -> Unit,
   onShareQr: (String, String) -> Unit,
   onOpenSubscriptionAccount: () -> Unit,
+  onOpenWebAccount: () -> Unit,
   onRefreshLatency: () -> Unit,
   onSelectNode: (String) -> Unit,
   onSelectSubscription: (String) -> Unit,
@@ -1500,6 +1536,7 @@ private fun ProfileCard(
         onRequestDelete = { pendingDeletionId = it },
         onShareQr = onShareQr,
         onOpenSubscriptionAccount = onOpenSubscriptionAccount,
+        onOpenWebAccount = onOpenWebAccount,
       )
     }
   }
@@ -1530,6 +1567,7 @@ private fun ConnectionPickerSheet(
   onRequestDelete: (String) -> Unit,
   onShareQr: (String, String) -> Unit,
   onOpenSubscriptionAccount: () -> Unit,
+  onOpenWebAccount: () -> Unit,
 ) {
   val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
@@ -1604,13 +1642,24 @@ private fun ConnectionPickerSheet(
         )
       }
 
-      TextButton(
-        onClick = onOpenSubscriptionAccount,
+      Column(
         modifier = Modifier
-          .align(Alignment.CenterHorizontally)
-          .padding(bottom = 8.dp),
+          .fillMaxWidth()
+          .padding(horizontal = 16.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
       ) {
-        Text(stringResource(R.string.subscription_get_or_renew))
+        TextButton(
+          onClick = onOpenSubscriptionAccount,
+          modifier = Modifier.fillMaxWidth(),
+        ) {
+          Text(stringResource(R.string.subscription_get_or_renew))
+        }
+        TextButton(
+          onClick = onOpenWebAccount,
+          modifier = Modifier.fillMaxWidth(),
+        ) {
+          Text(stringResource(R.string.web_account_open))
+        }
       }
       Text(
         text = stringResource(R.string.subscription_bot_note),
@@ -2132,15 +2181,7 @@ private fun RoutingSettingsDialog(
   onDismiss: () -> Unit,
 ) {
   var route by remember(routingMode, trustTunnelActive) {
-    mutableStateOf(
-      // TrustTunnel supports the verified Russian CIDR bypass but not arbitrary
-      // domain rules, so preserve Russia-direct and normalize only manual mode.
-      if (trustTunnelActive && routingMode == ProfileSelection.ROUTING_MANUAL) {
-        ProfileSelection.ROUTING_ALL
-      } else {
-        routingMode
-      },
-    )
+    mutableStateOf(routingMode)
   }
   var direct by remember(directRoutes) { mutableStateOf(directRoutes) }
   var vpn by remember(vpnRoutes) { mutableStateOf(vpnRoutes) }
@@ -2160,7 +2201,7 @@ private fun RoutingSettingsDialog(
 
   val canApply =
     (appMode == ProfileSelection.APPS_ALL || packages.isNotEmpty()) &&
-      (trustTunnelActive || route != ProfileSelection.ROUTING_MANUAL ||
+      (route != ProfileSelection.ROUTING_MANUAL ||
         direct.isNotBlank() || vpn.isNotBlank())
   Dialog(
     onDismissRequest = onDismiss,
@@ -2246,42 +2287,41 @@ private fun RoutingSettingsDialog(
                 onClick = { route = ProfileSelection.ROUTING_RU_DIRECT },
               )
             }
-            if (!trustTunnelActive) {
+            item {
+              SettingChoice(
+                title = stringResource(R.string.custom_rules),
+                subtitle = stringResource(R.string.custom_rules_description),
+                selected = route == ProfileSelection.ROUTING_MANUAL,
+                onClick = { route = ProfileSelection.ROUTING_MANUAL },
+              )
+            }
+            if (route == ProfileSelection.ROUTING_MANUAL) {
               item {
-                SettingChoice(
-                  title = stringResource(R.string.custom_rules),
-                  subtitle = stringResource(R.string.custom_rules_description),
-                  selected = route == ProfileSelection.ROUTING_MANUAL,
-                  onClick = { route = ProfileSelection.ROUTING_MANUAL },
+                OutlinedTextField(
+                  value = direct,
+                  onValueChange = { direct = it },
+                  modifier = Modifier.fillMaxWidth(),
+                  label = { Text(stringResource(R.string.direct_without_vpn)) },
+                  supportingText = { Text(stringResource(R.string.routes_input_hint)) },
+                  placeholder = { Text("bank.example\n192.0.2.0/24") },
+                  minLines = 3,
+                  shape = RoundedCornerShape(16.dp),
                 )
               }
-              if (route == ProfileSelection.ROUTING_MANUAL) {
-                item {
-                  OutlinedTextField(
-                    value = direct,
-                    onValueChange = { direct = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    label = { Text(stringResource(R.string.direct_without_vpn)) },
-                    supportingText = { Text(stringResource(R.string.routes_input_hint)) },
-                    placeholder = { Text("gosuslugi.ru\n192.168.0.0/16") },
-                    minLines = 3,
-                    shape = RoundedCornerShape(16.dp),
-                  )
-                }
-                item {
-                  OutlinedTextField(
-                    value = vpn,
-                    onValueChange = { vpn = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    label = { Text(stringResource(R.string.always_vpn)) },
-                    supportingText = { Text(stringResource(R.string.vpn_routes_priority)) },
-                    placeholder = { Text("youtube.com\ngooglevideo.com") },
-                    minLines = 3,
-                    shape = RoundedCornerShape(16.dp),
-                  )
-                }
+              item {
+                OutlinedTextField(
+                  value = vpn,
+                  onValueChange = { vpn = it },
+                  modifier = Modifier.fillMaxWidth(),
+                  label = { Text(stringResource(R.string.always_vpn)) },
+                  supportingText = { Text(stringResource(R.string.vpn_routes_priority)) },
+                  placeholder = { Text("video.example\n2001:db8::/32") },
+                  minLines = 3,
+                  shape = RoundedCornerShape(16.dp),
+                )
               }
-            } else {
+            }
+            if (trustTunnelActive) {
               item {
                 Surface(
                   shape = RoundedCornerShape(18.dp),

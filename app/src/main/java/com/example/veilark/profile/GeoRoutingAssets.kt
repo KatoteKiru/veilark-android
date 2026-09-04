@@ -19,8 +19,8 @@ import java.util.UUID
  * Owns versioned, local geo rule-set generations.
  *
  * Connections never depend on the network: [prepare] loads the last verified
- * generation or installs the APK snapshot. GitHub is contacted only by the
- * explicit [refreshFromGitHub] action. A partial or invalid download never
+ * generation or installs the APK snapshot. The managed mirror is contacted only by the
+ * explicit [refreshFromGitHub] action, with upstream as a fallback. A partial or invalid download never
  * replaces the active generation.
  */
 object GeoRoutingAssets {
@@ -32,10 +32,14 @@ object GeoRoutingAssets {
   private const val GEOSITE_ASSET = "rules/geosite-category-ru.srs"
   private const val GEOIP_FILE = "geoip-ru.srs"
   private const val GEOSITE_FILE = "geosite-category-ru.srs"
-  private const val GEOIP_URL =
-    "https://raw.githubusercontent.com/SagerNet/sing-geoip/rule-set/geoip-ru.srs"
-  private const val GEOSITE_URL =
-    "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-category-ru.srs"
+  private val GEOIP_URLS = listOf(
+    "https://nl2.senyasenyavski.uk:2096/veilark/geo/current/geoip-ru.srs",
+    "https://raw.githubusercontent.com/SagerNet/sing-geoip/rule-set/geoip-ru.srs",
+  )
+  private val GEOSITE_URLS = listOf(
+    "https://nl2.senyasenyavski.uk:2096/veilark/geo/current/geosite-category-ru.srs",
+    "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-category-ru.srs",
+  )
   private const val MAX_RULE_SET_BYTES = 32L * 1024L * 1024L
   private val GENERATION_PATTERN = Regex("[0-9a-f]{32}")
   private val SHA256_PATTERN = Regex("[0-9a-f]{64}")
@@ -71,8 +75,8 @@ object GeoRoutingAssets {
       try {
         val geoIp = File(staging, GEOIP_FILE)
         val geoSite = File(staging, GEOSITE_FILE)
-        download(GEOIP_URL, geoIp)
-        download(GEOSITE_URL, geoSite)
+        download(GEOIP_URLS, geoIp)
+        download(GEOSITE_URLS, geoSite)
         val result = UpdateResult(sha256(geoIp), sha256(geoSite))
         val candidate = ProfileSelection.GeoRuleSets(geoIp.absolutePath, geoSite.absolutePath)
         validator(candidate)
@@ -154,11 +158,22 @@ object GeoRoutingAssets {
     return destination
   }
 
-  private fun download(url: String, destination: File) {
-    val uri = URI(url)
-    require(uri.scheme == "https" && uri.host == "raw.githubusercontent.com") {
-      "Недопустимый источник геоданных"
+  private fun download(urls: List<String>, destination: File) {
+    require(urls.isNotEmpty())
+    val succeeded = urls.any { url ->
+      destination.delete()
+      runCatching { downloadOne(url, destination) }.isSuccess
     }
+    check(succeeded && destination.isFile) { "Не удалось загрузить геоданные" }
+  }
+
+  private fun downloadOne(url: String, destination: File) {
+    val uri = URI(url)
+    require(uri.scheme == "https") { "Недопустимый источник геоданных" }
+    require(
+      (uri.host == "raw.githubusercontent.com" && uri.port == -1) ||
+        (uri.host == "nl2.senyasenyavski.uk" && uri.port == 2096),
+    ) { "Недопустимый источник геоданных" }
     val connection = uri.toURL().openConnection() as HttpURLConnection
     connection.instanceFollowRedirects = false
     connection.connectTimeout = 8_000
@@ -167,7 +182,7 @@ object GeoRoutingAssets {
     connection.setRequestProperty("User-Agent", "Veilark-Android")
     try {
       check(connection.responseCode == HttpURLConnection.HTTP_OK) {
-        "GitHub не вернул файл геоданных"
+        "Источник не вернул файл геоданных"
       }
       val declared = connection.contentLengthLong
       check(declared == -1L || declared in 1..MAX_RULE_SET_BYTES) {

@@ -98,6 +98,7 @@ val privateSubscriptionHost = privateProperty("subscriptionHost").orEmpty()
 val privateSubscriptionPort = privateProperty("subscriptionPort")?.toIntOrNull() ?: -1
 val telegramBotUrl = privateProperty("telegramBotUrl")
   ?: "https://t.me/senyavpn_bot?start=client_android"
+val webAccountUrl = "https://sub.senyasenyavski.uk/tma/"
 
 val ossKeystorePath = providers.environmentVariable("VEILARK_OSS_KEYSTORE").orNull
 val ossKeystorePassword = providers.environmentVariable("VEILARK_OSS_STORE_PASSWORD").orNull
@@ -133,10 +134,11 @@ android {
     defaultConfig {
         minSdk = 29
         targetSdk = 36
-    versionCode = 56
-    versionName = "0.8.0-rc29"
+    versionCode = 57
+    versionName = "0.8.0-rc30"
         buildConfigField("boolean", "VEILARK_CORE_ENABLED", "false")
         buildConfigField("String", "TELEGRAM_BOT_URL", quotedBuildConfig(telegramBotUrl))
+        buildConfigField("String", "WEB_ACCOUNT_URL", quotedBuildConfig(webAccountUrl))
         ndk {
             abiFilters += veilarkAbis
         }

@@ -11,6 +11,9 @@
     <string name="subscription_get_or_renew">Open the Veilark Telegram bot</string>
     <string name="subscription_bot_note">Get or renew your subscription in the Veilark bot. Payments are coming soon.</string>
     <string name="subscription_bot_open_failed">Could not open the Veilark Telegram bot. Open @senyavpn_bot manually.</string>
+    <string name="web_account_open">Open web account</string>
+    <string name="web_account_note">Manage your subscription and devices in the Veilark web account.</string>
+    <string name="web_account_open_failed">Could not open the Veilark web account.</string>
     <string name="subscription_paste">Paste a subscription link from the clipboard</string>
     <string name="subscription_scan_qr">Add a subscription from a QR code</string>
     <string name="subscription_refresh">Refresh the selected subscription</string>
@@ -100,7 +103,7 @@
     <string name="enabled_value">Enabled</string>
     <string name="trust_full_tunnel">Full tunnel through TrustTunnel</string>
     <string name="trust_russia_direct_description">Russian IPv4/IPv6 networks go directly; all other traffic uses TrustTunnel</string>
-    <string name="trust_routing_mode_unsupported">TrustTunnel supports only full tunnel or Russia direct. Custom domain rules are available in sing-box.</string>
+    <string name="trust_routing_mode_unsupported">This routing mode is not supported by the installed TrustTunnel core.</string>
     <string name="protection">Protection</string>
     <string name="close_routing">Close routing settings</string>
     <string name="custom_rules_description">Choose what should go directly or through the VPN</string>
@@ -108,7 +111,7 @@
     <string name="routes_input_hint">Domains and networks separated by spaces or new lines</string>
     <string name="always_vpn">Always through VPN</string>
     <string name="vpn_routes_priority">These rules take priority over direct routes</string>
-    <string name="trust_app_rules_note">TrustTunnel supports application rules and Russian IP-network bypass. Android applies changes when creating the VPN interface, so reconnect after changing settings. Custom domain rules are available in sing-box.</string>
+    <string name="trust_app_rules_note">TrustTunnel supports application filters, Russia direct, and custom domain/IP exclusions. Android applies these rules when creating the VPN interface, so reconnect after changing settings.</string>
     <string name="apps_only_vpn">Only selected applications through VPN</string>
     <string name="apps_bypass_vpn">Selected applications without VPN</string>
     <string name="nothing_selected">Nothing selected</string>

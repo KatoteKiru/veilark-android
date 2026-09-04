@@ -9,6 +9,7 @@ import com.example.veilark.diagnostics.TechnicalLogStore
 import com.example.veilark.lifecycle.AndroidTunnelLifecycleOwner
 import com.example.veilark.lifecycle.LifecycleAttempt
 import com.example.veilark.NativeRuntimeState
+import com.example.veilark.profile.ProfileSelection
 import com.example.veilark.vpn.ConnectionState
 import com.example.veilark.vpn.EndpointLatencyProbe
 import com.example.veilark.vpn.ManualLatencyPolicy
@@ -92,16 +93,20 @@ object TrustTunnelManager : AppNotifier {
   internal fun startEngine(context: Context, config: String, attempt: LifecycleAttempt) {
     NativeRuntimeState.requireTrustTunnel()
     val startupConfig = TrustTunnelGeoRouting.startupConfig(config)
-    val geoBypassRequested = TrustTunnelGeoRouting.isRussiaDirect(context)
+    val routingPreferences = context.getSharedPreferences("profile_meta", Context.MODE_PRIVATE)
+    val routingMode = TrustTunnelGeoRouting.currentMode(
+      routingPreferences.getString("trust_routing_mode", null),
+      routingPreferences.getString("routing_mode", ProfileSelection.ROUTING_ALL),
+    )
     // Start a small, full-tunnel profile first. The native adapter applies the
     // large, verified CIDR set only after CONNECTED, so TUN admission and the
     // first handshake are not blocked by route compilation.
-    val directCidrs = if (geoBypassRequested) {
-      runCatching { TrustTunnelGeoRouting.currentDirectCidrs(context) }
+    val directCidrs = if (routingMode != ProfileSelection.ROUTING_ALL) {
+      runCatching { TrustTunnelGeoRouting.currentDirectExclusions(context) }
         .onFailure {
           TechnicalLogStore.warning(
             "TRUST",
-            "Russia-direct geo data is unavailable; retaining full tunnel",
+            "Direct routing exclusions are unavailable; retaining full tunnel",
           )
         }
         .getOrDefault(emptyList())
@@ -119,7 +124,9 @@ object TrustTunnelManager : AppNotifier {
       mutableStopped.value = false
       hasConnected = false
       mutableFailureMessage.value = null
-      mutableRoutingNotice.value = if (geoBypassRequested && directCidrs.isEmpty()) {
+      mutableRoutingNotice.value = if (
+        routingMode == ProfileSelection.ROUTING_RU_DIRECT && directCidrs.isEmpty()
+      ) {
         context.getString(R.string.trust_geo_bypass_disabled)
       } else {
         null

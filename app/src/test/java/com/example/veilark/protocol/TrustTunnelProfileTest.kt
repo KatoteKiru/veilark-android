@@ -53,6 +53,20 @@ class TrustTunnelProfileTest {
     assertFalse("203.0.113.0/24" in full)
   }
 
+  @Test
+  fun acceptsValidatedDomainExclusionsForManualRouting() {
+    val config = TrustTunnelProfile.buildConfig(
+      endpoint = "[endpoint]\nname = \"Test\"",
+    )
+
+    val manual = TrustTunnelProfile.withDirectExclusions(
+      config,
+      listOf("example.ru", "*.example.ru", "10.0.0.0/8"),
+    )
+
+    assertTrue("exclusions = [\"example.ru\", \"*.example.ru\", \"10.0.0.0/8\"]" in manual)
+  }
+
   companion object {
     private const val LOCALHOST_FIXTURE =
       "tt://AQlsb2NhbGhvc3QFBHRlc3QGBHRlc3QCDjEyNy4wLjAuMTo0NDQzCwRhYWJiAwlsb2NhbGhvc3QIQVMwggFPMIH1oAMCAQICFGi8WMY2yFmtW2u_18hMQBa0T4VGMAoGCCqGSM49BAMCMBQxEjAQBgNVBAMMCWxvY2FsaG9zdDAeFw0yNjAxMzAwMDAwMDBaFw0yNzAxMzAwMDAwMDBaMBQxEjAQBgNVBAMMCWxvY2FsaG9zdDBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABB4ozK9KbqScCCTJ8CvTfW4W0r9OEsn4VcQswd-BbP9z-tdyfE5HT4uHLUSZRWUKfZjnRRkHWOwhp9KJhOE-LAWjJTAjMCEGA1UdEQQaMBiCCWxvY2FsaG9zdIILKi5sb2NhbGhvc3QwCgYIKoZIzj0EAwIDSQAwRgIhAO6gFBHDsgvWjPj39JNchcMF3X2ICgzycBwTyydxqpdiAiEAgybYwECuZopK1g6JX5tK0-5B3Of7n0NuPXRGSU5TtSc"

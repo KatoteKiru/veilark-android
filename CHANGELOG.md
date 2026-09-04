@@ -2,6 +2,16 @@
 
 All notable changes to the public distribution are documented here.
 
+## 0.8.0-rc30
+
+- exposed custom domain and CIDR routing in the Android client while preserving
+  independent sing-box and TrustTunnel settings and per-application split;
+- moved explicit GEO refresh to the managed Veilark mirror with the upstream
+  SagerNet rule sets retained as a fallback, while connection startup remains
+  offline-first from the last verified generation;
+- added strictly validated links to the Veilark Telegram bot and web account;
+- retained subscriptions, selected nodes and routing preferences during OTA.
+
 ## 0.8.0-rc29
 
 - fixed QR imports that reached the camera successfully but failed on Veilark
