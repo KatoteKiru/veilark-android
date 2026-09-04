@@ -32,6 +32,18 @@ class MacPackagingMetadataTest {
   }
 
   @Test
+  fun offlineVerifierUsesTheSamePinnedCoreHashes() {
+    val root = JSONObject(File("vendor/UPSTREAM.json").readText())
+    val singBox = root.getJSONObject("sing-box").getJSONObject("binarySha256")
+    val trust = root.getJSONObject("trusttunnel_client")
+    val verifier = File("scripts/verify-bundled-assets.sh").readText()
+
+    assertTrue(verifier.contains("SING_SHA=\"${singBox.getString("arm64")}\""))
+    assertTrue(verifier.contains("SING_SHA=\"${singBox.getString("amd64")}\""))
+    assertTrue(verifier.contains("TRUST_SHA=\"${trust.getString("binarySha256")}\""))
+  }
+
+  @Test
   fun packageRequiresTheNativeInAppUpdater() {
     val build = File("build.gradle.kts").readText()
     val inventory = File("scripts/verify-packaged-dmg.sh").readText()
