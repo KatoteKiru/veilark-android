@@ -1215,7 +1215,7 @@ private fun SettingsSection(
     SectionHeading(Strings.settings, Strings.settingsSubtitle)
     SettingsRow(Icons.Outlined.Tune, Strings.singBox, Strings.singBoxVersion, true)
     SettingsRow(Icons.Outlined.Lock, Strings.trustTunnel, Strings.trustTunnelVersion, true)
-    SettingsRow(Icons.Outlined.Shield, Strings.privilegedHelper, if (session.helperReady()) Strings.installed else Strings.notInstalled, session.helperReady())
+    SettingsRow(VeilarkMark, Strings.privilegedHelper, if (session.helperReady()) Strings.installed else Strings.notInstalled, session.helperReady())
     if (!session.helperReady()) {
       OutlinedButton(
         onClick = {
