@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.0.9 preview
+
+- Use the shared monochrome Veilark artwork instead of generic shield symbols.
+- Supply a vector-rendered 16–1024 px ICNS for Dock and Finder; menu-bar artwork follows the system theme.
+- Refine the neutral light/dark palette and soften sidebar selection transitions.
+- Respect Reduce Motion and Reduce Transparency without background animation loops.
+- Keep VPN engines, routing, subscriptions, helper and OTA verification unchanged.
+- Physical Mac visual and tunnel acceptance remain separate from CI checks.
+
 ## 1.0.8 preview
 
 - update the pinned stable sing-box runtime from 1.13.19 to 1.13.21 without

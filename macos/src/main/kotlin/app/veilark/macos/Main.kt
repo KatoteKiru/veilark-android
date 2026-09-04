@@ -1,6 +1,9 @@
 package app.veilark.macos
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -44,7 +47,6 @@ import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Route
 import androidx.compose.material.icons.outlined.Speed
 import androidx.compose.material.icons.outlined.Settings
-import androidx.compose.material.icons.outlined.Shield
 import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material.icons.outlined.WarningAmber
 import androidx.compose.material.icons.outlined.Wifi
@@ -66,6 +68,8 @@ import androidx.compose.material3.TooltipBox
 import androidx.compose.material3.TooltipDefaults
 import androidx.compose.material3.rememberTooltipState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -113,16 +117,14 @@ import com.example.veilark.ui.Strings
 import com.example.veilark.update.MacUpdate
 import com.example.veilark.update.MacUpdateClient
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
-import java.awt.Color as AwtColor
 import java.awt.Desktop
 import java.awt.Dimension
 import java.awt.FileDialog
 import java.awt.Frame
-import java.awt.RenderingHints
-import java.awt.geom.AffineTransform
-import java.awt.geom.Path2D
 import java.awt.image.BufferedImage
 import java.io.File
 import java.time.ZoneId
@@ -166,8 +168,12 @@ fun main() {
   var windowVisible by remember { mutableStateOf(true) }
   var startupUpdate by remember { mutableStateOf<MacUpdate?>(null) }
   var startupUpdateError by remember { mutableStateOf<String?>(null) }
-  val trayIcon = remember { BitmapPainter(brandBitmap(36).toComposeImageBitmap()) }
-  val windowIcon = remember { BitmapPainter(brandBitmap(256).toComposeImageBitmap()) }
+  val darkTheme = isSystemInDarkTheme()
+  val trayIcon = remember(darkTheme) { BitmapPainter(brandBitmap(36, darkTheme, tray = true).toComposeImageBitmap()) }
+  val windowIcon = remember(darkTheme) { BitmapPainter(brandBitmap(256, darkTheme).toComposeImageBitmap()) }
+  val visualPreferences by produceState(VisualPreferences()) {
+    value = withContext(Dispatchers.IO) { readVisualPreferences() }
+  }
   val externalImportUrl by externalImportRequests.collectAsState()
 
   LaunchedEffect(externalImportUrl) {
@@ -258,6 +264,7 @@ fun main() {
         window.minimumSize = Dimension(900, 620)
       }
       VeilarkTheme {
+        CompositionLocalProvider(LocalVisualPreferences provides visualPreferences) {
         MacShell(
           session = session,
           selectedSection = selectedSection,
@@ -273,6 +280,7 @@ fun main() {
           externalImportUrl = externalImportUrl,
           onExternalImportConsumed = { externalImportRequests.value = null },
         )
+        }
       }
     }
   }
@@ -280,29 +288,8 @@ fun main() {
 }
 
 /** Monochrome Veilark mark shared with the Android adaptive icon. */
-private fun brandBitmap(size: Int): BufferedImage {
-  val image = BufferedImage(size, size, BufferedImage.TYPE_INT_ARGB)
-  val graphics = image.createGraphics()
-  graphics.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
-  graphics.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY)
-  graphics.color = AwtColor(0x11, 0x15, 0x1A)
-  graphics.fillOval(0, 0, size, size)
-  graphics.color = AwtColor(0x1D, 0x24, 0x2C)
-  val inset = (size * 0.075).toInt().coerceAtLeast(1)
-  graphics.fillOval(inset, inset, size - inset * 2, size - inset * 2)
-
-  val mark = Path2D.Double().apply {
-    moveTo(20.0, 30.0); lineTo(44.0, 45.0); lineTo(44.0, 70.0); lineTo(20.0, 54.0); closePath()
-    moveTo(88.0, 30.0); lineTo(64.0, 45.0); lineTo(64.0, 70.0); lineTo(88.0, 54.0); closePath()
-    moveTo(48.0, 43.0); lineTo(54.0, 39.0); lineTo(60.0, 43.0); lineTo(60.0, 67.0)
-    lineTo(56.5, 67.0); lineTo(62.0, 86.0); lineTo(54.0, 94.0); lineTo(46.0, 86.0)
-    lineTo(51.5, 67.0); lineTo(48.0, 67.0); closePath()
-  }
-  graphics.color = AwtColor.WHITE
-  graphics.fill(AffineTransform.getScaleInstance(size / 108.0, size / 108.0).createTransformedShape(mark))
-  graphics.dispose()
-  return image
-}
+internal fun brandBitmap(size: Int, darkTheme: Boolean = true, tray: Boolean = false): BufferedImage =
+  BrandIcon.render(size, darkTheme, tray)
 
 @Composable
 private fun MacShell(
@@ -380,7 +367,9 @@ private fun MacSidebar(
 ) {
   Surface(
     modifier = Modifier.widthIn(min = 220.dp, max = 240.dp).fillMaxHeight(),
-    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.34f),
+    color = MaterialTheme.colorScheme.surfaceVariant.copy(
+      alpha = if (LocalVisualPreferences.current.reduceTransparency) 1f else 0.55f,
+    ),
   ) {
     Column(
       modifier = Modifier.fillMaxHeight().padding(18.dp),
@@ -392,7 +381,7 @@ private fun MacSidebar(
         horizontalArrangement = Arrangement.spacedBy(10.dp),
       ) {
         Icon(
-          imageVector = Icons.Outlined.Shield,
+          imageVector = VeilarkMark,
           contentDescription = null,
           tint = MaterialTheme.colorScheme.primary,
           modifier = Modifier.size(25.dp),
@@ -434,6 +423,15 @@ private fun SidebarItem(
   val interaction = remember { MutableInteractionSource() }
   val hovered by interaction.collectIsHoveredAsState()
   val focusedState = remember { mutableStateOf(false) }
+  val itemColor by animateColorAsState(
+    targetValue = when {
+      selected -> colors.secondaryContainer
+      hovered -> colors.surface.copy(alpha = 0.7f)
+      else -> Color.Transparent
+    },
+    animationSpec = tween(if (LocalVisualPreferences.current.reduceMotion) 0 else 140),
+    label = "sidebar selection",
+  )
   Surface(
     modifier = Modifier
       .fillMaxWidth()
@@ -446,11 +444,7 @@ private fun SidebarItem(
         this.selected = selected
         stateDescription = if (selected) Strings.selectedState else Strings.notSelectedState
       },
-    color = when {
-      selected -> colors.secondaryContainer
-      hovered -> colors.surface.copy(alpha = 0.7f)
-      else -> Color.Transparent
-    },
+    color = itemColor,
     border = if (focusedState.value) BorderStroke(1.dp, colors.primary) else null,
   ) {
     Row(
@@ -534,7 +528,7 @@ private fun ConnectionPanel(
         imageVector = when {
           connected -> Icons.Outlined.CheckCircle
           failed -> Icons.Outlined.ErrorOutline
-          else -> Icons.Outlined.Shield
+          else -> VeilarkMark
         },
         contentDescription = null,
         tint = if (failed) colors.error else colors.primary,

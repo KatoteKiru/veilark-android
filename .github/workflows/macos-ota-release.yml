@@ -85,7 +85,7 @@ jobs:
           cp "$SOURCE_DMG" "build/ota/$ARTIFACT"
           printf '%s' "$OTA_SIGNING_KEY_B64" | base64 --decode > "$RUNNER_TEMP/veilark-macos-ota.pem"
           chmod 0600 "$RUNNER_TEMP/veilark-macos-ota.pem"
-          NOTES="Veilark $VERSION preview: sing-box is updated to stable 1.13.21 and TrustTunnel to stable 1.1.5. Routing, GEO behavior and subscription formats are unchanged. TrustTunnel remains IPv4-only on macOS pending physical IPv6 validation. Apple signing and notarization are not configured."
+          NOTES="Veilark $VERSION: a quieter monochrome interface, the shared Veilark logo, sharp Dock and Finder icons, theme-aware menu-bar artwork, and subtle selection feedback respecting Reduce Motion. VPN engines, routing and subscription formats are unchanged. This channel uses Veilark-signed OTA updates; Apple notarization is not configured."
           ./gradlew --no-daemon createOtaManifest \
             "-PotaDmg=build/ota/$ARTIFACT" \
             "-PotaManifestOutput=build/ota/manifest.json" \

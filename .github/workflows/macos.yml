@@ -9,6 +9,7 @@ on:
     branches:
       - cursor/macos-vpn-client
       - codex/macos-hardening
+      - cursor/deep-link-import-macos
     paths:
       - "macos/**"
       - ".github/workflows/macos.yml"

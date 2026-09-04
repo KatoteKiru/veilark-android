@@ -315,6 +315,18 @@ val verifyExistingOtaManifest by tasks.registering {
   }
 }
 
+val generateAppIcon by tasks.registering(Exec::class) {
+  val output = layout.buildDirectory.file("branding/Veilark.icns")
+  inputs.files("src/main/java/app/veilark/macos/BrandIcon.java", "src/main/resources/brand/veilark-mark.svg")
+  outputs.file(output)
+  commandLine(
+    File(System.getProperty("java.home"), "bin/java").absolutePath,
+    file("src/main/java/app/veilark/macos/BrandIcon.java").absolutePath,
+    file("src/main/resources/brand/veilark-mark.svg").absolutePath,
+    output.get().asFile.absolutePath,
+  )
+}
+
 val compileHelper by tasks.registering(Exec::class) {
   val output = layout.buildDirectory.file("helper/veilark-helper")
   inputs.file("helper/veilark-helper.swift")
@@ -372,7 +384,7 @@ val compileUpdater by tasks.registering(Exec::class) {
 }
 
 tasks.named("processResources") {
-  dependsOn(compileHelper, compileUpdater)
+  dependsOn(compileHelper, compileUpdater, generateAppIcon)
 }
 
 fun File.markBundledEnginesExecutable() {
@@ -424,6 +436,7 @@ compose.desktop {
       vendor = "Veilark"
       appResourcesRootDir.set(project.layout.projectDirectory.dir("packaging"))
       macOS {
+        iconFile.set(layout.buildDirectory.file("branding/Veilark.icns"))
         packageBuildVersion = macosBuild.toString()
         bundleID = "app.veilark.macos"
         dockName = "Veilark"
