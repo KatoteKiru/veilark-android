@@ -2,10 +2,13 @@
 
 All notable changes to the public distribution are documented here.
 
-## 0.8.0-rc30
+## 0.8.0-rc31
 
 - updated the embedded stable sing-box core from 1.13.19 to 1.13.21 without
   changing routing or subscription formats;
+
+## 0.8.0-rc30
+
 - exposed custom domain and CIDR routing in the Android client while preserving
   independent sing-box and TrustTunnel settings and per-application split;
 - moved explicit GEO refresh to the managed Veilark mirror with the upstream
