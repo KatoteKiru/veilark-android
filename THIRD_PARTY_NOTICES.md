@@ -21,7 +21,7 @@ uses its own name and does not claim such an association.
 ## TrustTunnelClient
 
 - project: <https://github.com/TrustTunnel/TrustTunnelClient>
-- production tag: `v1.1.4`
+- upstream tag: `v1.1.5`
 - exact commit: `7da863b1b947d22a3131d94dcc7c80b0240b6e97`
 - license: Apache License 2.0
 - installed artifact: `app/libs/trusttunnel-client.aar`

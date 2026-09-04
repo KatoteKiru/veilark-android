@@ -640,7 +640,7 @@ class MainActivity : ComponentActivity() {
             SecureProfileStore.exists(this, SecureProfileStore.TRUST_TUNNEL),
           engineDescription = if (profileEngine == ProfileEngine.TRUST_TUNNEL) {
             buildString {
-              append("TrustTunnel 1.1.4")
+              append("TrustTunnel 1.1.5")
               trustTunnelTransport?.let { append(" · $it") }
             }
           } else {

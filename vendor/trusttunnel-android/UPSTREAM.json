@@ -2,22 +2,28 @@
   "schema": 3,
   "upstream": {
     "repository": "https://github.com/TrustTunnel/TrustTunnelClient.git",
-    "tag": "v1.1.4",
-    "commit": "7da863b1b947d22a3131d94dcc7c80b0240b6e97"
+    "tag": "v1.1.5",
+    "commit": "8886193f90eea5855a0a3c4a735ed0e44a5a4751",
+    "tag_object": "786feaa4f052af1fccd3e63c00b1b0291e975bef",
+    "published_at": "2026-09-02T19:58:56Z",
+    "source_tree": "e064bc7f0f5de01b73f28e17f455884af605f978",
+    "source_archive_sha256": "EE8BD33BBDF8B8F24A8CE309BE1526F91FF59DC0DBF459D584B29F70FFF4C363"
   },
   "patches": [
     {
       "path": "patches/0001-android-per-app-routing.patch",
-      "sha256": "A041E2A15F5C414A3C5C18037F897257DBBE4BBA4B8C42430F0FBC042025742F"
+      "sha256": "7ED0C9D727BE19B647EB415C2828AE2820B85A837423A19C26E98FA0025F2E1F"
     },
     {
       "path": "patches/0002-android-lifecycle-hardening.patch",
-      "sha256": "0DEADECEEC1B4103C7E8E6F4358447177184AC3B122049F8BF1BC965D4FF60D6"
+      "sha256": "9B27E966F48AD3B51125524707B52A33C67BDCEDCEDD5BE1B671B6A542E33F7E"
     }
   ],
   "packaging": {
     "method": "full-upstream-android-aar-build",
     "native_rebuilt": true,
+    "patched_source_tree": "6946a170b2271a8d00a8251cf922a4654c69fd7f",
+    "patched_source_archive_sha256": "3C9673CA0756F4A55E8DF617849DDBE7C49AB71F4E40CB2FAEDE3CAA6FC2D836",
     "abis": ["arm64-v8a", "armeabi-v7a"],
     "preserved_veilark_adapter_fixes": [
       "android-34-special-use-foreground-service",
@@ -34,14 +40,13 @@
   },
   "dependency_bootstrap": {
     "dns_libs": {
-      "package": "dns-libs/2.8.51@adguard/oss",
-      "repository_tag": "v2.8.52",
-      "source_commit": "8b4fec198f12f69f23b3ae45d6d86afb8e82ba62"
+      "package": "dns-libs/2.10.1-1-g7748c6a7@adguard/oss",
+      "source_commit": "7748c6a740f80c63d478a87e4eec049984f9d8a3"
     },
     "native_libs_common": {
-      "package": "native_libs_common/8.1.28@adguard/oss",
-      "repository_tag": "v8.1.28",
-      "source_commit": "e9ea7f8b99294d1638c40edb1c14001416edf8fa"
+      "package": "native_libs_common/8.1.49@adguard/oss",
+      "repository_tag": "v8.1.49",
+      "source_commit": "fd7405ee27fe040fffa094782fd4e9c5ea35fa34"
     }
   },
   "toolchain": {
@@ -51,7 +56,7 @@
     "kotlin": "2.0.21",
     "compile_sdk": 35,
     "min_sdk": 26,
-    "android_ndk": "28.1.13356709",
+    "android_ndk": "29.0.14206865",
     "cmake": "3.31.6",
     "conan": "2.31.2",
     "rust": "1.95-x86_64-pc-windows-gnu"
@@ -63,22 +68,22 @@
     "note": "Explicit SHA-1 build IDs drifted despite byte-identical remaining ELF sections. Build IDs are disabled; tombstones require manual correlation by version and per-ABI artifact hash."
   },
   "sha256": {
-    "aar": "3F442054AF06297C9E6103FACB34508B420C2E28F198CB6EE6958546679B2944",
-    "classes_jar": "CA9AC0DD3428C40923035BEB46BD146FF3B34403CF0EA7DDC5D5E8C5CA1E4DE0",
-    "content_tree": "FC6B76F5BB4206B9484A4AC398CA1E1651D10D09C30AEF65A4641F22C939CD12",
-    "jni_arm64_v8a": "CA5EB273585EF11BEA42FBAB659874B51BA0C65F898E0F078869A368D6019040",
-    "jni_armeabi_v7a": "1D17677028E1E12D054E36CCFE846E52B095D6ACD4C885DB9554A7214AA041A5",
+    "aar": "069819F12B9F5D94D79569212D002DF27E6FF77E0B9FAC3BC5640BD01979B7CC",
+    "classes_jar": "013F54C67F147E27923820BA041A8FE0EB0840A23794003AD339E69AF596A1A2",
+    "content_tree": "D985B6FAE3A9CC75AD9E1799BA115A03C2C05071A90D70D9F8F2C3B07619AE9E",
+    "jni_arm64_v8a": "A569F3ABAB852E669E05DC76DFD74C74D56251B16A449C001D9099B098D1561C",
+    "jni_armeabi_v7a": "173DBE338F14FD735C87C33FF21A0100867FA4D17C3B14DDBBE5BD2AFBA3AC0D",
     "android_manifest_xml": "E2B8620B22BF37D9860165BBA5DF9B1B4FFF41CBDFDD240D7038628A077941BA",
     "r_txt": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855",
     "proguard_txt": "59A5016DC2777C4A21B3C88D1D2BA7BDF36999EFF08CECB301E00E2EAD478510",
     "assets_logback_xml": "7AC50F5A58E5FB5DFA8648CB459E4FB8B45DF3D6C50AEEC4DC1AFA64321D77C4",
     "aar_metadata_properties": "9CC8517BBDF06D879F57A2CFD6F8C6914E48800D443421CD850971945F98E7B2",
-    "unstripped_arm64_v8a": "F4218EDC3A4EADC6044A85723420EC9B6A666A2E7E4D53E5A411F1A77C6EAD4F",
-    "unstripped_armeabi_v7a": "25AA82CD70FC853E40034E2B7326E34B1C00AAC0451CB12B7B8122C564BFF275",
-    "native_symbols_zip": "A42A74E89E431EB3351517721EEE1208D3AD8A6967E876DFD19766150652CA10"
+    "unstripped_arm64_v8a": "A1570CA8F14B7D5184EFDD56C87440A61246C9EB8749BA3A94A2229F108FD9B1",
+    "unstripped_armeabi_v7a": "68FE32A2E5E3914402ABDDEB59218AD96F63D245A3EFDFFC680B639539155974"
   },
   "symbols": {
-    "archive": "build/release/rc19/trusttunnel-client-1.1.4-native-symbols.zip",
+    "archive": null,
+    "status": "canary-unstripped-libraries-retained-in-isolated-build-only",
     "automatic_build_id_correlation": false
   },
   "verification": {
@@ -87,6 +92,11 @@
     "full_native_build": "passed",
     "patched_bytecode": "passed",
     "two_workdir_payload_and_aar_comparison": "passed",
+    "jni_export_diff_against_1_1_4": "passed-no-additions-or-removals",
+    "host_manifest_permissions": "passed",
+    "veilark_private_unit_tests": "passed-153-tests-3-skipped",
+    "veilark_oss_unit_tests": "passed-153-tests-3-skipped",
+    "veilark_release_lint": "passed-0-fatal-0-error-85-existing-warnings-per-flavor",
     "physical_arm_device": "not-run"
   }
 }

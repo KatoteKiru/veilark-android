@@ -2,6 +2,13 @@
 
 All notable changes to the public distribution are documented here.
 
+## Unreleased
+
+- rebased the locally patched TrustTunnel Android adapter and native core from
+  stable 1.1.4 to stable 1.1.5, retaining lifecycle fencing, per-application
+  routing and runtime exclusions; this source-only canary is not published by
+  the existing rc31 OTA manifest.
+
 ## 0.8.0-rc31
 
 - updated the embedded stable sing-box core from 1.13.19 to 1.13.21 without

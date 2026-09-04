@@ -52,7 +52,7 @@ supported version remain release-control work rather than current behavior.
 - sing-box 1.13.21 with bounded import for VLESS, Trojan, Hysteria 2, VMess,
   Shadowsocks, TUIC, and AnyTLS; unsupported or graph-dependent profiles must
   be reported instead of being described as universally compatible;
-- the official TrustTunnel 1.1.4 Android core with HTTP/2, HTTP/3, anti-DPI,
+- the official TrustTunnel 1.1.5 Android core with HTTP/2, HTTP/3, anti-DPI,
   post-quantum groups, network recovery, and a full-tunnel kill switch;
 - arm64-v8a and armeabi-v7a native libraries;
 - HTTPS subscriptions, JSON profiles, and `tt://` deep-link import;

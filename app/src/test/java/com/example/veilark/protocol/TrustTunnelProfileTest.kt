@@ -1,7 +1,9 @@
 package com.example.veilark.protocol
 
-import org.junit.Assert.assertTrue
+import com.adguard.trusttunnel.VpnServiceConfig
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class TrustTunnelProfileTest {
@@ -65,6 +67,15 @@ class TrustTunnelProfileTest {
     )
 
     assertTrue("exclusions = [\"example.ru\", \"*.example.ru\", \"10.0.0.0/8\"]" in manual)
+  }
+
+  @Test
+  fun stableCoreAcceptsExistingProfilesWithoutRecoveryMigration() {
+    val config = TrustTunnelProfile.buildConfig(
+      endpoint = "[endpoint]\nname = \"Test\"",
+    )
+
+    assertNotNull(VpnServiceConfig.parseToml(config))
   }
 
   companion object {
