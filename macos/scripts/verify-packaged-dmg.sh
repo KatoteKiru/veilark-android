@@ -19,6 +19,16 @@ hdiutil attach "$DMG" -nobrowse -readonly -mountpoint "$MOUNT" >/dev/null
 
 APP="$(find "$MOUNT" -maxdepth 1 -type d -name 'Veilark.app' -print -quit)"
 [ -n "$APP" ] || { echo "Veilark.app missing from DMG" >&2; exit 1; }
+ICON_NAME="$(/usr/libexec/PlistBuddy -c 'Print CFBundleIconFile' "$APP/Contents/Info.plist")"
+case "$ICON_NAME" in
+  *.icns) ;;
+  *) ICON_NAME="$ICON_NAME.icns" ;;
+esac
+ICON="$APP/Contents/Resources/$ICON_NAME"
+[ -f "$ICON" ] || { echo "Packaged application icon missing" >&2; exit 1; }
+cmp "$ROOT/build/branding/Veilark.icns" "$ICON" || {
+  echo "Packaged application icon differs from generated brand asset" >&2; exit 1;
+}
 RESOURCES="$APP/Contents/app/resources"
 for asset in veilark-helper veilark-updater sing-box trusttunnel_client geo/geoip-ru.srs geo/geoip-ru.json geo/geosite-category-ru.srs geo/geosite-category-ru.json; do
   [ -f "$RESOURCES/$asset" ] || { echo "Packaged asset missing: $asset" >&2; exit 1; }
