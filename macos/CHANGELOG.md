@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.0.7 preview
+
+- keep tunnel connection independent from a slow or unavailable GEO refresh;
+- honour a stop request that arrives while a connection is still starting;
+- prefer the managed Veilark GEO mirror and retain upstream as a fallback;
+- add the validated Veilark web account entry point and unified monochrome app mark.
+
 ## 1.0.6 candidate
 
 - Check the signed OTA channel once at application startup and surface the result in Settings; installation remains an explicit user action.

@@ -121,6 +121,8 @@ import java.awt.Dimension
 import java.awt.FileDialog
 import java.awt.Frame
 import java.awt.RenderingHints
+import java.awt.geom.AffineTransform
+import java.awt.geom.Path2D
 import java.awt.image.BufferedImage
 import java.io.File
 import java.time.ZoneId
@@ -164,7 +166,8 @@ fun main() {
   var windowVisible by remember { mutableStateOf(true) }
   var startupUpdate by remember { mutableStateOf<MacUpdate?>(null) }
   var startupUpdateError by remember { mutableStateOf<String?>(null) }
-  val trayIcon = remember { BitmapPainter(trayBitmap().toComposeImageBitmap()) }
+  val trayIcon = remember { BitmapPainter(brandBitmap(36).toComposeImageBitmap()) }
+  val windowIcon = remember { BitmapPainter(brandBitmap(256).toComposeImageBitmap()) }
   val externalImportUrl by externalImportRequests.collectAsState()
 
   LaunchedEffect(externalImportUrl) {
@@ -248,6 +251,7 @@ fun main() {
     Window(
       onCloseRequest = { windowVisible = false },
       title = Strings.appName,
+      icon = windowIcon,
       state = rememberWindowState(width = 1_040.dp, height = 720.dp),
     ) {
       LaunchedEffect(window) {
@@ -275,12 +279,27 @@ fun main() {
   }
 }
 
-private fun trayBitmap(): BufferedImage {
-  val image = BufferedImage(18, 18, BufferedImage.TYPE_INT_ARGB)
+/** Monochrome Veilark mark shared with the Android adaptive icon. */
+private fun brandBitmap(size: Int): BufferedImage {
+  val image = BufferedImage(size, size, BufferedImage.TYPE_INT_ARGB)
   val graphics = image.createGraphics()
   graphics.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
-  graphics.color = AwtColor(0x27, 0x5D, 0x8C)
-  graphics.fillOval(1, 1, 16, 16)
+  graphics.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY)
+  graphics.color = AwtColor(0x11, 0x15, 0x1A)
+  graphics.fillOval(0, 0, size, size)
+  graphics.color = AwtColor(0x1D, 0x24, 0x2C)
+  val inset = (size * 0.075).toInt().coerceAtLeast(1)
+  graphics.fillOval(inset, inset, size - inset * 2, size - inset * 2)
+
+  val mark = Path2D.Double().apply {
+    moveTo(20.0, 30.0); lineTo(44.0, 45.0); lineTo(44.0, 70.0); lineTo(20.0, 54.0); closePath()
+    moveTo(88.0, 30.0); lineTo(64.0, 45.0); lineTo(64.0, 70.0); lineTo(88.0, 54.0); closePath()
+    moveTo(48.0, 43.0); lineTo(54.0, 39.0); lineTo(60.0, 43.0); lineTo(60.0, 67.0)
+    lineTo(56.5, 67.0); lineTo(62.0, 86.0); lineTo(54.0, 94.0); lineTo(46.0, 86.0)
+    lineTo(51.5, 67.0); lineTo(48.0, 67.0); closePath()
+  }
+  graphics.color = AwtColor.WHITE
+  graphics.fill(AffineTransform.getScaleInstance(size / 108.0, size / 108.0).createTransformedShape(mark))
   graphics.dispose()
   return image
 }
@@ -712,6 +731,18 @@ private fun ProfilesSection(
         },
       ) {
         Text(Strings.getOrRenewSubscription)
+      }
+      Spacer(Modifier.width(8.dp))
+      TextButton(
+        onClick = {
+          subscriptionBotError = if (VeilarkWebLink.openConfigured()) {
+            null
+          } else {
+            Strings.webAppOpenFailed
+          }
+        },
+      ) {
+        Text(Strings.webApp)
       }
       Spacer(Modifier.width(8.dp))
       TextButton(

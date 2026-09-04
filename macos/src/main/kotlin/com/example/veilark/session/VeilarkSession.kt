@@ -7,6 +7,7 @@ import com.example.veilark.engine.TunnelEngineKind
 import com.example.veilark.engine.TunnelStatus
 import com.example.veilark.profile.ConnectionNode
 import com.example.veilark.profile.GeoRoutingRepository
+import com.example.veilark.profile.GeoRoutingStore
 import com.example.veilark.profile.ProfileSelection
 import com.example.veilark.profile.SingBoxCatalog
 import com.example.veilark.profile.SingBoxCatalogEntry
@@ -52,9 +53,9 @@ class VeilarkSession(
   private val healthChecker: ConnectionHealthChecker = NetworkHealthProbe,
   private val defaultRouteFingerprintProvider: DefaultRouteFingerprintProvider =
     MacDefaultRouteFingerprintProvider,
+  private val geoRepository: GeoRoutingStore = GeoRoutingRepository(),
 ) {
   private val operationMutex = Mutex()
-  private val geoRepository = GeoRoutingRepository()
   @Volatile private var stopRequested = false
   private var appliedDefaultRoute: DefaultRouteFingerprint? = null
   var engine by mutableStateOf(TunnelEngineKind.TRUST_TUNNEL)
@@ -193,22 +194,23 @@ class VeilarkSession(
   }.getOrDefault(false)
 
   suspend fun refreshGeoData() {
-    exclusiveOperation {
-      check(status == TunnelStatus.DISCONNECTED) { RuntimeMessages.disconnectBeforeRouting }
-      runCatching { geoRepository.refreshFromGitHub() }
-        .onSuccess {
-          log(RuntimeMessages.geoUpdated, component = "geo", code = "GEO_UPDATE_OK")
-        }
-        .onFailure {
-          log(
-            RuntimeMessages.geoUpdateFailed,
-            level = LogLevel.ERROR,
-            component = "geo",
-            code = "GEO_UPDATE_FAILED",
-          )
-        }
-        .getOrElse { throw IllegalStateException(RuntimeMessages.geoUpdateFailed, it) }
-    }
+    check(status == TunnelStatus.DISCONNECTED) { RuntimeMessages.disconnectBeforeRouting }
+    // GEO downloads and decompilation happen in a private staging generation.
+    // They must not hold the tunnel-operation mutex: connect can safely keep
+    // using the immutable active/bundled generation while a refresh is slow.
+    runCatching { geoRepository.refreshFromRemote() }
+      .onSuccess {
+        log(RuntimeMessages.geoUpdated, component = "geo", code = "GEO_UPDATE_OK")
+      }
+      .onFailure {
+        log(
+          RuntimeMessages.geoUpdateFailed,
+          level = LogLevel.ERROR,
+          component = "geo",
+          code = "GEO_UPDATE_FAILED",
+        )
+      }
+      .getOrElse { throw IllegalStateException(RuntimeMessages.geoUpdateFailed, it) }
   }
 
   suspend fun installHelper(): Result<Unit> = exclusiveOperation {
@@ -397,6 +399,13 @@ class VeilarkSession(
     reconnecting: Boolean,
     routeFingerprint: DefaultRouteFingerprint?,
   ) {
+      if (stopRequested) {
+        stopRequested = false
+        status = TunnelStatus.DISCONNECTED
+        statusDetail = ""
+        log(RuntimeMessages.connectCancelled, component = "tunnel", code = "CONNECT_CANCELLED")
+        return
+      }
       stopRequested = false
       status = if (reconnecting) TunnelStatus.RECONNECTING else TunnelStatus.CONNECTING
       statusDetail = ""

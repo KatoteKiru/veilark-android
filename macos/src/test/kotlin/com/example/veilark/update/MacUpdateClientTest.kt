@@ -17,8 +17,16 @@ class MacUpdateClientTest {
 
   @Test
   fun candidateMetadataIsNewerThanPublished105() {
-    assertEquals("1.0.6", MacUpdateClient.CURRENT_VERSION)
-    assertEquals(10_006, MacUpdateClient.CURRENT_BUILD)
+    val candidate = MacUpdate(
+      version = MacUpdateClient.CURRENT_VERSION,
+      build = MacUpdateClient.CURRENT_BUILD,
+      architecture = "arm64",
+      url = trustedUrl,
+      sha256 = "a".repeat(64),
+      size = 1,
+      notes = "Candidate",
+    )
+    assertTrue(MacUpdateClient.isNewerThan(candidate, "1.0.5", 10_005))
   }
 
   @Test

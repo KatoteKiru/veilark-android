@@ -39,7 +39,7 @@ internal object RuntimeMessages {
   val disconnectBeforeRouting get() = text("Отключите VPN перед изменением маршрутизации", "Disconnect the VPN before changing routing")
   val unknownRoutingMode get() = text("Неизвестный режим маршрутизации", "Unknown routing mode")
   val chooseSingBoxForRouting get() = text("Выберите sing-box подписку перед настройкой ручных правил", "Select a sing-box subscription before configuring manual rules")
-  val geoUpdated get() = text("GEO-данные обновлены с GitHub", "GEO data updated from GitHub")
+  val geoUpdated get() = text("GEO-данные обновлены", "GEO data updated")
   val geoUpdateFailed get() = text("Не удалось обновить GEO-данные; предыдущая версия сохранена", "Could not update GEO data; the previous version was retained")
   val routingUpdated get() = text("Маршрутизация обновлена", "Routing updated")
   val disconnectBeforeProfileSwitch get() = text("Отключите VPN перед сменой профиля", "Disconnect the VPN before switching profiles")

@@ -4,6 +4,8 @@ import com.example.veilark.engine.TunnelController
 import com.example.veilark.engine.TunnelEngineKind
 import com.example.veilark.engine.TunnelStatus
 import com.example.veilark.profile.ProfileSelection
+import com.example.veilark.profile.GeoRoutingBundle
+import com.example.veilark.profile.GeoRoutingStore
 import com.example.veilark.profile.SingBoxCatalog
 import com.example.veilark.profile.SubscriptionParser
 import com.example.veilark.protocol.TrustTunnelCatalog
@@ -168,6 +170,41 @@ class VeilarkSessionTest {
   }
 
   @Test
+  fun slowGeoRefreshDoesNotBlockTunnelConnection() = runBlocking {
+    val refreshStarted = CompletableDeferred<Unit>()
+    val finishRefresh = CompletableDeferred<Unit>()
+    val placeholder = folder.newFile("geo-placeholder")
+    val geoStore = object : GeoRoutingStore {
+      override fun currentOrBundled() = GeoRoutingBundle(
+        placeholder,
+        placeholder,
+        placeholder,
+        placeholder,
+      )
+
+      override suspend fun refreshFromRemote(): GeoRoutingBundle {
+        refreshStarted.complete(Unit)
+        finishRefresh.await()
+        return currentOrBundled()
+      }
+    }
+    val session = sessionWithSingBox(
+      FakeController(),
+      NetworkHealth(true, "ok"),
+      geoStore = geoStore,
+    )
+
+    val refresh = async { session.refreshGeoData() }
+    withTimeout(1_000) { refreshStarted.await() }
+    withTimeout(3_000) { session.connect() }
+
+    assertEquals(TunnelStatus.CONNECTED, session.status)
+    finishRefresh.complete(Unit)
+    refresh.await()
+    assertTrue(session.logs.any { it.code == "GEO_UPDATE_OK" })
+  }
+
+  @Test
   fun healthCheckMarksUnexpectedEngineExitWithoutClaimingNetworkFailure() = runBlocking {
     val fake = FakeController()
     val session = sessionWithSingBox(fake, NetworkHealth(true, "ok"))
@@ -296,6 +333,7 @@ class VeilarkSessionTest {
     fake: FakeController,
     health: NetworkHealth,
     routes: DefaultRouteFingerprintProvider = DefaultRouteFingerprintProvider { null },
+    geoStore: GeoRoutingStore? = null,
   ): VeilarkSession {
     val key = EncryptedStore.ephemeralKey()
     val store = EncryptedStore(folder.newFolder("secure")) { key }
@@ -308,7 +346,12 @@ class VeilarkSessionTest {
       "Local",
     )
     store.save(EncryptedStore.SING_BOX_CATALOG, SingBoxCatalog.encode(listOf(entry)))
-    return VeilarkSession(store, fake, ConnectionHealthChecker { health }, routes).also {
+    val session = if (geoStore == null) {
+      VeilarkSession(store, fake, ConnectionHealthChecker { health }, routes)
+    } else {
+      VeilarkSession(store, fake, ConnectionHealthChecker { health }, routes, geoStore)
+    }
+    return session.also {
       it.switchEngine(TunnelEngineKind.SING_BOX)
     }
   }

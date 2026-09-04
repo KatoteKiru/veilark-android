@@ -24,22 +24,27 @@ data class GeoRoutingBundle(
   val geoSiteJson: File,
 )
 
+interface GeoRoutingStore {
+  fun currentOrBundled(): GeoRoutingBundle
+  suspend fun refreshFromRemote(): GeoRoutingBundle
+}
+
 /** Versioned local GEO cache with a bundled last-known-good fallback. */
 class GeoRoutingRepository(
   private val root: File = File(
     System.getProperty("user.home"),
     "Library/Application Support/Veilark/geo",
   ),
-) {
+) : GeoRoutingStore {
   private val lock = Any()
   private val updateMutex = Mutex()
   @Volatile private var cached: GeoRoutingBundle? = null
 
-  fun currentOrBundled(): GeoRoutingBundle = synchronized(lock) {
+  override fun currentOrBundled(): GeoRoutingBundle = synchronized(lock) {
     cached ?: (loadActive() ?: bundled().also(::validateBundle)).also { cached = it }
   }
 
-  suspend fun refreshFromGitHub(): GeoRoutingBundle = withContext(Dispatchers.IO) {
+  override suspend fun refreshFromRemote(): GeoRoutingBundle = withContext(Dispatchers.IO) {
     updateMutex.withLock {
       val generations = File(root, GENERATIONS).also {
         check(it.isDirectory || it.mkdirs()) { "Could not create GEO cache" }
@@ -260,12 +265,12 @@ class GeoRoutingRepository(
     const val GEOIP_JSON = "geoip-ru.json"
     const val GEOSITE_JSON = "geosite-category-ru.json"
     val GEOIP_URLS = listOf(
+      "https://nl2.senyasenyavski.uk:2096/veilark/geo/current/geoip-ru.srs",
       "https://raw.githubusercontent.com/SagerNet/sing-geoip/rule-set/geoip-ru.srs",
-      "https://nl2.senyasenyavski.uk:2096/veilark/geo/geoip-ru.srs",
     )
     val GEOSITE_URLS = listOf(
+      "https://nl2.senyasenyavski.uk:2096/veilark/geo/current/geosite-category-ru.srs",
       "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-category-ru.srs",
-      "https://nl2.senyasenyavski.uk:2096/veilark/geo/geosite-category-ru.srs",
     )
     const val MAX_SRS_BYTES = 32L * 1024L * 1024L
     const val MAX_JSON_BYTES = 64L * 1024L * 1024L

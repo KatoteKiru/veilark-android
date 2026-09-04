@@ -85,7 +85,7 @@ jobs:
           cp "$SOURCE_DMG" "build/ota/$ARTIFACT"
           printf '%s' "$OTA_SIGNING_KEY_B64" | base64 --decode > "$RUNNER_TEMP/veilark-macos-ota.pem"
           chmod 0600 "$RUNNER_TEMP/veilark-macos-ota.pem"
-          NOTES="Veilark $VERSION preview: custom direct/VPN rules now work with both sing-box and TrustTunnel; GEO refresh falls back to the Veilark mirror when GitHub is unavailable; routing settings remain isolated per engine. TrustTunnel remains IPv4-only on macOS pending physical IPv6 validation. Apple signing and notarization are not configured."
+          NOTES="Veilark $VERSION preview: custom direct/VPN rules work with sing-box and TrustTunnel; GEO refresh uses the managed Veilark mirror with upstream fallback; routing settings remain isolated per engine; connection is no longer blocked by GEO refresh. TrustTunnel remains IPv4-only on macOS pending physical IPv6 validation. Apple signing and notarization are not configured."
           ./gradlew --no-daemon createOtaManifest \
             "-PotaDmg=build/ota/$ARTIFACT" \
             "-PotaManifestOutput=build/ota/manifest.json" \
@@ -153,7 +153,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          NOTES="Veilark $VERSION development preview for Apple Silicon. Hardens privileged engine shutdown, refuses quit or OTA when the engine cannot stop, reduces background helper polling, rotates updater logs, and binds OTA build numbers consistently. TrustTunnel remains IPv4-only on macOS pending physical IPv6 validation. The DMG and OTA manifest are hash-verified, and the manifest is protected by the Veilark Ed25519 release key. This build is not signed or notarized by Apple and is not a production release."
+          NOTES="Veilark $VERSION preview for Apple Silicon. Custom direct/VPN rules work with sing-box and TrustTunnel, GEO refresh uses the managed Veilark mirror with upstream fallback, connection is not blocked by GEO refresh, and routing preferences remain isolated per engine. TrustTunnel remains IPv4-only on macOS pending physical IPv6 validation. The DMG and OTA manifest are hash-verified and protected by the Veilark Ed25519 release key. This build is not signed or notarized by Apple."
           gh release create "$GITHUB_REF_NAME" \
             "build/ota/$ARTIFACT#Veilark $VERSION DMG (ARM64 preview)" \
             "build/ota/manifest.json#Signed macOS OTA manifest" \
