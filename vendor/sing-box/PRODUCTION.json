@@ -4,9 +4,9 @@
   "status": "production",
   "source": {
     "repository": "https://github.com/SagerNet/sing-box.git",
-    "tag": "v1.13.19",
-    "commit": "b5ebaa1fc0f2b94256180b95468e73ef53caa27d",
-    "commit_date": "2026-08-17T17:07:24+08:00",
+    "tag": "v1.13.21",
+    "commit": "628cb31ffa79cffffd34c2f9cde6cae044e4fc12",
+    "commit_date": "2026-08-30T09:56:22Z",
     "license": "GPL-3.0-or-later"
   },
   "build": {
@@ -18,8 +18,8 @@
   },
   "artifact": {
     "path": "../../app/libs/libbox.aar",
-    "bytes": 44757399,
-    "sha256": "703729EB73C1CB41A84F11D4603C8C4471487035061D676B058AB76C3D1328BB",
+    "bytes": 44772168,
+    "sha256": "B82148CCE2853BFC3C0796F0C32D057229F4C6B45103BF86B53A59B66BA71EF4",
     "abis": ["arm64-v8a", "armeabi-v7a"]
   }
 }

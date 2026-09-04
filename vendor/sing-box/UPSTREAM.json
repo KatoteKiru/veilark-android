@@ -4,10 +4,10 @@
   "status": "production-integrated",
   "source": {
     "repository": "https://github.com/SagerNet/sing-box.git",
-    "release": "https://github.com/SagerNet/sing-box/releases/tag/v1.13.19",
-    "tag": "v1.13.19",
-    "commit": "b5ebaa1fc0f2b94256180b95468e73ef53caa27d",
-    "commit_date": "2026-08-17T17:07:24+08:00",
+    "release": "https://github.com/SagerNet/sing-box/releases/tag/v1.13.21",
+    "tag": "v1.13.21",
+    "commit": "628cb31ffa79cffffd34c2f9cde6cae044e4fc12",
+    "commit_date": "2026-08-30T09:56:22Z",
     "license": "GPL-3.0-or-later"
   },
   "build": {
@@ -48,19 +48,19 @@
     ]
   },
   "artifact": {
-    "path": "artifacts/libbox-1.13.19-android-arm-arm64.aar",
-    "bytes": 44757399,
-    "sha256": "703729EB73C1CB41A84F11D4603C8C4471487035061D676B058AB76C3D1328BB",
+    "path": "artifacts/libbox-1.13.21-android-arm-arm64.aar",
+    "bytes": 44772168,
+    "sha256": "B82148CCE2853BFC3C0796F0C32D057229F4C6B45103BF86B53A59B66BA71EF4",
     "classes_jar_sha256": "95A1A5B422E89F4943A47C86A6AE3BAEA0C07A909771E7E3E8307F1E4A04CC82",
     "native": {
       "arm64-v8a": {
-        "bytes": 63106200,
-        "sha256": "8250A48E73B48C3FE61B762FB5094A5DAF673C4CC16E7E141467E668D98E3E2D",
+        "bytes": 63158904,
+        "sha256": "65A3AE94BB0CE03AAD195A2C4FAEEDB305BF82F29D849B1B2D0CAFBCAF7FBCED",
         "load_alignment": "0x4000"
       },
       "armeabi-v7a": {
-        "bytes": 56036400,
-        "sha256": "93EDD0DF2AED2BD871B3DE7709B213067B84562EEB87FDD3FF8F86EC7BFA9B0F",
+        "bytes": 56088240,
+        "sha256": "4B9926D0CE17B0994CCEE525A2612F360D748C63116BF101798A08D5650D61DA",
         "load_alignment": "0x1000"
       }
     }
@@ -71,7 +71,8 @@
     "android_api": 21
   },
   "verification": {
-    "production_aar_unchanged_sha256": "BBCA15C5B05D0380F8DDFB4151CB0529B382DA1C9D0745480488C7D9FB370B4E",
+    "previous_production_aar_sha256": "703729EB73C1CB41A84F11D4603C8C4471487035061D676B058AB76C3D1328BB",
+    "production_aar_sha256": "B82148CCE2853BFC3C0796F0C32D057229F4C6B45103BF86B53A59B66BA71EF4",
     "public_java_api_diff_lines": 0,
     "class_name_diff_count": 0,
     "jni_symbol_diff_count": 0,

@@ -7,8 +7,8 @@ authoritative inventory for ordinary Android libraries.
 ## sing-box / libbox
 
 - project: <https://github.com/SagerNet/sing-box>
-- production tag: `v1.13.19`
-- exact commit: `b5ebaa1fc0f2b94256180b95468e73ef53caa27d`
+- production tag: `v1.13.21`
+- exact commit: `628cb31ffa79cffffd34c2f9cde6cae044e4fc12`
 - license: GPL-3.0-or-later
 - installed artifact: `app/libs/libbox.aar`
 - build recipe and hashes: `scripts/build-libbox-multiabi.ps1` and

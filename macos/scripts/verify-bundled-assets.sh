@@ -62,5 +62,5 @@ for architecture in arm64 x86_64; do
   lipo -archs "$COMMON/trusttunnel_client" | tr ' ' '\n' | grep -qx "$architecture" || fail "trusttunnel_client is not universal ($architecture absent)"
 done
 
-"$COMMON/sing-box" version | grep -q '^sing-box version 1\.13\.19' || fail "unexpected sing-box version"
+"$COMMON/sing-box" version | grep -q '^sing-box version 1\.13\.21' || fail "unexpected sing-box version"
 echo "Verified macOS package assets for $(uname -m)."

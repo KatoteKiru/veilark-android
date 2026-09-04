@@ -644,7 +644,7 @@ class MainActivity : ComponentActivity() {
               trustTunnelTransport?.let { append(" · $it") }
             }
           } else {
-            "sing-box 1.13.19"
+            "sing-box 1.13.21"
           },
           subscriptionRefreshAvailable = subscriptionRefreshAvailable,
           refreshingSubscription = refreshingSubscription,

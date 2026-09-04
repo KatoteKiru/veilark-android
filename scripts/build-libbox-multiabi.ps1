@@ -5,15 +5,15 @@ param(
 
   [string] $JavaHome = $env:JAVA_HOME,
   [string] $AndroidSdk = "$env:LOCALAPPDATA\Android\Sdk",
-  [string] $WorkRoot = (Join-Path $env:TEMP "veilark-sing-box-1.13.19"),
+  [string] $WorkRoot = (Join-Path $env:TEMP "veilark-sing-box-1.13.21"),
   [string] $OutputAar = (Join-Path $PSScriptRoot "..\app\libs\libbox.aar")
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
-$tag = "v1.13.19"
-$commit = "b5ebaa1fc0f2b94256180b95468e73ef53caa27d"
+$tag = "v1.13.21"
+$commit = "628cb31ffa79cffffd34c2f9cde6cae044e4fc12"
 $goVersion = "go1.25.12"
 $gomobileVersion = "v0.1.12"
 $ndkVersion = "28.0.13004108"

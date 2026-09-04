@@ -190,7 +190,7 @@ fun MainScreen(
   trustTunnelActive: Boolean = false,
   singBoxAvailable: Boolean = true,
   trustTunnelAvailable: Boolean = false,
-  engineDescription: String = "sing-box 1.13.19",
+  engineDescription: String = "sing-box 1.13.21",
   subscriptionRefreshAvailable: Boolean = false,
   refreshingSubscription: Boolean = false,
   selfUpdateEnabled: Boolean = true,
