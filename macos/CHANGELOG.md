@@ -1,9 +1,13 @@
 # Changelog
 
-## 1.0.7 preview
+## 1.0.8 preview
 
 - update the pinned stable sing-box runtime from 1.13.19 to 1.13.21 without
   changing routing or subscription formats;
+- update the pinned TrustTunnel runtime from 1.0.49 to stable 1.1.5;
+
+## 1.0.7 preview
+
 - keep tunnel connection independent from a slow or unavailable GEO refresh;
 - honour a stop request that arrives while a connection is still starting;
 - prefer the managed Veilark GEO mirror and retain upstream as a fallback;
