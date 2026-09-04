@@ -16,8 +16,10 @@ class BrandIconTest {
       val image = brandBitmap(size)
       assertEquals(size, image.width)
       assertEquals(size, image.height)
-      assertEquals(0, image.getRGB(0, 0) ushr 24)
-      assertTrue(image.getRGB(size / 2, size / 2) ushr 24 > 0)
+      // CoreGraphics may antialias a partially covered corner at 16 px.
+      val centerAlpha = image.getRGB(size / 2, size / 2) ushr 24
+      assertEquals(255, centerAlpha)
+      assertTrue(image.getRGB(0, 0) ushr 24 < centerAlpha)
     }
   }
 
