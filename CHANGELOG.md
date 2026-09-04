@@ -4,6 +4,14 @@ All notable changes to the public distribution are documented here.
 
 ## Unreleased
 
+## 0.8.0-rc33
+
+- Replaced decorative shields with the shared monochrome Veilark vector mark.
+- Added a consistent neutral Material palette for both system themes.
+- Smoothed connection-state color changes without animating the whole card size.
+- Allowed the main connection action to grow with enlarged system text.
+- Added text contrast and neutral-palette regression tests. VPN runtimes and saved settings are unchanged.
+
 ## 0.8.0-rc32
 
 - rebased the locally patched TrustTunnel Android adapter and native core from

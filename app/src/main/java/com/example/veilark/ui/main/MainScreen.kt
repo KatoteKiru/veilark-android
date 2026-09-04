@@ -1,5 +1,6 @@
 package com.example.veilark.ui.main
 
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.animateFloatAsState
@@ -107,6 +108,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
@@ -736,17 +738,13 @@ private fun ConnectionCard(
 ) {
   val connected = state == ConnectionState.Connected
   val connecting = state == ConnectionState.Connecting
-  val progress by animateFloatAsState(
-    targetValue = if (connected) 1f else 0f,
-    label = "connection progress",
-  )
-  val container = when {
+  val container by animateColorAsState(targetValue = when {
     connected -> MaterialTheme.colorScheme.primaryContainer
     state == ConnectionState.Failed -> MaterialTheme.colorScheme.errorContainer
     else -> MaterialTheme.colorScheme.surfaceContainerHigh
-  }
+  }, animationSpec = tween(220), label = "connection surface")
   Surface(
-    modifier = Modifier.fillMaxWidth().animateContentSize(),
+    modifier = Modifier.fillMaxWidth(),
     shape = RoundedCornerShape(32.dp),
     color = container,
   ) {
@@ -771,9 +769,7 @@ private fun ConnectionCard(
               strokeWidth = 4.dp,
             )
           } else {
-            ShieldMark(
-              checked = connected,
-              progress = progress,
+            VeilarkMark(
               color = if (connected) {
                 MaterialTheme.colorScheme.onPrimary
               } else {
@@ -835,7 +831,7 @@ private fun ConnectionCard(
       Button(
         onClick = onConnect,
         enabled = !importing,
-        modifier = Modifier.fillMaxWidth().height(56.dp),
+        modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp),
         shape = RoundedCornerShape(18.dp),
         colors = if (connected || connecting) {
           ButtonDefaults.filledTonalButtonColors()
@@ -1883,30 +1879,11 @@ private fun EngineGlyph(
       drawPath(left, color, style = stroke)
       drawPath(right, color, style = stroke)
     } else {
-      val shield = Path().apply {
-        moveTo(size.width * 0.50f, size.height * 0.10f)
-        lineTo(size.width * 0.82f, size.height * 0.24f)
-        lineTo(size.width * 0.78f, size.height * 0.61f)
-        cubicTo(
-          size.width * 0.75f, size.height * 0.78f,
-          size.width * 0.61f, size.height * 0.88f,
-          size.width * 0.50f, size.height * 0.93f,
-        )
-        cubicTo(
-          size.width * 0.39f, size.height * 0.88f,
-          size.width * 0.25f, size.height * 0.78f,
-          size.width * 0.22f, size.height * 0.61f,
-        )
-        lineTo(size.width * 0.18f, size.height * 0.24f)
-        close()
-      }
-      val check = Path().apply {
-        moveTo(size.width * 0.34f, size.height * 0.52f)
-        lineTo(size.width * 0.46f, size.height * 0.64f)
-        lineTo(size.width * 0.68f, size.height * 0.39f)
-      }
-      drawPath(shield, color, style = stroke)
-      drawPath(check, color, style = stroke)
+      // Protocol glyph: the two endpoint lanes represent the sing-box engine.
+      drawLine(color, Offset(size.width * .22f, size.height * .30f), Offset(size.width * .78f, size.height * .30f), strokeWidth = stroke.width, cap = StrokeCap.Round)
+      drawLine(color, Offset(size.width * .22f, size.height * .70f), Offset(size.width * .78f, size.height * .70f), strokeWidth = stroke.width, cap = StrokeCap.Round)
+      drawCircle(color, radius = size.minDimension * .07f, center = Offset(size.width * .35f, size.height * .50f))
+      drawCircle(color, radius = size.minDimension * .07f, center = Offset(size.width * .65f, size.height * .50f))
     }
   }
 }
@@ -2831,40 +2808,16 @@ private fun ImportDialog(
 }
 
 @Composable
-private fun ShieldMark(
-  checked: Boolean,
-  progress: Float,
+private fun VeilarkMark(
   color: Color,
   modifier: Modifier = Modifier,
 ) {
-  Canvas(modifier) {
-    val shield = Path().apply {
-      moveTo(size.width * .5f, size.height * .08f)
-      lineTo(size.width * .82f, size.height * .2f)
-      lineTo(size.width * .78f, size.height * .62f)
-      quadraticTo(size.width * .72f, size.height * .82f, size.width * .5f, size.height * .94f)
-      quadraticTo(size.width * .28f, size.height * .82f, size.width * .22f, size.height * .62f)
-      lineTo(size.width * .18f, size.height * .2f)
-      close()
-    }
-    drawPath(shield, color = color, style = Stroke(width = 4.dp.toPx(), cap = StrokeCap.Round))
-    if (checked && progress > .5f) {
-      drawLine(
-        color = color,
-        start = Offset(size.width * .34f, size.height * .52f),
-        end = Offset(size.width * .46f, size.height * .64f),
-        strokeWidth = 4.dp.toPx(),
-        cap = StrokeCap.Round,
-      )
-      drawLine(
-        color = color,
-        start = Offset(size.width * .46f, size.height * .64f),
-        end = Offset(size.width * .68f, size.height * .39f),
-        strokeWidth = 4.dp.toPx(),
-        cap = StrokeCap.Round,
-      )
-    }
-  }
+  Icon(
+    painter = painterResource(R.drawable.veilark_mark),
+    contentDescription = null,
+    tint = color,
+    modifier = modifier,
+  )
 }
 
 @Preview(showBackground = true, heightDp = 900)

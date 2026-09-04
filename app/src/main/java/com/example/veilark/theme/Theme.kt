@@ -23,6 +23,16 @@ private val LightColors = lightColorScheme(
   onSurface = LightOnSurface,
   surfaceVariant = LightSurfaceVariant,
   onSurfaceVariant = LightOnSurfaceVariant,
+  secondary = LightOnSurfaceVariant,
+  tertiary = LightPrimary,
+  surfaceTint = LightPrimary,
+  surfaceContainerLowest = LightOnPrimary,
+  surfaceContainerLow = LightBackground,
+  surfaceContainer = androidx.compose.ui.graphics.Color(0xFFF0F0F4),
+  surfaceContainerHigh = androidx.compose.ui.graphics.Color(0xFFEAEAF0),
+  surfaceContainerHighest = LightSurfaceVariant,
+  outline = androidx.compose.ui.graphics.Color(0xFF797A83),
+  outlineVariant = androidx.compose.ui.graphics.Color(0xFFD0D0D8),
 )
 
 private val DarkColors = darkColorScheme(
@@ -38,12 +48,22 @@ private val DarkColors = darkColorScheme(
   onSurface = DarkOnSurface,
   surfaceVariant = DarkSurfaceVariant,
   onSurfaceVariant = DarkOnSurfaceVariant,
+  secondary = DarkOnSurfaceVariant,
+  tertiary = DarkPrimary,
+  surfaceTint = DarkPrimary,
+  surfaceContainerLowest = androidx.compose.ui.graphics.Color(0xFF0B0C10),
+  surfaceContainerLow = androidx.compose.ui.graphics.Color(0xFF191A20),
+  surfaceContainer = androidx.compose.ui.graphics.Color(0xFF1F2027),
+  surfaceContainerHigh = androidx.compose.ui.graphics.Color(0xFF292A32),
+  surfaceContainerHighest = androidx.compose.ui.graphics.Color(0xFF34353E),
+  outline = androidx.compose.ui.graphics.Color(0xFF93939F),
+  outlineVariant = androidx.compose.ui.graphics.Color(0xFF454650),
 )
 
 @Composable
 fun VeilarkTheme(
   darkTheme: Boolean = isSystemInDarkTheme(),
-  dynamicColor: Boolean = true,
+  dynamicColor: Boolean = false,
   content: @Composable () -> Unit,
 ) {
   val context = LocalContext.current

@@ -3,7 +3,7 @@ name: Android verification
 on:
   pull_request:
   push:
-    branches: [master, main]
+    branches: [master, main, cursor/trusttunnel-query-deeplink]
 
 permissions:
   contents: read
