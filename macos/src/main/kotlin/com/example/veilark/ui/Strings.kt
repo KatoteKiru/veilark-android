@@ -93,7 +93,7 @@ object Strings {
   val logAppearsAfterAction get() = if (russian) "Здесь появятся технические события после импорта или подключения." else "Technical events appear here after an import or connection attempt."
   val settingsSubtitle get() = if (russian) "Компоненты, версии и безопасное обновление" else "Components, versions, and safe updates"
   val singBoxVersion get() = "sing-box 1.13.19"
-  val trustTunnelVersion get() = "TrustTunnel 1.0.49"
+  val trustTunnelVersion get() = "TrustTunnel 1.1.5"
   val privilegedHelper get() = if (russian) "Привилегированный helper" else "Privileged helper"
   val installed get() = if (russian) "Установлен" else "Installed"
   val updateChannelNotReady get() = if (russian) "OTA для macOS ещё не настроен" else "macOS OTA is not configured yet"

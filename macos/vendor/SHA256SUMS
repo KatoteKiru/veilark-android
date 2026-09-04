@@ -1,9 +1,9 @@
 23bf191906f2dfc9f00e9f0092f274f3426ba9377327e903ff94e636b64d0997  sing-box-1.13.19-darwin-arm64.tar.gz
 31ee722237d95774e101fbffeae6be6776249c5f7db229ad8ff00b45b22e6a00  sing-box-1.13.19-darwin-amd64.tar.gz
-f2dab732d17a885dcc4c81831fa4b263db250f5bea8a151416b518e936979c64  trusttunnel_client-v1.0.49-macos-universal.tar.gz
+4af128703281b2a9db5ced88138c18078ed7d883563701ead2ff76a88a63c97f  trusttunnel_client-v1.1.5-macos-universal.tar.gz
 5b75c1dec19488675f725adc7a6e3a7301a553117af835dc47669b1fa918976b  sing-box-1.13.19-darwin-arm64/sing-box
 078164e43464f2282ae526151411320582c3e60a0294cec24a627edf205305a6  sing-box-1.13.19-darwin-amd64/sing-box
-dbadec0019352f7164adb618c3e076cf902d102870bbb3a7896f784886ef1573  trusttunnel_client-v1.0.49-macos-universal/trusttunnel_client
+27554c0da2bf02f160de3d7be36896f4325bc823d0da4f4b88ea6aca92d0c4c8  trusttunnel_client-v1.1.5-macos-universal/trusttunnel_client
 1a8115af741918ff24b37b87d3c6da21eccabc58f1eec059e461dca8bac16ff7  geoip-ru.srs@b9c5e675b4d5359d4b47f4434fa7ae77e9991306
 ad921e489713e5a837417e3a0f5ed5ce07d9f8ffe9aeecf47c13ee397bff0d2b  geoip-ru.json@sing-box-1.13.19-decompile
 c36e157adf86edf7b722b51f3acb93bbb2a7f8083932dae29b4b5ef2c1ced870  geosite-category-ru.srs@11fb9814c7de626956aab504f83e066e70b250d4
