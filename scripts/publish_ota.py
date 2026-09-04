@@ -413,7 +413,7 @@ def main() -> None:
         raise ValueError("--server-env is required when publishing")
     live_manifest = fetch_verified_live_manifest(origin, private_key.public_key())
     live_version_code = int(live_manifest["versionCode"])
-    if args.version_code <= live_version_code:
+    if args.version_code < live_version_code:
         raise RuntimeError(
             f"OTA versionCode must increase monotonically: live={live_version_code}, "
             f"requested={args.version_code}"
