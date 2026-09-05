@@ -243,7 +243,7 @@ class VeilarkSession(
       }
       val payload = if (trimmed.startsWith("https://", ignoreCase = true)) {
         withContext(Dispatchers.IO) {
-          SubscriptionFetcher.fetch(trimmed, SubscriptionFetcher.desktopHeaders())
+          SubscriptionFetcher.fetch(trimmed, SubscriptionFetcher.desktopHeaders(trimmed))
         }
       } else {
         trimmed.toByteArray()
@@ -342,7 +342,7 @@ class VeilarkSession(
         ?: error(RuntimeMessages.noRemoteSource)
       try {
         val payload = withContext(Dispatchers.IO) {
-          SubscriptionFetcher.fetch(sourceUrl, SubscriptionFetcher.desktopHeaders())
+          SubscriptionFetcher.fetch(sourceUrl, SubscriptionFetcher.desktopHeaders(sourceUrl))
         }
         importPayload(payload, sourceUrl, expectedEngine = selectedEngine)
         activateEngine(selectedEngine)

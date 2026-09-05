@@ -17,7 +17,13 @@ import javax.net.ssl.SSLException
 object SubscriptionFetcher {
   suspend fun fetch(
     source: String,
-    headers: Map<String, String> = emptyMap(),
+    headers: Map<String, String> = desktopHeaders(source),
+  ): ByteArray = fetchWithConnection(source, headers) { URL(it.toString()).openConnection() as HttpURLConnection }
+
+  internal suspend fun fetchWithConnection(
+    source: String,
+    headers: Map<String, String>,
+    openConnection: (URI) -> HttpURLConnection,
   ): ByteArray = withContext(Dispatchers.IO) {
     var current = runCatching { URI(source.trim()) }
       .getOrElse { throw IllegalArgumentException("Адрес подписки некорректен", it) }
@@ -26,7 +32,7 @@ object SubscriptionFetcher {
         "Разрешены только HTTPS-подписки"
       }
       require(!current.host.isNullOrBlank()) { "Адрес подписки некорректен" }
-      val connection = URL(current.toString()).openConnection() as HttpURLConnection
+      val connection = openConnection(current)
       try {
         connection.instanceFollowRedirects = false
         connection.connectTimeout = 10_000
@@ -36,7 +42,7 @@ object SubscriptionFetcher {
           "SFA/1.13.21 Veilark/${MacUpdateClient.CURRENT_VERSION}-macos",
         )
         connection.setRequestProperty("X-Client", "Veilark")
-        headers.forEach(connection::setRequestProperty)
+        SubscriptionClientObservation.headersForHop(headers, redirect).forEach(connection::setRequestProperty)
         connection.setRequestProperty(
           "Accept",
           "application/json, text/yaml, application/yaml, text/plain, " +
@@ -77,7 +83,9 @@ object SubscriptionFetcher {
           401 -> error("Сервер подписки требует авторизацию (HTTP 401)")
           403 -> error("Доступ к подписке запрещён или исчерпан лимит устройств (HTTP 403)")
           404 -> error("Ссылка подписки не найдена или устарела (HTTP 404)")
+          409 -> error("Лимит устройств подписки исчерпан (HTTP 409)")
           410 -> error("Подписка удалена или истекла (HTTP 410)")
+          503 -> error("Подписка ещё подготавливается. Повторите обновление немного позже (HTTP 503)")
           429 -> error("Слишком много запросов к подписке (HTTP 429)")
           else -> error("Сервер подписки ответил HTTP $responseCode")
         }
@@ -107,17 +115,23 @@ object SubscriptionFetcher {
     return body
   }
 
-  fun desktopHeaders(): Map<String, String> = mapOf(
-    "x-hwid" to SubscriptionClientIdentity.id(),
-    "x-device-os" to "macOS",
-    "x-ver-os" to System.getProperty("os.version", "unknown").take(32),
-    "x-device-model" to (
-      System.getProperty("os.arch", "arm64") + " Mac"
-      )
-      .replace(Regex("""[^\p{L}\p{N} ._-]"""), "")
-      .trim()
-      .take(64),
-  )
+  fun desktopHeaders(source: String): Map<String, String> = deviceHeaders(source, SubscriptionClientIdentity::id)
+
+  internal fun deviceHeaders(source: String, identity: () -> String): Map<String, String> {
+    if (!SubscriptionClientObservation.isControlled(source, "sub.senyasenyavski.uk", 2096)) return emptyMap()
+    val model = when (System.getProperty("os.arch", "").lowercase()) {
+      "aarch64", "arm64" -> "Apple Silicon Mac"
+      "x86_64", "amd64" -> "Intel Mac"
+      else -> "Mac"
+    }
+    return mapOf(
+      "X-Veilark-Install-Id" to identity(),
+      "X-Veilark-Device-Label" to model,
+      "X-Veilark-Device-Model" to model,
+      "X-Veilark-Platform" to "macos",
+      "X-Veilark-App-Version" to MacUpdateClient.CURRENT_VERSION,
+    )
+  }
 
   private fun classifyNetworkFailure(failure: Exception): IllegalStateException {
     val message = when (failure) {
@@ -136,17 +150,15 @@ object SubscriptionFetcher {
 }
 
 private object SubscriptionClientIdentity {
-  private const val KEY = "hwid"
+  private const val KEY = "install_id"
 
   fun id(): String {
     val preferences = Preferences.userNodeForPackage(SubscriptionFetcher::class.java)
-    preferences.get(KEY, null)
-      ?.takeIf { it.matches(Regex("""^[A-Za-z0-9=-]{10,64}$""")) }
-      ?.let { return it }
-    val random = ByteArray(18).also(java.security.SecureRandom()::nextBytes)
-    val generated = Base64.getUrlEncoder().withoutPadding().encodeToString(random)
-    preferences.put(KEY, generated)
-    preferences.flush()
-    return generated
+    return SubscriptionClientObservation.installationId(
+      current = { preferences.get(KEY, null) },
+      legacy = { preferences.get("hwid", null) },
+      persist = { preferences.put(KEY, it); preferences.flush(); true },
+      generate = { Base64.getUrlEncoder().withoutPadding().encodeToString(ByteArray(18).also(java.security.SecureRandom()::nextBytes)) },
+    )
   }
 }
