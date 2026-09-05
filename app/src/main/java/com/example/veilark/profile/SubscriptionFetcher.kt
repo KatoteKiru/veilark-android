@@ -19,6 +19,12 @@ object SubscriptionFetcher {
   suspend fun fetch(
     source: String,
     headers: Map<String, String> = emptyMap(),
+  ): ByteArray = fetchWithConnection(source, headers) { URL(it.toString()).openConnection() as HttpURLConnection }
+
+  internal suspend fun fetchWithConnection(
+    source: String,
+    headers: Map<String, String>,
+    openConnection: (URI) -> HttpURLConnection,
   ): ByteArray = withContext(Dispatchers.IO) {
     var current = runCatching { URI(source.trim()) }
       .getOrElse { throw IllegalArgumentException("Адрес подписки некорректен", it) }
@@ -27,7 +33,7 @@ object SubscriptionFetcher {
         "Разрешены только HTTPS-подписки"
       }
       require(!current.host.isNullOrBlank()) { "Адрес подписки некорректен" }
-      val connection = URL(current.toString()).openConnection() as HttpURLConnection
+      val connection = openConnection(current)
       try {
         connection.instanceFollowRedirects = false
         connection.connectTimeout = 10_000
@@ -80,7 +86,9 @@ object SubscriptionFetcher {
           401 -> error("Сервер подписки требует авторизацию (HTTP 401)")
           403 -> error("Доступ к подписке запрещён или исчерпан лимит устройств (HTTP 403)")
           404 -> error("Ссылка подписки не найдена или устарела (HTTP 404)")
+          409 -> error("Лимит устройств подписки исчерпан (HTTP 409)")
           410 -> error("Подписка удалена или истекла (HTTP 410)")
+          503 -> error("Подписка ещё подготавливается. Повторите обновление немного позже (HTTP 503)")
           429 -> error("Слишком много запросов к подписке (HTTP 429)")
           else -> error("Сервер подписки ответил HTTP $responseCode")
         }
@@ -125,22 +133,34 @@ object SubscriptionFetcher {
     return IllegalStateException(message, failure)
   }
 
-  fun androidHeaders(context: Context, source: String): Map<String, String> {
+  fun androidHeaders(context: Context, source: String): Map<String, String> = deviceHeaders(
+    source, BuildConfig.SUBSCRIPTION_HOST, BuildConfig.SUBSCRIPTION_PORT,
+    "${Build.MANUFACTURER} ${Build.MODEL}", BuildConfig.VERSION_NAME,
+  ) { SubscriptionClientIdentity.id(context) }
+
+  internal fun deviceHeaders(
+    source: String,
+    configuredHost: String,
+    configuredPort: Int,
+    deviceModel: String,
+    appVersion: String,
+    identity: () -> String,
+  ): Map<String, String> {
     if (!isVeilarkControlledEndpoint(
         source,
-        BuildConfig.SUBSCRIPTION_HOST,
-        BuildConfig.SUBSCRIPTION_PORT,
+        configuredHost,
+        configuredPort,
       )
     ) {
       return emptyMap()
     }
-    val model = asciiDeviceValue("${Build.MANUFACTURER} ${Build.MODEL}", "Android device")
+    val model = asciiDeviceValue(deviceModel, "Android device")
     return mapOf(
-      "X-Veilark-Install-Id" to SubscriptionClientIdentity.id(context),
+      "X-Veilark-Install-Id" to identity(),
       "X-Veilark-Device-Label" to asciiDeviceValue("Android $model", "Android device"),
       "X-Veilark-Device-Model" to model,
       "X-Veilark-Platform" to "android",
-      "X-Veilark-App-Version" to asciiDeviceValue(BuildConfig.VERSION_NAME, "unknown"),
+      "X-Veilark-App-Version" to asciiDeviceValue(appVersion, "unknown"),
     )
   }
 
@@ -148,38 +168,14 @@ object SubscriptionFetcher {
     source: String,
     configuredHost: String,
     configuredPort: Int,
-  ): Boolean {
-    val uri = runCatching { URI(source.trim()) }.getOrNull() ?: return false
-    val host = uri.host?.lowercase() ?: return false
-    val effectivePort = if (uri.port == -1) 443 else uri.port
-    val expectedPort = if (configuredPort == -1) 443 else configuredPort
-    return uri.scheme.equals("https", ignoreCase = true) &&
-      uri.userInfo == null &&
-      uri.rawQuery == null &&
-      uri.rawFragment == null &&
-      configuredHost.isNotBlank() &&
-      host == configuredHost.trim().lowercase() &&
-      effectivePort == expectedPort &&
-      MANAGED_PATH.matches(uri.path.orEmpty())
-  }
+  ): Boolean = SubscriptionClientObservation.isControlled(source, configuredHost, configuredPort)
 
   private fun asciiDeviceValue(value: String, fallback: String): String =
-    value.trim()
-      .replace(Regex("[^A-Za-z0-9 ._-]"), "")
-      .replace(Regex("\\s+"), " ")
-      .trim()
-      .take(64)
-      .ifBlank { fallback }
+    SubscriptionClientObservation.ascii(value, fallback)
 
   /** Observation headers identify one app install and must never cross a redirect boundary. */
   internal fun headersForHop(headers: Map<String, String>, redirect: Int): Map<String, String> =
-    if (redirect == 0) {
-      headers
-    } else {
-      headers.filterKeys { !it.startsWith("X-Veilark-", ignoreCase = true) }
-    }
-
-  private val MANAGED_PATH = Regex("^/(?:managed|trust)/[A-Za-z0-9_-]{16,64}$")
+    SubscriptionClientObservation.headersForHop(headers, redirect)
 }
 
 private object SubscriptionClientIdentity {
@@ -189,20 +185,14 @@ private object SubscriptionClientIdentity {
 
   fun id(context: Context): String {
     val preferences = context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
-    (preferences.getString(KEY, null) ?: preferences.getString(LEGACY_KEY, null))
-      ?.takeIf { it.matches(Regex("""^[A-Za-z0-9_-]{24}$""")) }
-      ?.let {
-        if (preferences.getString(KEY, null) != it) {
-          preferences.edit().putString(KEY, it).apply()
-        }
-        return it
-      }
-    val random = ByteArray(18).also(java.security.SecureRandom()::nextBytes)
-    val generated = Base64.encodeToString(
-      random,
-      Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING,
+    return SubscriptionClientObservation.installationId(
+      current = { preferences.getString(KEY, null) },
+      legacy = { preferences.getString(LEGACY_KEY, null) },
+      persist = { preferences.edit().putString(KEY, it).commit() },
+      generate = {
+        val random = ByteArray(18).also(java.security.SecureRandom()::nextBytes)
+        Base64.encodeToString(random, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)
+      },
     )
-    preferences.edit().putString(KEY, generated).commit()
-    return generated
   }
 }

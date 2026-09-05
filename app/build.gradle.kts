@@ -134,8 +134,8 @@ android {
     defaultConfig {
         minSdk = 29
         targetSdk = 36
-        versionCode = 60
-        versionName = "0.8.0-rc33"
+        versionCode = 61
+        versionName = "0.8.0-rc34"
         buildConfigField("boolean", "VEILARK_CORE_ENABLED", "false")
         buildConfigField("String", "TELEGRAM_BOT_URL", quotedBuildConfig(telegramBotUrl))
         buildConfigField("String", "WEB_ACCOUNT_URL", quotedBuildConfig(webAccountUrl))
