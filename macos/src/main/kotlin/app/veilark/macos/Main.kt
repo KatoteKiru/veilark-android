@@ -162,6 +162,8 @@ private fun installImportDeepLinkHandler() {
 }
 
 fun main() {
+  // CTrayIcon reads this once. Set it before any AWT/Compose initialization, also for IDE runs.
+  System.setProperty("apple.awt.enableTemplateImages", "true")
   StartupDiagnostics.install()
   runCatching(::installImportDeepLinkHandler)
   application {
@@ -210,7 +212,7 @@ fun main() {
   var startupUpdate by remember { mutableStateOf<MacUpdate?>(null) }
   var startupUpdateError by remember { mutableStateOf<String?>(null) }
   val darkTheme = isSystemInDarkTheme()
-  val trayIcon = remember(darkTheme) { BitmapPainter(brandBitmap(36, darkTheme, tray = true).toComposeImageBitmap()) }
+  val trayIcon = remember { MenuBarIcon() }
   val windowIcon = remember(darkTheme) { BitmapPainter(brandBitmap(256, darkTheme).toComposeImageBitmap()) }
   val visualPreferences by produceState(VisualPreferences()) {
     value = withContext(Dispatchers.IO) { readVisualPreferences() }

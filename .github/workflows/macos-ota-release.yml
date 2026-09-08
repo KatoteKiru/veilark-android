@@ -85,7 +85,7 @@ jobs:
           cp "$SOURCE_DMG" "build/ota/$ARTIFACT"
           printf '%s' "$OTA_SIGNING_KEY_B64" | base64 --decode > "$RUNNER_TEMP/veilark-macos-ota.pem"
           chmod 0600 "$RUNNER_TEMP/veilark-macos-ota.pem"
-          NOTES="Veilark $VERSION: importing or refreshing a Veilark HTTPS subscription now registers this Mac in the account device list. A persistent random installation ID is reused; device metadata is withheld from third-party subscriptions and redirects. Raw tt links do not register an installation. VPN engines and routing are unchanged. Veilark-signed preview OTA; Apple notarization is not configured."
+          NOTES="Veilark $VERSION: чёткий значок строки меню для Retina с системным цветом. Исправлены открытие окна через Dock, повторное подключение и остановка VPN. Ограничено восстановление сети и размер журналов. Keychain сохраняет прежний ключ при ошибке доступа. После обновления один раз подтвердите переустановку VPN helper. / Sharper menu-bar icon, reliable window reopening and VPN stop/reconnect. One helper reinstall requires administrator approval. Veilark-signed preview; not Apple-notarized."
           ./gradlew --no-daemon createOtaManifest \
             "-PotaDmg=build/ota/$ARTIFACT" \
             "-PotaManifestOutput=build/ota/manifest.json" \
@@ -153,7 +153,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          NOTES="Veilark $VERSION preview for Apple Silicon. Veilark HTTPS subscription imports and refreshes now use a persistent installation ID and show this Mac in the account device list. Device metadata is not forwarded to other providers or redirects. External providers that require legacy HWID headers may need a separate compatibility option; raw tt links do not register an installation. VPN engines and routing are unchanged. OTA uses the established Veilark Ed25519 key; this DMG is not Apple-signed or notarized. Physical user-device acceptance remains pending."
+          NOTES="Veilark $VERSION for Apple Silicon. The menu-bar logo now renders from vectors at the requested display resolution and uses macOS template colouring. Fixed Dock reopening, blocked startup feedback, reconnect after Stop and uncertain teardown handling. Keychain errors no longer replace existing keys. Helper operations and logs are bounded. After updating, approve one VPN helper reinstall. OTA retains the established Veilark Ed25519 key; this preview is not Apple-signed or notarized. Customer-device acceptance remains pending."
           gh release create "$GITHUB_REF_NAME" \
             "build/ota/$ARTIFACT#Veilark $VERSION DMG (ARM64 preview)" \
             "build/ota/manifest.json#Signed macOS OTA manifest" \

@@ -427,6 +427,7 @@ tasks.matching {
 compose.desktop {
   application {
     mainClass = "app.veilark.macos.MainKt"
+    jvmArgs("-Dapple.awt.enableTemplateImages=true")
     nativeDistributions {
       targetFormats(TargetFormat.Dmg)
       packageName = "Veilark"
