@@ -26,6 +26,16 @@ UPLOAD_ATTEMPTS = 8
 MAX_RELEASE_NOTES_LENGTH = 500
 MAX_MANIFEST_SIZE = 128 * 1024
 OTA_PACKAGE_ID = "uk.senyasenyavski.veilark"
+OTA_ORIGIN = "https://nl2.senyasenyavski.uk:2096"
+
+
+def validate_ota_origin(value: str) -> str:
+    # Installed private clients pin both host and port for the APK, not just
+    # the manifest. Catalogue/browser URLs on 443 are a separate delivery path.
+    origin = value.rstrip("/")
+    if origin != OTA_ORIGIN:
+        raise ValueError("Private Android OTA APK URL must use the installed client's pinned origin: " + OTA_ORIGIN)
+    return origin
 
 
 def canonical_payload_v2(fields: list[str]) -> bytes:
@@ -332,9 +342,7 @@ def main() -> None:
     notes = args.notes.strip()
     if not notes or len(notes) > MAX_RELEASE_NOTES_LENGTH:
         raise ValueError("Release notes must contain 1-500 characters")
-    origin = args.origin.rstrip("/")
-    if not origin.startswith("https://"):
-        raise ValueError("OTA origin must use HTTPS")
+    origin = validate_ota_origin(args.origin)
     expected_signer = args.expected_signer_sha256.strip().lower()
     if re.fullmatch(r"[0-9a-f]{64}", expected_signer) is None:
         raise ValueError("Expected signer SHA-256 must contain 64 hexadecimal characters")
