@@ -10,3 +10,4 @@
 *.png binary
 *.webp binary
 app/src/main/assets/rules/geoip-ru.json text eol=lf
+vendor/trusttunnel-android/patches/0003-post-close-terminal-fence.patch text eol=lf

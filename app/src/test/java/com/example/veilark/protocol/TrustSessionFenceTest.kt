@@ -21,16 +21,28 @@ class TrustSessionFenceTest {
   }
 
   @Test
-  fun timeoutTerminalizesWithoutWaitingForADisconnectedCallback() {
+  fun timeoutRetainsOwnershipUntilPostCloseCallback() {
     val fence = TrustSessionFence()
     fence.begin(7L)
 
+    assertTrue(fence.requestStop(7L))
+    assertTrue(fence.accepts(7L))
+    assertFalse(fence.acceptConnected(7L))
+    assertFalse(fence.isConnected(7L))
+    assertFalse(fence.requestStop(6L))
     assertTrue(fence.terminalize(7L))
     assertFalse(fence.terminalize(7L))
-    assertFalse(fence.accepts(7L))
 
     fence.begin(8L)
     assertTrue(fence.accepts(8L))
     assertFalse(fence.accepts(7L))
+  }
+
+  @Test(expected = IllegalStateException::class)
+  fun stoppingSessionBlocksNewAdmissionUntilRealClose() {
+    val fence = TrustSessionFence()
+    fence.begin(1L)
+    fence.requestStop(1L)
+    fence.begin(2L)
   }
 }

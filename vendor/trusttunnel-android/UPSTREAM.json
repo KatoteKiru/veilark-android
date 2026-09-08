@@ -17,8 +17,21 @@
     {
       "path": "patches/0002-android-lifecycle-hardening.patch",
       "sha256": "9B27E966F48AD3B51125524707B52A33C67BDCEDCEDD5BE1B671B6A542E33F7E"
+    },
+    {
+      "path": "patches/0003-post-close-terminal-fence.patch",
+      "sha256": "DAD7B05753521D188D9BC9F001B792E0CA833C2E27D1AEBADE8EB7A4D5A9A860"
     }
   ],
+  "adapter_overlay": {
+    "method": "rebuild-java-kotlin-from-exact-upstream-and-three-patches",
+    "baseline_aar_sha256": "069819F12B9F5D94D79569212D002DF27E6FF77E0B9FAC3BC5640BD01979B7CC",
+    "recipe": "scripts/package-adapter-only.ps1",
+    "native_rebuilt_in_overlay": false,
+    "non_classes_payload": "all entries byte-identical to full-source baseline",
+    "upstream_adapter_tests": "23 passed",
+    "physical_acceptance": "not-run"
+  },
   "packaging": {
     "method": "full-upstream-android-aar-build",
     "native_rebuilt": true,
@@ -68,9 +81,9 @@
     "note": "Explicit SHA-1 build IDs drifted despite byte-identical remaining ELF sections. Build IDs are disabled; tombstones require manual correlation by version and per-ABI artifact hash."
   },
   "sha256": {
-    "aar": "069819F12B9F5D94D79569212D002DF27E6FF77E0B9FAC3BC5640BD01979B7CC",
-    "classes_jar": "013F54C67F147E27923820BA041A8FE0EB0840A23794003AD339E69AF596A1A2",
-    "content_tree": "D985B6FAE3A9CC75AD9E1799BA115A03C2C05071A90D70D9F8F2C3B07619AE9E",
+    "aar": "2AFB788AE66FAADF52142CFA7A7273DD969E225899891B5BA90367D57DB66E5D",
+    "classes_jar": "F6F0B8504C65145E707D184ECC971CF22886D3B07CFEC3E1D595AA2484152000",
+    "content_tree": "E213441AE413FB109D485862147BE08A8B7E71BE2F91FE18AE77CD5F4F41AC92",
     "jni_arm64_v8a": "A569F3ABAB852E669E05DC76DFD74C74D56251B16A449C001D9099B098D1561C",
     "jni_armeabi_v7a": "173DBE338F14FD735C87C33FF21A0100867FA4D17C3B14DDBBE5BD2AFBA3AC0D",
     "android_manifest_xml": "E2B8620B22BF37D9860165BBA5DF9B1B4FFF41CBDFDD240D7038628A077941BA",
@@ -94,8 +107,8 @@
     "two_workdir_payload_and_aar_comparison": "passed",
     "jni_export_diff_against_1_1_4": "passed-no-additions-or-removals",
     "host_manifest_permissions": "passed",
-    "veilark_private_unit_tests": "passed-153-tests-3-skipped",
-    "veilark_oss_unit_tests": "passed-153-tests-3-skipped",
+    "veilark_private_unit_tests": "passed-168-tests-3-skipped",
+    "veilark_oss_unit_tests": "passed-168-tests-3-skipped",
     "veilark_release_lint": "passed-0-fatal-0-error-85-existing-warnings-per-flavor",
     "physical_arm_device": "not-run"
   }

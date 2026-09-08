@@ -9,11 +9,12 @@ vendored into Veilark.
 - Upstream repository: `https://github.com/TrustTunnel/TrustTunnelClient.git`
 - Tag: `v1.1.5`
 - Commit: `8886193f90eea5855a0a3c4a735ed0e44a5a4751`
-- Patches: `patches/0001-android-per-app-routing.patch` and
-  `patches/0002-android-lifecycle-hardening.patch`
+- Patches: `patches/0001-android-per-app-routing.patch`,
+  `patches/0002-android-lifecycle-hardening.patch`, and
+  `patches/0003-post-close-terminal-fence.patch`
 - Installed AAR: `app/libs/trusttunnel-client.aar`
 - Installed AAR SHA-256:
-  `069819F12B9F5D94D79569212D002DF27E6FF77E0B9FAC3BC5640BD01979B7CC`
+  `2AFB788AE66FAADF52142CFA7A7273DD969E225899891B5BA90367D57DB66E5D`
 
 The patches preserve Veilark Android lifecycle requirements:
 
@@ -47,6 +48,26 @@ so changing routing while connected requires a controlled tunnel restart.
 
 ## Rebuild
 
+The current artifact adds an adapter-only teardown correction: a native
+DISCONNECTED callback schedules resource closure; only the completed close
+publishes the terminal event. Native libraries are byte-identical to the
+previous verified full-source 1.1.5 build, not rebuilt for this Java/Kotlin-only
+change. `UPSTREAM.json` records the baseline build and the overlay separately.
+
+To reproduce the overlay, first produce the baseline AAR with the full-source
+recipe below (which intentionally applies patches 0001 and 0002). In an exact
+upstream checkout with those patches, apply 0003 and run, from `platform/android`:
+
+```powershell
+.\gradlew.bat :lib:bundleLibRuntimeToJarRelease :lib:testDebugUnitTest --no-daemon --max-workers=2
+```
+
+Use `scripts/package-adapter-only.ps1 -BaseAar <baseline.aar> -ClassesJar
+<checkout>/platform/android/lib/build/intermediates/runtime_library_classes_jar/release/bundleLibRuntimeToJarRelease/classes.jar
+-OutputAar <new.aar>`. It verifies the exact baseline hash, corrected callback
+bytecode and byte equality of every non-class payload entry before reporting
+success. Output must be a new file. Physical device acceptance is still required.
+
 The tracked PowerShell recipe clones the exact upstream commit, exports the
 pinned public Conan recipes, applies the patch, builds both Android native ABIs,
 runs the upstream adapter unit tests, and verifies the final AAR and payload
@@ -54,7 +75,7 @@ hashes:
 
 ```powershell
 pwsh -File vendor/trusttunnel-android/scripts/build-adapter.ps1 `
-  -OutputAar app/libs/trusttunnel-client.aar `
+  -OutputAar baseline-trusttunnel-1.1.5.aar `
   -WorkDirectory C:\build\trusttunnel-1.1.5
 ```
 
