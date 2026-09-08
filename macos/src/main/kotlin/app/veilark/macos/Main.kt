@@ -125,6 +125,7 @@ import java.awt.Desktop
 import java.awt.Dimension
 import java.awt.FileDialog
 import java.awt.Frame
+import java.awt.desktop.AppReopenedListener
 import java.awt.image.BufferedImage
 import java.io.File
 import java.time.ZoneId
@@ -147,10 +148,12 @@ private enum class MacSection(
  * link is not lost; AWT queues the open-URI event until a handler is installed.
  */
 private val externalImportRequests = MutableStateFlow<String?>(null)
+private val reopenRequests = MutableStateFlow(0L)
 
 private fun installImportDeepLinkHandler() {
   if (!Desktop.isDesktopSupported()) return
   val desktop = Desktop.getDesktop()
+  desktop.addAppEventListener(AppReopenedListener { reopenRequests.value += 1 })
   if (!desktop.isSupported(Desktop.Action.APP_OPEN_URI)) return
   desktop.setOpenURIHandler { event ->
     // The inner URL is a bearer credential; unsupported links are dropped silently.
@@ -159,9 +162,47 @@ private fun installImportDeepLinkHandler() {
 }
 
 fun main() {
+  StartupDiagnostics.install()
   runCatching(::installImportDeepLinkHandler)
   application {
-  val session = remember { VeilarkSession.createDefault() }
+  var startupAttempt by remember { mutableStateOf(0) }
+  var startupFailed by remember { mutableStateOf(false) }
+  val loadedSession by produceState<VeilarkSession?>(null, startupAttempt) {
+    startupFailed = false
+    try {
+      value = withContext(Dispatchers.IO) {
+        VeilarkSession.createDefault { StartupDiagnostics.record(it, "keychain") }
+      }
+    } catch (cancelled: kotlinx.coroutines.CancellationException) {
+      throw cancelled
+    } catch (failure: Exception) {
+      withContext(Dispatchers.IO) { StartupDiagnostics.record(failure, "session-startup") }
+      startupFailed = true
+    }
+  }
+  if (loadedSession == null) {
+    Window(onCloseRequest = ::exitApplication, title = Strings.appName,
+      state = rememberWindowState(width = 420.dp, height = 220.dp)) {
+      VeilarkTheme {
+        Surface(Modifier.fillMaxSize()) {
+          Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center) {
+            if (!startupFailed) CircularProgressIndicator()
+            Spacer(Modifier.height(16.dp))
+            val russian = java.util.Locale.getDefault().language == "ru"
+            Text(if (startupFailed) {
+              if (russian) "Не удалось открыть Veilark. Профили не изменены." else "Unable to open Veilark. Profiles were not changed."
+            } else if (russian) "Открываем Veilark…" else "Opening Veilark…")
+            if (startupFailed) TextButton(onClick = { startupAttempt += 1 }) {
+              Text(if (russian) "Повторить" else "Retry")
+            }
+          }
+        }
+      }
+    }
+    return@application
+  }
+  val session = loadedSession!!
   val scope = rememberCoroutineScope()
   var selectedSection by remember { mutableStateOf(MacSection.OVERVIEW) }
   var tick by remember { mutableStateOf(0) }
@@ -175,6 +216,11 @@ fun main() {
     value = withContext(Dispatchers.IO) { readVisualPreferences() }
   }
   val externalImportUrl by externalImportRequests.collectAsState()
+  val reopenRequest by reopenRequests.collectAsState()
+
+  LaunchedEffect(reopenRequest) {
+    if (reopenRequest > 0) windowVisible = true
+  }
 
   LaunchedEffect(externalImportUrl) {
     if (externalImportUrl != null) {
@@ -193,7 +239,11 @@ fun main() {
 
   LaunchedEffect(session) {
     while (true) {
-      delay(if (session.status == TunnelStatus.CONNECTED) 30_000 else 60_000)
+      delay(when {
+        session.recoveryPending -> 2_000
+        session.status == TunnelStatus.CONNECTED -> 30_000
+        else -> 60_000
+      })
       session.reconcileStatus()
       session.reconcileDefaultRouteHandover()
     }
@@ -260,8 +310,11 @@ fun main() {
       icon = windowIcon,
       state = rememberWindowState(width = 1_040.dp, height = 720.dp),
     ) {
-      LaunchedEffect(window) {
+      LaunchedEffect(window, reopenRequest, externalImportUrl) {
         window.minimumSize = Dimension(900, 620)
+        window.extendedState = Frame.NORMAL
+        window.toFront()
+        window.requestFocus()
       }
       VeilarkTheme {
         CompositionLocalProvider(LocalVisualPreferences provides visualPreferences) {

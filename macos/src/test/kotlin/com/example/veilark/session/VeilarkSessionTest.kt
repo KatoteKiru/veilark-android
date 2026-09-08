@@ -127,13 +127,149 @@ class VeilarkSessionTest {
     val session = sessionWithSingBox(fake, NetworkHealth(true, "ok"))
 
     val connect = launch { session.connect() }
-    delay(50)
+    withTimeout(5_000) { fake.started.await() }
     session.disconnect()
     connect.join()
 
     assertEquals(TunnelStatus.DISCONNECTED, session.status)
     assertTrue(fake.stopCalls >= 2)
     assertTrue(session.logs.any { it.code == "CONNECT_CANCELLED" })
+    session.connect()
+    assertEquals(TunnelStatus.CONNECTED, session.status)
+  }
+
+  @Test
+  fun completedDisconnectDoesNotCancelTheNextConnect() = runBlocking {
+    val fake = FakeController()
+    val session = sessionWithSingBox(fake, NetworkHealth(true, "ok"))
+    session.connect()
+    session.disconnect()
+    session.disconnect()
+    session.connect()
+    assertEquals(TunnelStatus.CONNECTED, session.status)
+    assertEquals(2, fake.startCalls)
+    session.disconnectAwaited()
+    session.connect()
+    assertEquals(TunnelStatus.CONNECTED, session.status)
+  }
+
+  @Test
+  fun idleDisconnectDoesNotCancelFirstConnect() = runBlocking {
+    val session = sessionWithSingBox(FakeController(), NetworkHealth(true, "ok"))
+    session.disconnect()
+    session.connect()
+    assertEquals(TunnelStatus.CONNECTED, session.status)
+  }
+
+  @Test
+  fun slowHelperDoesNotBlockCallerAndCancellationStillStopsCore() = runBlocking {
+    val caller = Thread.currentThread()
+    val gate = java.util.concurrent.CountDownLatch(1)
+    val fake = FakeController(startGate = gate)
+    val session = sessionWithSingBox(fake, NetworkHealth(true, "ok"))
+    val starting = launch { session.connect() }
+    try {
+      withTimeout(5_000) { fake.startEntered.await() }
+      // Explicit barrier, not a sleep-based race against a slow CI machine.
+      assertFalse(fake.running)
+      assertTrue(fake.startThread !== caller)
+      session.disconnect()
+    } finally { gate.countDown() }
+    starting.join()
+    assertEquals(TunnelStatus.DISCONNECTED, session.status)
+    assertFalse(fake.running)
+  }
+
+  @Test
+  fun failedCancellationCleanupNeverClaimsDisconnectedOrStartsAnotherCore() = runBlocking {
+    val fake = FakeController()
+    val session = sessionWithSingBox(fake, NetworkHealth(true, "ok"))
+    val starting = launch { session.connect() }
+    withTimeout(5_000) { fake.started.await() }
+    fake.failStop = true
+    session.disconnect()
+    starting.join()
+    assertEquals(TunnelStatus.DEGRADED, session.status)
+    assertTrue(session.status.isStopAction)
+    assertTrue(session.status.blocksOfflineChanges)
+    assertFalse(session.recoveryPending)
+    org.junit.Assert.assertThrows(IllegalStateException::class.java) {
+      session.switchEngine(TunnelEngineKind.TRUST_TUNNEL)
+    }
+    assertTrue(fake.running)
+    val starts = fake.startCalls
+    session.connect()
+    assertEquals(starts, fake.startCalls)
+    assertEquals(TunnelStatus.DEGRADED, session.status)
+    fake.failStop = false
+    session.disconnectAwaited().getOrThrow()
+    assertFalse(fake.running)
+  }
+
+  @Test
+  fun trustConnectStopConnectPreservesManualRouting() = runBlocking {
+    val key = EncryptedStore.ephemeralKey()
+    val store = EncryptedStore(folder.newFolder("trust-lifecycle")) { key }
+    store.save(EncryptedStore.TRUST_TUNNEL_CATALOG,
+      TrustTunnelCatalog.encode(listOf(TrustTunnelCatalogEntry("trust", "Trust", TRUST_CONFIG))))
+    val fake = FakeController()
+    val session = VeilarkSession(store, fake, ConnectionHealthChecker { NetworkHealth(true, "ok") },
+      DefaultRouteFingerprintProvider { null })
+    session.updateRouting(ProfileSelection.ROUTING_MANUAL, "example.ru", "youtube.com")
+    session.connect()
+    assertEquals(TunnelStatus.CONNECTED, session.status)
+    session.disconnect()
+    session.connect()
+    assertEquals(TunnelStatus.CONNECTED, session.status)
+    assertEquals(2, fake.startCalls)
+    assertTrue(fake.lastConfig.contains("example.ru"))
+  }
+
+  @Test
+  fun degradedHandoverRetriesWithBackoffAndStopsAtBudget() = runBlocking {
+    var now = 0L
+    val fake = FakeController()
+    val routes = MutableRouteProvider(DefaultRouteFingerprint("en0", "192.0.2.1"))
+    val session = sessionWithSingBox(fake, NetworkHealth(true, "ok"), routes, clock = { now })
+    session.connect()
+    fake.failStart = true
+    routes.current = DefaultRouteFingerprint("en5", "198.51.100.1")
+    assertFalse(session.reconcileDefaultRouteHandover())
+    assertEquals(TunnelStatus.DEGRADED, session.status)
+    val attempts = fake.startCalls
+    assertFalse(session.reconcileDefaultRouteHandover())
+    assertEquals(attempts, fake.startCalls)
+    repeat(4) {
+      now += 60_000
+      session.reconcileDefaultRouteHandover()
+    }
+    assertFalse(session.recoveryPending)
+    val exhausted = fake.startCalls
+    now += 60_000
+    session.reconcileDefaultRouteHandover()
+    assertEquals(exhausted, fake.startCalls)
+    session.disconnect()
+    fake.failStart = false
+    session.connect()
+    assertEquals(TunnelStatus.CONNECTED, session.status)
+  }
+
+  @Test
+  fun transientHandoverFailureRecoversAndManualStopCancelsRetries() = runBlocking {
+    var now = 0L
+    val fake = FakeController()
+    val routes = MutableRouteProvider(DefaultRouteFingerprint("en0", "192.0.2.1"))
+    val session = sessionWithSingBox(fake, NetworkHealth(true, "ok"), routes, clock = { now })
+    session.connect()
+    fake.failStart = true
+    routes.current = DefaultRouteFingerprint("en5", "198.51.100.1")
+    session.reconcileDefaultRouteHandover()
+    fake.failStart = false
+    now += 60_000
+    assertTrue(session.reconcileDefaultRouteHandover())
+    session.disconnect()
+    assertFalse(session.recoveryPending)
+    assertFalse(session.reconcileDefaultRouteHandover())
   }
 
   @Test
@@ -219,6 +355,40 @@ class VeilarkSessionTest {
   }
 
   @Test
+  fun unknownRuntimeStatusRequiresStopButConfirmedExitDoesNot() = runBlocking {
+    val fake = FakeController()
+    val session = sessionWithSingBox(fake, NetworkHealth(true, "ok"))
+    session.connect()
+    fake.statusUnknown = true
+    session.reconcileStatus()
+    assertEquals(TunnelStatus.DEGRADED, session.status)
+    assertTrue(session.status.blocksOfflineChanges)
+    assertTrue(session.status.isStopAction)
+    assertFalse(session.recoveryPending)
+    session.disconnectAwaited().getOrThrow()
+    fake.statusUnknown = false
+    session.connect()
+    fake.running = false
+    session.reconcileStatus()
+    assertEquals(TunnelStatus.FAILED, session.status)
+    assertFalse(session.status.blocksOfflineChanges)
+  }
+
+  @Test
+  fun explicitHealthActionDoesNotMistakeHelperFailureForEngineExit() = runBlocking {
+    val fake = FakeController()
+    val session = sessionWithSingBox(fake, NetworkHealth(true, "ok"))
+    session.connect()
+    fake.statusUnknown = true
+    assertFalse(session.checkConnectionHealth().reachable)
+    assertEquals(TunnelStatus.DEGRADED, session.status)
+    assertTrue(fake.running)
+    assertTrue(session.status.isStopAction)
+    assertFalse(session.recoveryPending)
+    assertTrue(session.logs.any { it.code == "HELPER_STATUS_UNKNOWN" })
+  }
+
+  @Test
   fun defaultRouteChangeFromEn0ToEn5PerformsOneControlledReconnect() = runBlocking {
     val fake = FakeController()
     val routes = MutableRouteProvider(DefaultRouteFingerprint("en0", "192.0.2.1"))
@@ -274,7 +444,9 @@ class VeilarkSessionTest {
     val result = session.stopForQuit()
 
     assertTrue(result.isFailure)
-    assertEquals(TunnelStatus.FAILED, session.status)
+    assertEquals(TunnelStatus.DEGRADED, session.status)
+    assertTrue(session.status.isStopAction)
+    assertTrue(session.status.blocksOfflineChanges)
     assertTrue(fake.running)
     assertTrue(session.statusDetail.isNotBlank())
     assertTrue(session.logs.any { it.code == "DISCONNECT_FAILED" })
@@ -334,6 +506,7 @@ class VeilarkSessionTest {
     health: NetworkHealth,
     routes: DefaultRouteFingerprintProvider = DefaultRouteFingerprintProvider { null },
     geoStore: GeoRoutingStore? = null,
+    clock: () -> Long = { System.nanoTime() / 1_000_000 },
   ): VeilarkSession {
     val key = EncryptedStore.ephemeralKey()
     val store = EncryptedStore(folder.newFolder("secure")) { key }
@@ -347,19 +520,25 @@ class VeilarkSessionTest {
     )
     store.save(EncryptedStore.SING_BOX_CATALOG, SingBoxCatalog.encode(listOf(entry)))
     val session = if (geoStore == null) {
-      VeilarkSession(store, fake, ConnectionHealthChecker { health }, routes)
+      VeilarkSession(store, fake, ConnectionHealthChecker { health }, routes, monotonicMillis = clock)
     } else {
-      VeilarkSession(store, fake, ConnectionHealthChecker { health }, routes, geoStore)
+      VeilarkSession(store, fake, ConnectionHealthChecker { health }, routes, geoStore, clock)
     }
     return session.also {
       it.switchEngine(TunnelEngineKind.SING_BOX)
     }
   }
 
-  private class FakeController(private val startDelayMillis: Long = 0) : TunnelController {
-    var running = false
+  private class FakeController(private val startDelayMillis: Long = 0,
+    private val startGate: java.util.concurrent.CountDownLatch? = null) : TunnelController {
+    @Volatile var running = false
+    val startEntered = CompletableDeferred<Unit>()
+    val started = CompletableDeferred<Unit>()
+    @Volatile var startThread: Thread? = null
     var stopCalls = 0
     var failStop = false
+    var failStart = false
+    @Volatile var statusUnknown = false
     var startCalls = 0
     var lastConfig = ""
 
@@ -367,10 +546,15 @@ class VeilarkSessionTest {
     override fun enginePresent(kind: TunnelEngineKind): Boolean = true
     override fun install(): Result<Unit> = Result.success(Unit)
     override fun start(kind: TunnelEngineKind, config: String): Result<Unit> {
+      startThread = Thread.currentThread()
+      startEntered.complete(Unit)
+      if (startGate != null) check(startGate.await(10, java.util.concurrent.TimeUnit.SECONDS))
       if (startDelayMillis > 0) Thread.sleep(startDelayMillis)
       startCalls += 1
+      if (failStart) return Result.failure(IllegalStateException("start unavailable"))
       lastConfig = config
       running = true
+      started.complete(Unit)
       return Result.success(Unit)
     }
     override fun stop(): Result<Unit> {
@@ -379,7 +563,7 @@ class VeilarkSessionTest {
       running = false
       return Result.success(Unit)
     }
-    override fun status(): String = if (running) "connected" else "disconnected"
+    override fun status(): String = if (statusUnknown) "unknown" else if (running) "connected" else "disconnected"
     override fun lastLog(): String = ""
     override fun tunFailed(): Boolean = false
     override fun outboundUnresolved(): Boolean = false

@@ -1,6 +1,7 @@
 package com.example.veilark.session
 
 import java.io.BufferedReader
+import com.example.veilark.io.BoundedProcess
 
 /** Snapshot of the physical default route used to build the macOS tunnel config. */
 data class DefaultRouteFingerprint(
@@ -25,23 +26,14 @@ object MacDefaultRouteFingerprintProvider : DefaultRouteFingerprintProvider {
    * the default route. `route get default` alone can otherwise report utun.
    */
   private fun currentFromScutil(): DefaultRouteFingerprint? = runCatching {
-    val process = ProcessBuilder("scutil")
-      .redirectErrorStream(true)
-      .start()
-    process.outputStream.bufferedWriter().use { input ->
-      input.write("open\nshow State:/Network/Global/IPv4\nquit\n")
-    }
-    val output = process.inputStream.bufferedReader().readText()
-    if (process.waitFor() == 0) parseScutil(output) else null
+    val result = BoundedProcess.run(listOf("scutil"), 3_000,
+      "open\nshow State:/Network/Global/IPv4\nquit\n")
+    if (result.exitCode == 0) parseScutil(result.text) else null
   }.getOrNull()
 
   private fun currentFromRoute(): DefaultRouteFingerprint? = runCatching {
-    ProcessBuilder("route", "-n", "get", "default")
-      .redirectErrorStream(true)
-      .start()
-      .inputStream
-      .bufferedReader()
-      .use(::parse)
+    val result = BoundedProcess.run(listOf("route", "-n", "get", "default"), 3_000)
+    if (result.exitCode == 0) result.text.reader().buffered().use(::parse) else null
   }.getOrNull()
 
   internal fun parseScutil(output: String): DefaultRouteFingerprint? {

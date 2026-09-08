@@ -25,6 +25,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -54,10 +57,15 @@ class VeilarkSession(
   private val defaultRouteFingerprintProvider: DefaultRouteFingerprintProvider =
     MacDefaultRouteFingerprintProvider,
   private val geoRepository: GeoRoutingStore = GeoRoutingRepository(),
+  private val monotonicMillis: () -> Long = { System.nanoTime() / 1_000_000 },
 ) {
   private val operationMutex = Mutex()
   @Volatile private var stopRequested = false
   private var appliedDefaultRoute: DefaultRouteFingerprint? = null
+  private var recoveryAttempts = 0
+  private var recoveryAfterMillis = 0L
+  val recoveryPending: Boolean
+    get() = status == TunnelStatus.DEGRADED && recoveryAttempts < MAX_RECOVERY_ATTEMPTS
   var engine by mutableStateOf(TunnelEngineKind.TRUST_TUNNEL)
   var status by mutableStateOf(TunnelStatus.DISCONNECTED)
     private set
@@ -391,6 +399,7 @@ class VeilarkSession(
   suspend fun connect() {
     exclusiveOperation {
       if (status == TunnelStatus.CONNECTED) return@exclusiveOperation
+      recoveryAttempts = 0
       connectLocked(reconnecting = false, routeFingerprint = currentDefaultRouteFingerprint())
     }
   }
@@ -418,21 +427,20 @@ class VeilarkSession(
       runCatching {
         if (!enginePresent()) error(RuntimeMessages.engineMissing)
         if (!helper.installed()) error(RuntimeMessages.installHelperFirst)
-        helper.stop().getOrThrow()
+        runInterruptible(Dispatchers.IO) { helper.stop().getOrThrow() }
         throwIfStopRequested()
-        when (engine) {
-          TunnelEngineKind.SING_BOX -> startSelectedSingBox(routeFingerprint?.interfaceName)
-          TunnelEngineKind.TRUST_TUNNEL -> startSelectedTrustTunnel()
+        val request = selectedStartRequest(routeFingerprint?.interfaceName)
+        runInterruptible(Dispatchers.IO) {
+          helper.start(request.kind, request.prepare())
+            .onFailure { error(friendlyHelperError(it.message)) }.getOrThrow()
         }
         delay(1_200)
         throwIfStopRequested()
-        if (helper.status() != "connected") error(RuntimeMessages.engineDidNotStart)
-        if (helper.tunFailed()) {
-          helper.stop()
+        if (runInterruptible(Dispatchers.IO) { helper.status() } != "connected") error(RuntimeMessages.engineDidNotStart)
+        if (runInterruptible(Dispatchers.IO) { helper.tunFailed() }) {
           error(RuntimeMessages.routesFailed)
         }
-        if (engine == TunnelEngineKind.SING_BOX && helper.outboundUnresolved()) {
-          helper.stop()
+        if (engine == TunnelEngineKind.SING_BOX && runInterruptible(Dispatchers.IO) { helper.outboundUnresolved() }) {
           error(RuntimeMessages.singBoxResolutionFailed)
         }
         val health = healthChecker.check()
@@ -447,6 +455,7 @@ class VeilarkSession(
           )
         }
         appliedDefaultRoute = routeFingerprint
+        recoveryAttempts = 0
         status = TunnelStatus.CONNECTED
         log(
           RuntimeMessages.connected(engine.name, health.detail),
@@ -454,12 +463,23 @@ class VeilarkSession(
           code = "CONNECT_OK",
         )
       }.onFailure { failure ->
-        helper.stop()
-        if (failure is ConnectionCancelledException) {
+        val cleanup = withContext(NonCancellable + Dispatchers.IO) { helper.stop() }
+        stopRequested = false
+        if (cleanup.isFailure) {
+          status = TunnelStatus.DEGRADED
+          statusDetail = RuntimeMessages.tunnelStartFailed
+          recoveryAttempts = MAX_RECOVERY_ATTEMPTS
+          log(RuntimeMessages.disconnectFailed(statusDetail), level = LogLevel.ERROR,
+            component = "tunnel", code = "DISCONNECT_FAILED")
+        } else if (failure is ConnectionCancelledException || failure is CancellationException) {
           status = TunnelStatus.DISCONNECTED
           statusDetail = ""
           log(RuntimeMessages.connectCancelled, component = "tunnel", code = "CONNECT_CANCELLED")
         } else {
+          if (reconnecting) {
+            recoveryAttempts += 1
+            recoveryAfterMillis = monotonicMillis() + (1_000L shl recoveryAttempts.coerceAtMost(5))
+          }
           status = if (reconnecting) TunnelStatus.DEGRADED else TunnelStatus.FAILED
           statusDetail = if (reconnecting) {
             RuntimeMessages.handoverDegraded
@@ -473,11 +493,12 @@ class VeilarkSession(
             code = if (reconnecting) "NETWORK_HANDOVER_DEGRADED" else "CONNECT_FAILED",
           )
         }
+        if (failure is CancellationException) throw failure
       }
   }
 
   /** Requests a stop without blocking the tray/UI event thread. */
-  fun disconnect() {
+  suspend fun disconnect() {
     stopRequested = true
     if (!operationMutex.tryLock()) {
       log(RuntimeMessages.disconnectQueued, component = "tunnel", code = "DISCONNECT_QUEUED")
@@ -502,8 +523,11 @@ class VeilarkSession(
   suspend fun reconcileStatus() {
     if (status != TunnelStatus.CONNECTED || !operationMutex.tryLock()) return
     try {
-      val running = withContext(Dispatchers.IO) { helper.status() == "connected" }
-      if (!running) markEngineExited()
+      when (runInterruptible(Dispatchers.IO) { helper.status() }) {
+        "connected" -> Unit
+        "disconnected" -> markEngineExited()
+        else -> markRuntimeUnknown()
+      }
     } finally {
       operationMutex.unlock()
     }
@@ -515,7 +539,9 @@ class VeilarkSession(
    * reconnect is in flight are intentionally ignored rather than queued.
    */
   suspend fun reconcileDefaultRouteHandover(): Boolean {
-    if (status != TunnelStatus.CONNECTED || !operationMutex.tryLock()) return false
+    if (status != TunnelStatus.CONNECTED && !recoveryPending) return false
+    if (status == TunnelStatus.DEGRADED && monotonicMillis() < recoveryAfterMillis) return false
+    if (!operationMutex.tryLock()) return false
     busy = true
     try {
       val observed = currentDefaultRouteFingerprint() ?: return false
@@ -524,7 +550,7 @@ class VeilarkSession(
         appliedDefaultRoute = observed
         return false
       }
-      if (observed == applied) return false
+      if (observed == applied && status == TunnelStatus.CONNECTED) return false
       log("Default route changed; rebuilding tunnel", component = "network", code = "NETWORK_HANDOVER_DETECTED")
       // Take one fresh snapshot so a route-event burst binds the rebuilt config
       // to the newest physical interface instead of queueing stale reconnects.
@@ -540,9 +566,10 @@ class VeilarkSession(
   suspend fun checkConnectionHealth(): NetworkHealth {
     return exclusiveOperation {
       require(status == TunnelStatus.CONNECTED) { RuntimeMessages.connectFirst }
-      if (withContext(Dispatchers.IO) { helper.status() != "connected" }) {
-        markEngineExited()
-        return@exclusiveOperation NetworkHealth(false, RuntimeMessages.engineNotRunning)
+      val observed = runInterruptible(Dispatchers.IO) { helper.status() }
+      if (observed != "connected") {
+        if (observed == "disconnected") markEngineExited() else markRuntimeUnknown()
+        return@exclusiveOperation NetworkHealth(false, statusDetail)
       }
       val health = healthChecker.check()
       lastHealthDetail = health.detail
@@ -748,15 +775,35 @@ class VeilarkSession(
     TunnelEngineKind.TRUST_TUNNEL -> selectedTrustEntry()?.sourceUrl
   }
 
-  private fun startSelectedSingBox(defaultInterface: String?) {
-    val entry = selectedSingBoxEntry() ?: error(RuntimeMessages.chooseSingBox)
+  private data class StartRequest(val kind: TunnelEngineKind, val prepare: () -> String)
+
+  /** Snapshot Compose-owned selection before dispatching configuration work to IO. */
+  private fun selectedStartRequest(defaultInterface: String?): StartRequest {
+    val kind = engine
+    val mode = routingMode
+    val direct = manualDirectEntries
+    val vpn = manualVpnEntries
+    return when (kind) {
+      TunnelEngineKind.SING_BOX -> {
+        val entry = selectedSingBoxEntry() ?: error(RuntimeMessages.chooseSingBox)
+        StartRequest(kind) { prepareSingBox(entry, mode, direct, vpn, defaultInterface) }
+      }
+      TunnelEngineKind.TRUST_TUNNEL -> {
+        val config = selectedTrustEntry()?.config ?: error(RuntimeMessages.chooseTrust)
+        StartRequest(kind) { prepareTrustTunnel(config, mode, direct, vpn) }
+      }
+    }
+  }
+
+  private fun prepareSingBox(entry: SingBoxCatalogEntry, mode: String, direct: String, vpn: String,
+    defaultInterface: String?): String {
     val selected = ProfileSelection.select(entry.config, entry.selectedNodeTag, entry.nodes)
     val routed = ProfileSelection.applyRouting(
       config = selected,
-      mode = routingMode,
-      directEntries = manualDirectEntries,
-      vpnEntries = manualVpnEntries,
-      geoRuleSets = if (routingMode == ProfileSelection.ROUTING_RU_DIRECT) {
+      mode = mode,
+      directEntries = direct,
+      vpnEntries = vpn,
+      geoRuleSets = if (mode == ProfileSelection.ROUTING_RU_DIRECT) {
         val paths = geoRepository.currentOrBundled()
         require(paths.geoIpSrs.isFile && paths.geoSiteSrs.isFile) {
           RuntimeMessages.geoFilesMissing
@@ -769,43 +816,37 @@ class VeilarkSession(
         null
       },
     )
-    helper.start(
-      TunnelEngineKind.SING_BOX,
-      SubscriptionParser.migrateSingBoxForMac(routed, defaultInterface),
-    ).onFailure { error(friendlyHelperError(it.message)) }.getOrThrow()
+    return SubscriptionParser.migrateSingBoxForMac(routed, defaultInterface)
   }
 
-  private fun startSelectedTrustTunnel() {
-    val entry = selectedTrustEntry() ?: error(RuntimeMessages.chooseTrust)
-    val prepared = if (routingMode == ProfileSelection.ROUTING_RU_DIRECT) {
+  private fun prepareTrustTunnel(config: String, mode: String, direct: String, vpn: String): String {
+    return if (mode == ProfileSelection.ROUTING_RU_DIRECT) {
       val paths = geoRepository.currentOrBundled()
       require(paths.geoIpJson.isFile && paths.geoSiteJson.isFile) {
         RuntimeMessages.geoFilesMissing
       }
       TrustTunnelProfile.applyGeoIpRuDirect(
-        entry.config,
+        config,
         runCatching { GeoIpRuCatalog.load(paths.geoIpJson) }
           .getOrElse { error(RuntimeMessages.geoIpInvalid) },
         runCatching { GeoSiteRuCatalog.load(paths.geoSiteJson) }
           .getOrElse { error(RuntimeMessages.geoIpInvalid) },
       )
-    } else if (routingMode == ProfileSelection.ROUTING_MANUAL) {
-      TrustTunnelProfile.applyManualRouting(entry.config, manualDirectEntries, manualVpnEntries)
+    } else if (mode == ProfileSelection.ROUTING_MANUAL) {
+      TrustTunnelProfile.applyManualRouting(config, direct, vpn)
     } else {
-      TrustTunnelProfile.prepareMacConfig(entry.config)
+      TrustTunnelProfile.prepareMacConfig(config)
     }
-    helper.start(
-      TunnelEngineKind.TRUST_TUNNEL,
-      prepared,
-    ).onFailure { error(friendlyHelperError(it.message)) }.getOrThrow()
   }
 
   private fun throwIfStopRequested() {
     if (stopRequested) throw ConnectionCancelledException()
   }
 
-  private fun disconnectLocked(): Result<Unit> {
-    val result = helper.stop()
+  private suspend fun disconnectLocked(): Result<Unit> {
+    val result = withContext(NonCancellable + Dispatchers.IO) { helper.stop() }
+    stopRequested = false
+    recoveryAttempts = 0
     if (result.isSuccess) {
       status = TunnelStatus.DISCONNECTED
       statusDetail = ""
@@ -813,7 +854,8 @@ class VeilarkSession(
       appliedDefaultRoute = null
       log(RuntimeMessages.disconnected, component = "tunnel", code = "DISCONNECT_OK")
     } else {
-      status = TunnelStatus.FAILED
+      status = TunnelStatus.DEGRADED
+      recoveryAttempts = MAX_RECOVERY_ATTEMPTS
       statusDetail = friendlyHelperError(result.exceptionOrNull()?.message)
       log(
         RuntimeMessages.disconnectFailed(statusDetail),
@@ -834,6 +876,13 @@ class VeilarkSession(
       component = "tunnel",
       code = "ENGINE_EXITED",
     )
+  }
+
+  private fun markRuntimeUnknown() {
+    status = TunnelStatus.DEGRADED
+    recoveryAttempts = MAX_RECOVERY_ATTEMPTS
+    statusDetail = RuntimeMessages.helperStateUnknown
+    log(statusDetail, level = LogLevel.ERROR, component = "helper", code = "HELPER_STATUS_UNKNOWN")
   }
 
   private fun redactLogMessage(message: String): String = message
@@ -895,6 +944,7 @@ class VeilarkSession(
     withContext(Dispatchers.IO) { defaultRouteFingerprintProvider.current() }
 
   companion object {
+    private const val MAX_RECOVERY_ATTEMPTS = 5
     private const val MAX_LOG_MESSAGE_LENGTH = 500
     private val SENSITIVE_LINK = Regex(
       """(?i)\b(?:https?|tt|vless|vmess|trojan|hysteria2?|ss)://[^\s]+""",
@@ -903,9 +953,10 @@ class VeilarkSession(
       """(?i)\b(password|passwd|token|secret|uuid|authorization)\s*[:=]\s*[^\s,;]+""",
     )
 
-    fun createDefault(): VeilarkSession {
+    fun createDefault(onKeychainFailure: (Throwable) -> Unit = {}): VeilarkSession {
       val dir = File(System.getProperty("user.home"), "Library/Application Support/Veilark/secure")
       val key = runCatching { MacKeychain.loadOrCreateKey() }
+      key.exceptionOrNull()?.let(onKeychainFailure)
       return VeilarkSession(EncryptedStore(dir) { key.getOrThrow() }).also { session ->
         if (key.isFailure) {
           session.storageWarning = RuntimeMessages.keychainUnavailable

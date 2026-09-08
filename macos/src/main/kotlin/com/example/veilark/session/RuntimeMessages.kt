@@ -14,6 +14,7 @@ internal object RuntimeMessages {
   val waitForOperation get() = text("Подождите завершения текущей операции", "Wait for the current operation to finish")
   val disconnectBeforeHelper get() = text("Отключите VPN перед установкой helper", "Disconnect the VPN before installing the helper")
   val helperInstalled get() = text("VPN helper установлен", "VPN helper installed")
+  val helperStateUnknown get() = text("Не удалось проверить состояние VPN. Нажмите отключить для безопасной остановки.", "Could not verify VPN state. Press Disconnect to stop it safely.")
   val disconnectBeforeImport get() = text("Отключите VPN перед импортом подписки", "Disconnect the VPN before importing a subscription")
   val emptyImport get() = text("Пустой импорт", "The import is empty")
   val subscriptionEngineMismatch get() = text("Формат обновлённой подписки не соответствует выбранному ядру", "The updated subscription format does not match the selected engine")

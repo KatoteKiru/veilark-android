@@ -1,6 +1,12 @@
 name: macOS preview
 
 on:
+  workflow_dispatch:
+    inputs:
+      upload_preview_dmg:
+        description: Retain the optional unsigned preview DMG in Actions storage
+        type: boolean
+        default: false
   pull_request:
     paths:
       - "macos/**"
@@ -49,6 +55,7 @@ jobs:
       - name: Verify bundled asset inventory
         run: ./scripts/verify-bundled-assets.sh
       - name: Upload unsigned development artifact
+        if: github.event_name == 'workflow_dispatch' && inputs.upload_preview_dmg
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: veilark-macos-unsigned-${{ runner.arch }}

@@ -1,6 +1,7 @@
 package com.example.veilark.engine
 
 import java.io.File
+import com.example.veilark.io.BoundedProcess
 
 enum class TunnelEngineKind {
   SING_BOX,
@@ -85,13 +86,12 @@ class PrivilegedHelper(private val paths: EnginePaths) : TunnelController {
       chown root:wheel ${shellQuote("/Library/Application Support/Veilark/helper.version")}
       chmod 0644 ${shellQuote("/Library/Application Support/Veilark/helper.version")}
     """.trimIndent()
-    val process = ProcessBuilder(
+    val result = BoundedProcess.run(listOf(
       "osascript",
       "-e",
       "do shell script ${osascriptQuote(script)} with administrator privileges",
-    ).redirectErrorStream(true).start()
-    val output = process.inputStream.bufferedReader().readText()
-    check(process.waitFor() == 0) { output.ifBlank { "Не удалось установить VPN helper" } }
+    ), timeoutMillis = 120_000)
+    check(result.exitCode == 0) { "Не удалось установить VPN helper" }
   }
 
   override fun start(kind: TunnelEngineKind, config: String): Result<Unit> = runCatching {
@@ -117,9 +117,9 @@ class PrivilegedHelper(private val paths: EnginePaths) : TunnelController {
 
   override fun stop(): Result<Unit> = runCatching { invoke("stop") }
 
-  override fun status(): String = runCatching { invoke("status") }.getOrDefault("disconnected")
+  override fun status(): String = runCatching { invoke("status") }.getOrDefault("unknown")
 
-  override fun lastLog(): String = runCatching { engineLog.readText() }.getOrDefault("")
+  override fun lastLog(): String = runCatching { invoke("diagnostics") }.getOrDefault("")
 
   override fun tunFailed(): Boolean {
     val log = lastLog()
@@ -134,11 +134,9 @@ class PrivilegedHelper(private val paths: EnginePaths) : TunnelController {
 
   private fun invoke(vararg args: String): String {
     val helper = if (installedHelper().isFile) installedHelper() else paths.helper
-    val process = ProcessBuilder(listOf(helper.absolutePath) + args.toList())
-      .redirectErrorStream(true)
-      .start()
-    val output = process.inputStream.bufferedReader().readText().trim()
-    check(process.waitFor() == 0) { output.ifBlank { "helper failed: ${args.joinToString(" ")}" } }
+    val result = BoundedProcess.run(listOf(helper.absolutePath) + args.toList())
+    val output = result.text.trim()
+    check(result.exitCode == 0) { output.ifBlank { "helper command failed" } }
     return output
   }
 
@@ -156,9 +154,8 @@ class PrivilegedHelper(private val paths: EnginePaths) : TunnelController {
     "'" + value.replace("'", "'\"'\"'") + "'"
 
   companion object {
-    const val VERSION = "6"
+    const val VERSION = "7"
     private val versionFile = File("/Library/Application Support/Veilark/helper.version")
-    private val engineLog = File("/Library/Application Support/Veilark/runtime/engine.log")
     private val installedSingBox = File("/Library/PrivilegedHelperTools/VeilarkEngines/sing-box")
     private val installedTrustTunnel =
       File("/Library/PrivilegedHelperTools/VeilarkEngines/trusttunnel_client")

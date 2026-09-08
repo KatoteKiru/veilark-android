@@ -7,6 +7,7 @@ import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 import javax.crypto.spec.SecretKeySpec
+import com.example.veilark.io.BoundedProcess
 
 class EncryptedStore(
   private val directory: File,
@@ -75,25 +76,32 @@ object MacKeychain {
     existing()?.let { return EncryptedStore.keyFromBytes(it) }
     val generated = ByteArray(32).also(SecureRandom()::nextBytes)
     val hex = generated.joinToString("") { "%02x".format(it) }
-    val add = ProcessBuilder(
-      "security", "add-generic-password", "-U",
+    val add = BoundedProcess.run(listOf(
+      "security", "add-generic-password",
       "-s", SERVICE, "-a", ACCOUNT, "-w", hex,
-    ).redirectErrorStream(true).start()
-    val output = add.inputStream.bufferedReader().readText()
-    check(add.waitFor() == 0) {
-      output.ifBlank { "Не удалось сохранить ключ шифрования в Keychain" }
+    ), timeoutMillis = 30_000)
+    check(add.exitCode == 0) {
+      "Не удалось сохранить ключ шифрования в Keychain"
     }
     val stored = existing() ?: error("Keychain не вернул сохранённый ключ шифрования")
     return EncryptedStore.keyFromBytes(stored)
   }
 
   private fun existing(): ByteArray? {
-    val process = ProcessBuilder(
+    val result = BoundedProcess.run(listOf(
       "security", "find-generic-password", "-s", SERVICE, "-a", ACCOUNT, "-w",
-    ).redirectErrorStream(true).start()
-    val output = process.inputStream.readBytes().toString(Charsets.UTF_8).trim()
-    if (process.waitFor() != 0 || output.length != 64 || output.any { it !in "0123456789abcdefABCDEF" }) {
-      return null
+    ), timeoutMillis = 30_000)
+    return decodeExisting(result.exitCode, result.text)
+  }
+
+  internal fun decodeExisting(exitCode: Int, text: String): ByteArray? {
+    // security(1) returns errSecItemNotFound (-25300 modulo 256) as 44.
+    // A locked/denied/timed-out Keychain is NOT evidence that no key exists.
+    if (exitCode == 44) return null
+    check(exitCode == 0) { "Keychain недоступен; существующий ключ не изменён" }
+    val output = text.trim()
+    check(output.length == 64 && output.all { it in "0123456789abcdefABCDEF" }) {
+      "Некорректный ключ Keychain; существующий ключ не изменён"
     }
     return output.chunked(2).map { it.toInt(16).toByte() }.toByteArray()
   }

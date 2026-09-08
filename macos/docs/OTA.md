@@ -18,7 +18,7 @@ Every newly published manifest must use `schemaVersion: 2`. The signed, length-p
 1. Update `macosVersion` and the monotonically increasing `macosBuild` in `gradle.properties`.
 2. Write short, user-facing release notes in `.github/workflows/macos-ota-release.yml`.
 3. Push the exact tag `macos-v<version>`.
-4. The Apple Silicon runner tests the JVM client, fetches pinned engines, builds and mounts the DMG, creates the signed manifest, performs a disposable 1.0.1-to-current native replacement test, uploads the DMG and manifest atomically, redownloads both, checks their bytes, and creates a GitHub prerelease.
+4. The Apple Silicon runner tests the JVM client, fetches pinned engines, builds and mounts the DMG, creates the signed manifest, performs a disposable native replacement test using a copy of the current bundle with a lowered build number, uploads the DMG and manifest atomically, redownloads both, checks their bytes, and creates a GitHub prerelease. This synthetic replacement test does not establish OTA discovery or trust continuity from an original legacy installation; that requires the actual old application and a Mac acceptance run.
 
 The first migration from a build that predates `veilark-updater` still requires one manual DMG installation. Every later build can update and restart from inside Veilark.
 

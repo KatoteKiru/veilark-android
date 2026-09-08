@@ -21,6 +21,55 @@ func engineLogText() -> String {
     (try? String(contentsOfFile: logFile, encoding: .utf8)) ?? ""
 }
 
+// A separate bounded sink survives the short-lived start command. Engine output
+// goes through its pipe, not an unbounded file descriptor inherited by the core.
+func logSink() {
+    becomeRoot()
+    let input = FileHandle.standardInput
+    let limit = 1_048_576
+    var size = 0
+    var output: FileHandle?
+    func reopen() {
+        try? output?.close()
+        output = nil
+        size = 0
+        try? FileManager.default.removeItem(atPath: logFile + ".1")
+        if FileManager.default.fileExists(atPath: logFile) {
+            try? FileManager.default.moveItem(atPath: logFile, toPath: logFile + ".1")
+        }
+        guard FileManager.default.createFile(atPath: logFile, contents: Data(),
+            attributes: [.posixPermissions: 0o600]),
+            let handle = FileHandle(forWritingAtPath: logFile) else { return }
+        output = handle
+        size = 0
+    }
+    reopen()
+    defer { try? output?.close() }
+    while let data = try? input.read(upToCount: 16_384), !data.isEmpty {
+        if size + data.count > limit { reopen() }
+        do { try output?.write(contentsOf: data) } catch {
+            // A full disk must not break the core's stdout pipe and kill a VPN.
+            try? output?.close()
+            output = nil
+        }
+        size += data.count
+    }
+}
+
+func diagnostics() {
+    becomeRoot()
+    // Export only known technical failure markers. Never return raw log lines,
+    // endpoints, imported configuration, credentials or customer destinations.
+    let text = engineLogText()
+    let markers = ["Failed to create listener", "Unable to setup routes",
+        "Failed to initialize tunnel", "make_tun_listener", "permission denied",
+        "SIOCAIFADDR", "empty direct outbound", "empty result"]
+    for marker in markers where text.contains(marker) { print(marker) }
+    if text.range(of: "outbound connection to :[0-9]+", options: .regularExpression) != nil {
+        print("outbound connection to :0")
+    }
+}
+
 func failFromEngineLog(fallback: String) -> Never {
     let logText = engineLogText()
     if logText.contains("permission denied") || logText.contains("SIOCAIFADDR") {
@@ -174,27 +223,31 @@ func startEngine(name: String, config: String) {
     } catch {
         fail("failed to stage config")
     }
+    let logPipe = Pipe()
+    // Do not let startup diagnostics accidentally read the previous session.
     try? FileManager.default.removeItem(atPath: logFile)
-    FileManager.default.createFile(
-        atPath: logFile,
-        contents: Data(),
-        attributes: [.posixPermissions: 0o600]
-    )
-    guard let log = FileHandle(forWritingAtPath: logFile) else {
-        fail("failed to open engine log")
-    }
+    let logger = Process()
+    logger.executableURL = URL(fileURLWithPath: "/Library/PrivilegedHelperTools/veilark-helper")
+    logger.arguments = ["log-sink"]
+    logger.standardInput = logPipe
+    logger.standardOutput = FileHandle.nullDevice
+    logger.standardError = FileHandle.nullDevice
+    do { try logger.run() } catch { fail("failed to start log sink") }
     let process = Process()
     process.executableURL = URL(fileURLWithPath: engine)
     process.arguments = name == "sing-box"
         ? ["run", "-c", privilegedConfig]
         : ["-c", privilegedConfig]
-    process.standardOutput = log
-    process.standardError = log
+    process.standardOutput = logPipe
+    process.standardError = logPipe
     do {
         try process.run()
     } catch {
+        logger.terminate()
         fail("failed to start engine")
     }
+    try? logPipe.fileHandleForReading.close()
+    try? logPipe.fileHandleForWriting.close()
     let pid = process.processIdentifier
     do {
         try String(pid).write(toFile: pidFile, atomically: true, encoding: .utf8)
@@ -254,6 +307,12 @@ case "stop":
     print("disconnected")
 case "status":
     status()
+case "diagnostics":
+    guard args.count == 1 else { fail("invalid diagnostics arguments") }
+    diagnostics()
+case "log-sink":
+    guard args.count == 1 else { fail("invalid log sink arguments") }
+    logSink()
 default:
     fail("unknown command")
 }

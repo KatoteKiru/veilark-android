@@ -72,14 +72,35 @@ class MacPackagingMetadataTest {
   }
 
   @Test
-  fun helperV6FailsClosedForPidPersistenceAndUnstoppableChild() {
+  fun helperV7FailsClosedForPidPersistenceAndUnstoppableChild() {
     val helper = File("helper/veilark-helper.swift").readText()
     val controller = File("src/main/kotlin/com/example/veilark/engine/PrivilegedHelper.kt").readText()
-    assertTrue(controller.contains("const val VERSION = \"6\""))
+    assertTrue(controller.contains("const val VERSION = \"7\""))
     assertTrue(helper.contains("failed to persist engine pid"))
     assertTrue(helper.contains("managed engine did not stop"))
     assertTrue(helper.contains("for _ in 0..<30"))
     assertFalse(helper.contains("try? String(pid).write"))
+  }
+
+  @Test
+  fun helperExportsOnlyFixedDiagnosticsAndDrainsLogsThroughBoundedSink() {
+    val helper = File("helper/veilark-helper.swift").readText()
+    val diagnostics = helper.substringAfter("func diagnostics()").substringBefore("func failFromEngineLog")
+    assertTrue(diagnostics.contains("print(marker)"))
+    assertFalse(diagnostics.contains("print(text)"))
+    assertTrue(helper.contains("let limit = 1_048_576"))
+    assertTrue(helper.contains("logger.arguments = [\"log-sink\"]"))
+    assertTrue(helper.contains("process.standardOutput = logPipe"))
+    assertTrue(helper.contains("!data.isEmpty"))
+  }
+
+  @Test
+  fun dockReopenShowsAndFocusesWindowAndKeychainLoadsOffUi() {
+    val main = File("src/main/kotlin/app/veilark/macos/Main.kt").readText()
+    assertTrue(main.contains("AppReopenedListener"))
+    assertTrue(main.contains("window.toFront()"))
+    assertTrue(main.contains("value = withContext(Dispatchers.IO)"))
+    assertTrue(main.contains("VeilarkSession.createDefault { StartupDiagnostics.record(it, \"keychain\") }"))
   }
 
   @Test
