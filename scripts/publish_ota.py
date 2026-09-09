@@ -8,6 +8,7 @@ import json
 import os
 from pathlib import Path
 import re
+import runpy
 import shlex
 import shutil
 import subprocess
@@ -26,16 +27,11 @@ UPLOAD_ATTEMPTS = 8
 MAX_RELEASE_NOTES_LENGTH = 500
 MAX_MANIFEST_SIZE = 128 * 1024
 OTA_PACKAGE_ID = "uk.senyasenyavski.veilark"
-OTA_ORIGIN = "https://nl2.senyasenyavski.uk:2096"
-
-
-def validate_ota_origin(value: str) -> str:
-    # Installed private clients pin both host and port for the APK, not just
-    # the manifest. Catalogue/browser URLs on 443 are a separate delivery path.
-    origin = value.rstrip("/")
-    if origin != OTA_ORIGIN:
-        raise ValueError("Private Android OTA APK URL must use the installed client's pinned origin: " + OTA_ORIGIN)
-    return origin
+# Absolute resolution also supports release tools loading this script via runpy
+# from another working directory. Contract tests need no SSH/crypto dependencies.
+_origin_contract = runpy.run_path(str(Path(__file__).with_name("ota_origin.py")))
+OTA_ORIGIN = _origin_contract["OTA_ORIGIN"]
+validate_ota_origin = _origin_contract["validate_ota_origin"]
 
 
 def canonical_payload_v2(fields: list[str]) -> bytes:
