@@ -4,6 +4,16 @@ All notable changes to the public distribution are documented here.
 
 ## Unreleased
 
+- bound manual GEO refreshes to the managed generation manifest, verified both
+  downloaded rule sets by declared size and SHA-256 before activation, rejected
+  manifest rollbacks, and added recovery from a previously completed local
+  generation if the active pointer is interrupted or damaged;
+- kept startup offline-first and retained the packaged rule sets as the final
+  fallback without changing saved routing preferences.
+- routed Russia-direct domain lookups through local bootstrap DNS while keeping
+  foreign lookups on secure DNS through the tunnel, and removed the GEO DNS
+  rule when switching back to another routing mode.
+
 ## 0.8.0-rc33
 
 - Replaced decorative shields with the shared monochrome Veilark vector mark.

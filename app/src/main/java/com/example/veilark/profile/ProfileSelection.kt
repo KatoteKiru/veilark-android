@@ -87,10 +87,16 @@ object ProfileSelection {
     val root = JSONObject(config)
     val route = root.getJSONObject("route")
     val finalOutbound = route.getString("final")
+    val dns = root.optJSONObject("dns")
     route.remove("rules")
     route.remove("rule_set")
+    // DNS split is part of the routing mode. Remove a previous GEO rule when
+    // returning to full-tunnel/manual so no undeclared rule-set tag survives.
+    dns?.remove("rules")
     when (mode) {
-      ROUTING_ALL -> Unit
+      ROUTING_ALL -> {
+        dns?.takeIf { it.optJSONArray("servers") != null }?.put("final", "secure-dns")
+      }
       ROUTING_MANUAL -> {
         val direct = routingEntries(directEntries)
         val vpn = routingEntries(vpnEntries)
@@ -130,6 +136,19 @@ object ProfileSelection {
                 )
                 .put("outbound", "direct"),
             ),
+        )
+        // Russian domains are resolved on the physical interface before their
+        // traffic takes the direct branch. Foreign DNS remains on secure-dns
+        // through the selected tunnel.
+        dns?.put("final", "secure-dns")
+        dns?.put(
+          "rules",
+          JSONArray().put(
+            JSONObject()
+              .put("rule_set", JSONArray().put("geosite-category-ru"))
+              .put("action", "route")
+              .put("server", "bootstrap-dns"),
+          ),
         )
       }
     }

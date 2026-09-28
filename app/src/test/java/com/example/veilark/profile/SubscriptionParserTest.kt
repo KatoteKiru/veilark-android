@@ -252,12 +252,34 @@ class SubscriptionParserTest {
     assertEquals("sniff", rules.getJSONObject(0).getString("action"))
     assertEquals("direct", rules.getJSONObject(1).getString("outbound"))
     assertEquals("geoip-ru", rules.getJSONObject(1).getJSONArray("rule_set").getString(1))
+    val dns = configured.getJSONObject("dns")
+    assertEquals("secure-dns", dns.getString("final"))
+    val geoDns = dns.getJSONArray("rules").getJSONObject(0)
+    assertEquals("route", geoDns.getString("action"))
+    assertEquals("bootstrap-dns", geoDns.getString("server"))
+    assertEquals(
+      "geosite-category-ru",
+      geoDns.getJSONArray("rule_set").getString(0),
+    )
 
     val allTraffic = JSONObject(
       ProfileSelection.applyRouting(configured.toString(), ProfileSelection.ROUTING_ALL),
     )
     assertFalse(allTraffic.getJSONObject("route").has("rule_set"))
     assertFalse(allTraffic.getJSONObject("route").has("rules"))
+    assertFalse(allTraffic.getJSONObject("dns").has("rules"))
+    assertEquals("secure-dns", allTraffic.getJSONObject("dns").getString("final"))
+
+    val manual = JSONObject(
+      ProfileSelection.applyRouting(
+        configured.toString(),
+        ProfileSelection.ROUTING_MANUAL,
+        directEntries = "example.ru",
+      ),
+    )
+    assertFalse(manual.getJSONObject("route").has("rule_set"))
+    assertFalse(manual.getJSONObject("dns").has("rules"))
+    assertEquals("secure-dns", manual.getJSONObject("dns").getString("final"))
   }
 
   @Test

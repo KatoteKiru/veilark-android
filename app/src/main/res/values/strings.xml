@@ -190,7 +190,7 @@
     <string name="routing_save_failed">Could not save application routing</string>
     <string name="routing_saved">Routing saved</string>
     <string name="routing_saved_reconnect">Routing saved. Reconnect to apply it.</string>
-    <string name="update_geo_data">Update GEO data from GitHub</string>
+    <string name="update_geo_data">Update GEO data from managed source</string>
     <string name="geo_update_success">GEO data updated. It will be used on the next sing-box connection.</string>
     <string name="geo_update_failed">Could not update GEO data. The previous verified version is still active.</string>
     <string name="routing_apply_failed">Could not apply routing</string>

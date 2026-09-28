@@ -1410,7 +1410,7 @@ class MainActivity : ComponentActivity() {
               coroutineScope.launch {
                 runCatching {
                   withContext(Dispatchers.IO) {
-                    GeoRoutingAssets.refreshFromGitHub(this@MainActivity) { candidate ->
+                    GeoRoutingAssets.refreshFromNetwork(this@MainActivity) { candidate ->
                       val base = SecureProfileStore.load(
                         this@MainActivity,
                         SecureProfileStore.SING_BOX,
@@ -1425,7 +1425,7 @@ class MainActivity : ComponentActivity() {
                   }
                 }.onSuccess {
                   geoUpdateMessage = getString(R.string.geo_update_success)
-                  TechnicalLogStore.info("GEO", "GitHub geo rule sets updated")
+                  TechnicalLogStore.info("GEO", "Manifest-verified geo rule sets updated")
                 }.onFailure {
                   geoUpdateMessage = getString(R.string.geo_update_failed)
                   TechnicalLogStore.warning("GEO", "Geo update rejected; last-known-good retained")
