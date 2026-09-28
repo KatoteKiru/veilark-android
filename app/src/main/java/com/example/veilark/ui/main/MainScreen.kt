@@ -4,6 +4,9 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -28,6 +31,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.wrapContentWidth
@@ -412,7 +416,7 @@ fun MainScreen(
         title = {
           Text(
             text = "Veilark",
-            style = MaterialTheme.typography.headlineSmall,
+            style = MaterialTheme.typography.titleLarge,
             fontWeight = FontWeight.SemiBold,
           )
         },
@@ -450,9 +454,9 @@ fun MainScreen(
         start = 16.dp,
         top = innerPadding.calculateTopPadding() + 12.dp,
         end = 16.dp,
-        bottom = 32.dp,
+        bottom = innerPadding.calculateBottomPadding() + 32.dp,
       ),
-      verticalArrangement = Arrangement.spacedBy(16.dp),
+      verticalArrangement = Arrangement.spacedBy(20.dp),
     ) {
       item {
         ConnectionCard(
@@ -659,7 +663,7 @@ private fun UpdateCard(
     Text(
       text = stringResource(R.string.updates),
       modifier = Modifier.padding(start = 16.dp, bottom = 8.dp),
-      style = MaterialTheme.typography.titleSmall,
+      style = MaterialTheme.typography.titleMedium,
       color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
     Surface(
@@ -743,9 +747,22 @@ private fun ConnectionCard(
     state == ConnectionState.Failed -> MaterialTheme.colorScheme.errorContainer
     else -> MaterialTheme.colorScheme.surfaceContainerHigh
   }, animationSpec = tween(220), label = "connection surface")
+  val corner by animateDpAsState(
+    targetValue = if (connected) 40.dp else 32.dp,
+    animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+    label = "connection shape",
+  )
+  val markScale by animateFloatAsState(
+    targetValue = if (connected) 1.06f else 1f,
+    animationSpec = spring(
+      dampingRatio = Spring.DampingRatioNoBouncy,
+      stiffness = Spring.StiffnessMediumLow,
+    ),
+    label = "connection mark",
+  )
   Surface(
     modifier = Modifier.fillMaxWidth(),
-    shape = RoundedCornerShape(32.dp),
+    shape = RoundedCornerShape(corner),
     color = container,
   ) {
     Column(
@@ -775,7 +792,10 @@ private fun ConnectionCard(
               } else {
                 MaterialTheme.colorScheme.primary
               },
-              modifier = Modifier.size(58.dp),
+              modifier = Modifier.size(58.dp).graphicsLayer {
+                scaleX = markScale
+                scaleY = markScale
+              },
             )
           }
         }
@@ -796,7 +816,7 @@ private fun ConnectionCard(
             ConnectionState.Connected -> stringResource(R.string.vpn_protected)
             ConnectionState.Failed -> stringResource(R.string.vpn_connect_failed)
           },
-          style = MaterialTheme.typography.headlineSmall,
+          style = MaterialTheme.typography.headlineMedium,
           fontWeight = FontWeight.SemiBold,
           textAlign = TextAlign.Center,
         )
@@ -832,7 +852,7 @@ private fun ConnectionCard(
         onClick = onConnect,
         enabled = !importing,
         modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp),
-        shape = RoundedCornerShape(18.dp),
+        shape = CircleShape,
         colors = if (connected || connecting) {
           ButtonDefaults.filledTonalButtonColors()
         } else {
@@ -875,7 +895,7 @@ private fun EngineSelectorCard(
     )
     Surface(
       modifier = Modifier.fillMaxWidth().animateContentSize(),
-      shape = RoundedCornerShape(24.dp),
+      shape = MaterialTheme.shapes.large,
       color = MaterialTheme.colorScheme.surfaceContainer,
     ) {
       Column(
@@ -964,6 +984,16 @@ private fun EngineModeButton(
   } else {
     MaterialTheme.colorScheme.onSurfaceVariant
   }
+  val animatedContainer by animateColorAsState(
+    targetValue = container,
+    animationSpec = tween(180),
+    label = "engine selection color",
+  )
+  val corner by animateDpAsState(
+    targetValue = if (selected) 24.dp else 16.dp,
+    animationSpec = spring(stiffness = Spring.StiffnessMedium),
+    label = "engine selection shape",
+  )
   Surface(
     modifier = modifier
       .heightIn(min = 58.dp)
@@ -973,8 +1003,8 @@ private fun EngineModeButton(
         role = Role.RadioButton,
         onClick = { if (!selected) onClick() },
       ),
-    shape = RoundedCornerShape(18.dp),
-    color = container,
+    shape = RoundedCornerShape(corner),
+    color = animatedContainer,
     contentColor = content,
   ) {
     Row(
@@ -1439,12 +1469,12 @@ private fun ProfileCard(
         if (trustTunnelActive) R.string.trust_profile else R.string.singbox_profile,
       ),
       modifier = Modifier.padding(start = 16.dp, bottom = 8.dp),
-      style = MaterialTheme.typography.titleSmall,
+      style = MaterialTheme.typography.titleMedium,
       color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
     Surface(
       modifier = Modifier.fillMaxWidth().animateContentSize(),
-      shape = RoundedCornerShape(24.dp),
+      shape = MaterialTheme.shapes.large,
       color = MaterialTheme.colorScheme.surfaceContainer,
     ) {
       Column {
@@ -1803,7 +1833,9 @@ private fun CompactIconAction(
   IconButton(
     onClick = onClick,
     enabled = enabled,
-    modifier = modifier.semantics { contentDescription = description },
+    modifier = modifier
+      .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
+      .semantics { contentDescription = description },
   ) {
     if (loading) {
       CircularProgressIndicator(
@@ -1929,7 +1961,7 @@ private fun RoutingCard(
     Text(
       text = stringResource(R.string.routing),
       modifier = Modifier.padding(start = 16.dp, bottom = 8.dp),
-      style = MaterialTheme.typography.titleSmall,
+      style = MaterialTheme.typography.titleMedium,
       color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
     Surface(
@@ -1938,7 +1970,7 @@ private fun RoutingCard(
         role = Role.Button,
         onClick = onClick,
       ),
-      shape = RoundedCornerShape(24.dp),
+      shape = MaterialTheme.shapes.large,
       color = MaterialTheme.colorScheme.surfaceContainer,
     ) {
       Column {
@@ -2001,6 +2033,16 @@ private fun SubscriptionChoice(
   onDelete: (() -> Unit)?,
   onShare: (() -> Unit)?,
 ) {
+  val container by animateColorAsState(
+    targetValue = if (selected) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent,
+    animationSpec = tween(180),
+    label = "subscription selection color",
+  )
+  val corner by animateDpAsState(
+    targetValue = if (selected) 24.dp else 16.dp,
+    animationSpec = spring(stiffness = Spring.StiffnessMedium),
+    label = "subscription selection shape",
+  )
   Surface(
     modifier = Modifier
       .fillMaxWidth()
@@ -2009,12 +2051,8 @@ private fun SubscriptionChoice(
         role = Role.RadioButton,
         onClick = onClick,
       ),
-    shape = RoundedCornerShape(16.dp),
-    color = if (selected) {
-      MaterialTheme.colorScheme.secondaryContainer
-    } else {
-      Color.Transparent
-    },
+    shape = RoundedCornerShape(corner),
+    color = container,
   ) {
     Row(
       modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
@@ -2092,6 +2130,20 @@ private fun NodeChoice(
   selected: Boolean,
   onClick: () -> Unit,
 ) {
+  val container by animateColorAsState(
+    targetValue = if (selected) {
+      MaterialTheme.colorScheme.secondaryContainer
+    } else {
+      MaterialTheme.colorScheme.surfaceContainerHigh
+    },
+    animationSpec = tween(180),
+    label = "node selection color",
+  )
+  val corner by animateDpAsState(
+    targetValue = if (selected) 24.dp else 16.dp,
+    animationSpec = spring(stiffness = Spring.StiffnessMedium),
+    label = "node selection shape",
+  )
   Surface(
     modifier = Modifier
       .fillMaxWidth()
@@ -2101,12 +2153,8 @@ private fun NodeChoice(
         role = Role.RadioButton,
         onClick = onClick,
       ),
-    shape = RoundedCornerShape(18.dp),
-    color = if (selected) {
-      MaterialTheme.colorScheme.secondaryContainer
-    } else {
-      MaterialTheme.colorScheme.surfaceContainerHigh
-    },
+    shape = RoundedCornerShape(corner),
+    color = container,
   ) {
     Row(
       modifier = Modifier.padding(horizontal = 16.dp, vertical = 13.dp),
@@ -2128,7 +2176,7 @@ private fun NodeChoice(
           )
         }
       }
-      Column {
+      Column(Modifier.weight(1f)) {
         Text(title, fontWeight = FontWeight.Medium)
         Text(
           subtitle,
