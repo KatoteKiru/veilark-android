@@ -76,16 +76,21 @@ object MacKeychain {
     existing()?.let { return EncryptedStore.keyFromBytes(it) }
     val generated = ByteArray(32).also(SecureRandom()::nextBytes)
     val hex = generated.joinToString("") { "%02x".format(it) }
-    val add = BoundedProcess.run(listOf(
-      "security", "add-generic-password",
-      "-s", SERVICE, "-a", ACCOUNT, "-w", hex,
-    ), timeoutMillis = 30_000)
+    // security(1) prompts for -w when it is the final argument. Supply the
+    // answer on stdin so the master key never appears in the process argv.
+    val add = BoundedProcess.run(
+      addCommand(), timeoutMillis = 30_000, input = "$hex\n",
+    )
     check(add.exitCode == 0) {
       "Не удалось сохранить ключ шифрования в Keychain"
     }
     val stored = existing() ?: error("Keychain не вернул сохранённый ключ шифрования")
     return EncryptedStore.keyFromBytes(stored)
   }
+
+  internal fun addCommand(): List<String> = listOf(
+    "security", "add-generic-password", "-s", SERVICE, "-a", ACCOUNT, "-w",
+  )
 
   private fun existing(): ByteArray? {
     val result = BoundedProcess.run(listOf(
