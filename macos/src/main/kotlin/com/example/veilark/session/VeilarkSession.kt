@@ -64,6 +64,9 @@ class VeilarkSession(
   private var appliedDefaultRoute: DefaultRouteFingerprint? = null
   private var recoveryAttempts = 0
   private var recoveryAfterMillis = 0L
+  private var helperStatusUncertain = false
+  val runtimeStatusUncertain: Boolean
+    get() = helperStatusUncertain
   val recoveryPending: Boolean
     get() = status == TunnelStatus.DEGRADED && recoveryAttempts < MAX_RECOVERY_ATTEMPTS
   var engine by mutableStateOf(TunnelEngineKind.TRUST_TUNNEL)
@@ -416,6 +419,7 @@ class VeilarkSession(
         return
       }
       stopRequested = false
+      helperStatusUncertain = false
       status = if (reconnecting) TunnelStatus.RECONNECTING else TunnelStatus.CONNECTING
       statusDetail = ""
       lastHealthDetail = ""
@@ -521,10 +525,28 @@ class VeilarkSession(
   suspend fun stopForQuit(): Result<Unit> = disconnectAwaited()
 
   suspend fun reconcileStatus() {
-    if (status != TunnelStatus.CONNECTED || !operationMutex.tryLock()) return
+    if (status != TunnelStatus.CONNECTED && !(status == TunnelStatus.DEGRADED && helperStatusUncertain)) return
+    if (!operationMutex.tryLock()) return
     try {
-      when (runInterruptible(Dispatchers.IO) { helper.status() }) {
-        "connected" -> Unit
+      val observed = try {
+        runInterruptible(Dispatchers.IO) { helper.status() }
+      } catch (failure: CancellationException) {
+        throw failure
+      } catch (failure: Exception) {
+        log(RuntimeMessages.helperStatusCheckFailed, level = LogLevel.WARNING,
+          component = "helper", code = "HELPER_STATUS_CHECK_FAILED")
+        return
+      }
+      when (observed) {
+        "connected" -> {
+          if (helperStatusUncertain) {
+            helperStatusUncertain = false
+            recoveryAttempts = 0
+            status = TunnelStatus.CONNECTED
+            statusDetail = ""
+            log(RuntimeMessages.helperStateRecovered, component = "helper", code = "HELPER_STATUS_RECOVERED")
+          }
+        }
         "disconnected" -> markEngineExited()
         else -> markRuntimeUnknown()
       }
@@ -848,6 +870,7 @@ class VeilarkSession(
     stopRequested = false
     recoveryAttempts = 0
     if (result.isSuccess) {
+      helperStatusUncertain = false
       status = TunnelStatus.DISCONNECTED
       statusDetail = ""
       lastHealthDetail = ""
@@ -868,6 +891,7 @@ class VeilarkSession(
   }
 
   private fun markEngineExited() {
+    helperStatusUncertain = false
     status = TunnelStatus.FAILED
     statusDetail = RuntimeMessages.engineExited
     log(
@@ -879,6 +903,8 @@ class VeilarkSession(
   }
 
   private fun markRuntimeUnknown() {
+    if (helperStatusUncertain) return
+    helperStatusUncertain = true
     status = TunnelStatus.DEGRADED
     recoveryAttempts = MAX_RECOVERY_ATTEMPTS
     statusDetail = RuntimeMessages.helperStateUnknown

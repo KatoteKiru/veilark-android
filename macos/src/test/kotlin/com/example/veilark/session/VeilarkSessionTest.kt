@@ -355,6 +355,40 @@ class VeilarkSessionTest {
   }
 
   @Test
+  fun transientHelperStatusFailureDoesNotStopLaterRuntimeChecks() = runBlocking {
+    val fake = FakeController()
+    val session = sessionWithSingBox(fake, NetworkHealth(true, "ok"))
+    session.connect()
+
+    fake.throwStatus = true
+    session.reconcileStatus()
+    assertEquals(TunnelStatus.CONNECTED, session.status)
+    assertTrue(session.logs.any { it.code == "HELPER_STATUS_CHECK_FAILED" })
+
+    fake.throwStatus = false
+    fake.running = false
+    session.reconcileStatus()
+    assertEquals(TunnelStatus.FAILED, session.status)
+    assertTrue(session.logs.any { it.code == "ENGINE_EXITED" })
+  }
+
+  @Test
+  fun uncertainHelperStatusRecoversOnlyAfterConnectedConfirmation() = runBlocking {
+    val fake = FakeController()
+    val session = sessionWithSingBox(fake, NetworkHealth(true, "ok"))
+    session.connect()
+
+    fake.statusUnknown = true
+    session.reconcileStatus()
+    assertEquals(TunnelStatus.DEGRADED, session.status)
+
+    fake.statusUnknown = false
+    session.reconcileStatus()
+    assertEquals(TunnelStatus.CONNECTED, session.status)
+    assertTrue(session.logs.any { it.code == "HELPER_STATUS_RECOVERED" })
+  }
+
+  @Test
   fun unknownRuntimeStatusRequiresStopButConfirmedExitDoesNot() = runBlocking {
     val fake = FakeController()
     val session = sessionWithSingBox(fake, NetworkHealth(true, "ok"))
@@ -539,6 +573,7 @@ class VeilarkSessionTest {
     var failStop = false
     var failStart = false
     @Volatile var statusUnknown = false
+    @Volatile var throwStatus = false
     var startCalls = 0
     var lastConfig = ""
 
@@ -563,7 +598,10 @@ class VeilarkSessionTest {
       running = false
       return Result.success(Unit)
     }
-    override fun status(): String = if (statusUnknown) "unknown" else if (running) "connected" else "disconnected"
+    override fun status(): String {
+      if (throwStatus) error("temporary helper IPC failure")
+      return if (statusUnknown) "unknown" else if (running) "connected" else "disconnected"
+    }
     override fun lastLog(): String = ""
     override fun tunFailed(): Boolean = false
     override fun outboundUnresolved(): Boolean = false
