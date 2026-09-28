@@ -35,13 +35,19 @@ class GeoRoutingRepository(
     System.getProperty("user.home"),
     "Library/Application Support/Veilark/geo",
   ),
+  private val connectionFactory: (URI) -> HttpURLConnection = {
+    it.toURL().openConnection() as HttpURLConnection
+  },
+  private val singBoxProvider: () -> File = { BundledPaths.resolve().singBox },
+  private val ruleSetDecompiler: ((File, File, File) -> Unit)? = null,
 ) : GeoRoutingStore {
   private val lock = Any()
   private val updateMutex = Mutex()
   @Volatile private var cached: GeoRoutingBundle? = null
 
   override fun currentOrBundled(): GeoRoutingBundle = synchronized(lock) {
-    cached ?: (loadActive() ?: bundled().also(::validateBundle)).also { cached = it }
+    cached?.takeIf(::filesPresent)
+      ?: (loadActive() ?: bundled().also(::validateBundle)).also { cached = it }
   }
 
   override suspend fun refreshFromRemote(): GeoRoutingBundle = withContext(Dispatchers.IO) {
@@ -60,18 +66,13 @@ class GeoRoutingRepository(
           geoIpJson = File(staging, GEOIP_JSON),
           geoSiteJson = File(staging, GEOSITE_JSON),
         )
-        download(GEOIP_URLS, bundle.geoIpSrs)
-        download(GEOSITE_URLS, bundle.geoSiteSrs)
-        val singBox = BundledPaths.resolve().singBox
-        decompile(singBox, bundle.geoIpSrs, bundle.geoIpJson)
-        decompile(singBox, bundle.geoSiteSrs, bundle.geoSiteJson)
-        validateBundle(bundle)
+        val prepared = prepareRemote(bundle)
+        prepared.existing?.let { return@withLock it }
         val hashes = hashes(bundle)
         synchronized(lock) {
           move(staging, completed)
-          publish(generation, hashes)
+          publish(generation, hashes, prepared.manifest.generatedAt)
           cached = bundleAt(completed)
-          prune(generations, generation)
         }
         val active = bundleAt(completed)
         active
@@ -127,23 +128,93 @@ class GeoRoutingRepository(
     GeoSiteRuCatalog.load(bundle.geoSiteJson)
   }
 
-  private fun download(urls: List<String>, destination: File) {
+  private fun filesPresent(bundle: GeoRoutingBundle): Boolean =
+    listOf(bundle.geoIpSrs, bundle.geoSiteSrs).all { it.isFile && it.length() in 1..MAX_SRS_BYTES } &&
+      listOf(bundle.geoIpJson, bundle.geoSiteJson).all { it.isFile && it.length() in 1..MAX_JSON_BYTES }
+
+  private fun prepareRemote(bundle: GeoRoutingBundle): PreparedRemote {
+    val failures = mutableListOf<Throwable>()
+    MANIFEST_URLS.forEach { url ->
+      runCatching {
+        val remote = parseRemoteManifest(readOne(url, MAX_MANIFEST_BYTES))
+        val existing = verifyRemoteVersion(remote)
+        if (existing != null) return PreparedRemote(remote, existing)
+        listOf(bundle.geoIpSrs, bundle.geoSiteSrs, bundle.geoIpJson, bundle.geoSiteJson)
+          .forEach(File::delete)
+        download(GEOIP_URLS, bundle.geoIpSrs, remote.geoIp)
+        download(GEOSITE_URLS, bundle.geoSiteSrs, remote.geoSite)
+        val singBox = singBoxProvider()
+        decompile(singBox, bundle.geoIpSrs, bundle.geoIpJson)
+        decompile(singBox, bundle.geoSiteSrs, bundle.geoSiteJson)
+        validateBundle(bundle)
+        return PreparedRemote(remote)
+      }
+        .onFailure(failures::add)
+    }
+    throw IllegalStateException("GEO update failed for all mirrors", failures.lastOrNull())
+  }
+
+  private fun parseRemoteManifest(bytes: ByteArray): RemoteManifest {
+    val manifest = JSONObject(bytes.toString(Charsets.UTF_8))
+    check(manifest.getInt("schema") == REMOTE_MANIFEST_VERSION) { "Unsupported GEO manifest" }
+    val generatedAt = manifest.getString("generatedAt")
+    check(generatedAt.matches(GENERATED_AT_PATTERN)) { "Invalid GEO manifest" }
+    val assets = manifest.getJSONObject("assets")
+    fun asset(name: String): RemoteAsset {
+      val value = assets.getJSONObject(name)
+      val sha256 = value.getString("sha256").lowercase()
+      val size = value.getLong("size")
+      check(sha256.matches(SHA256_PATTERN) && size in 1..MAX_SRS_BYTES) {
+        "Invalid GEO manifest asset"
+      }
+      return RemoteAsset(sha256, size)
+    }
+    return RemoteManifest(generatedAt, asset(GEOIP_SRS), asset(GEOSITE_SRS))
+  }
+
+  private fun verifyRemoteVersion(remote: RemoteManifest): GeoRoutingBundle? = synchronized(lock) {
+    val local = File(root, MANIFEST)
+    if (!local.isFile) return@synchronized null
+    val active = loadActive() ?: return@synchronized null
+    val manifest = JSONObject(local.readText())
+    val previous = manifest.optString("source_generated_at")
+    if (previous.isBlank()) return@synchronized null // Earlier clients did not record source version.
+    check(previous.matches(GENERATED_AT_PATTERN) && remote.generatedAt >= previous) {
+      "GEO mirror is older than the installed generation"
+    }
+    if (remote.generatedAt == previous) {
+      check(remote.geoIp.sha256 == manifest.getString("geoip_srs_sha256") &&
+        remote.geoSite.sha256 == manifest.getString("geosite_srs_sha256")) {
+        "GEO mirror changed files without a new generation"
+      }
+      return@synchronized active
+    }
+    null
+  }
+
+  private fun download(urls: List<String>, destination: File, expected: RemoteAsset) {
     require(urls.isNotEmpty())
     val succeeded = urls.any { url ->
       destination.delete()
-      runCatching { downloadOne(url, destination) }.isSuccess
+      runCatching {
+        destination.writeBytes(readOne(url, MAX_SRS_BYTES))
+        check(destination.length() == expected.size && sha256(destination) == expected.sha256) {
+          "GEO checksum mismatch"
+        }
+      }.isSuccess
     }
     check(succeeded && destination.isFile) { "GEO download failed" }
   }
 
-  private fun downloadOne(url: String, destination: File) {
+  private fun readOne(url: String, maximumBytes: Long): ByteArray {
     val uri = URI(url)
-    require(uri.scheme == "https")
+    require(uri.scheme.equals("https", ignoreCase = true) && uri.userInfo == null)
     require(
       (uri.host == "raw.githubusercontent.com" && uri.port == -1) ||
+        (uri.host == "sub.senyasenyavski.uk" && uri.port in setOf(-1, 443)) ||
         (uri.host == "nl2.senyasenyavski.uk" && uri.port == 2096),
     )
-    val connection = uri.toURL().openConnection() as HttpURLConnection
+    val connection = connectionFactory(uri)
     connection.instanceFollowRedirects = false
     connection.connectTimeout = 8_000
     connection.readTimeout = 30_000
@@ -152,19 +223,20 @@ class GeoRoutingRepository(
     try {
       check(connection.responseCode == HttpURLConnection.HTTP_OK) { "GEO download failed" }
       val declared = connection.contentLengthLong
-      check(declared == -1L || declared in 1..MAX_SRS_BYTES)
-      connection.inputStream.buffered().use { input ->
-        destination.outputStream().buffered().use { output ->
-          val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
-          var total = 0L
-          while (true) {
-            val read = input.read(buffer)
-            if (read < 0) break
-            total += read
-            check(total <= MAX_SRS_BYTES) { "GEO rule set is too large" }
-            output.write(buffer, 0, read)
-          }
+      check(declared == -1L || declared in 1..maximumBytes)
+      return connection.inputStream.buffered().use { input ->
+        val output = java.io.ByteArrayOutputStream()
+        val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+        var total = 0L
+        while (true) {
+          val read = input.read(buffer)
+          if (read < 0) break
+          total += read
+          check(total <= maximumBytes) { "GEO response is too large" }
+          output.write(buffer, 0, read)
         }
+        check(total > 0) { "GEO response is empty" }
+        output.toByteArray()
       }
     } finally {
       connection.disconnect()
@@ -172,6 +244,10 @@ class GeoRoutingRepository(
   }
 
   private fun decompile(executable: File, source: File, destination: File) {
+    ruleSetDecompiler?.let {
+      it(executable, source, destination)
+      return
+    }
     check(executable.isFile && executable.canExecute()) { "sing-box is unavailable" }
     val process = ProcessBuilder(
       executable.absolutePath,
@@ -188,13 +264,14 @@ class GeoRoutingRepository(
     check(process.exitValue() == 0 && destination.isFile) { "Invalid GEO rule set" }
   }
 
-  private fun publish(generation: String, hashes: BundleHashes) {
+  private fun publish(generation: String, hashes: BundleHashes, sourceGeneratedAt: String) {
     check(root.isDirectory || root.mkdirs())
     val temporary = File(root, "$MANIFEST.tmp")
     temporary.writeText(
       JSONObject()
         .put("version", MANIFEST_VERSION)
         .put("generation", generation)
+        .put("source_generated_at", sourceGeneratedAt)
         .put("geoip_srs_sha256", hashes.geoIpSrs)
         .put("geosite_srs_sha256", hashes.geoSiteSrs)
         .put("geoip_json_sha256", hashes.geoIpJson)
@@ -239,14 +316,6 @@ class GeoRoutingRepository(
       }
   }
 
-  private fun prune(directory: File, active: String) {
-    directory.listFiles()
-      ?.filter { it.isDirectory && it.name.matches(GENERATION_PATTERN) && it.name != active }
-      ?.sortedByDescending(File::lastModified)
-      ?.drop(1)
-      ?.forEach(File::deleteRecursively)
-  }
-
   private data class BundleHashes(
     val geoIpSrs: String,
     val geoSiteSrs: String,
@@ -256,6 +325,16 @@ class GeoRoutingRepository(
     fun values() = listOf(geoIpSrs, geoSiteSrs, geoIpJson, geoSiteJson)
   }
 
+  private data class RemoteAsset(val sha256: String, val size: Long)
+
+  private data class RemoteManifest(
+    val generatedAt: String,
+    val geoIp: RemoteAsset,
+    val geoSite: RemoteAsset,
+  )
+
+  private data class PreparedRemote(val manifest: RemoteManifest, val existing: GeoRoutingBundle? = null)
+
   private companion object {
     const val GENERATIONS = "generations"
     const val MANIFEST = "current.json"
@@ -264,17 +343,26 @@ class GeoRoutingRepository(
     const val GEOSITE_SRS = "geosite-category-ru.srs"
     const val GEOIP_JSON = "geoip-ru.json"
     const val GEOSITE_JSON = "geosite-category-ru.json"
+    val MANIFEST_URLS = listOf(
+      "https://sub.senyasenyavski.uk/veilark/geo/current/manifest.json",
+      "https://nl2.senyasenyavski.uk:2096/veilark/geo/current/manifest.json",
+    )
     val GEOIP_URLS = listOf(
+      "https://sub.senyasenyavski.uk/veilark/geo/current/geoip-ru.srs",
       "https://nl2.senyasenyavski.uk:2096/veilark/geo/current/geoip-ru.srs",
       "https://raw.githubusercontent.com/SagerNet/sing-geoip/rule-set/geoip-ru.srs",
     )
     val GEOSITE_URLS = listOf(
+      "https://sub.senyasenyavski.uk/veilark/geo/current/geosite-category-ru.srs",
       "https://nl2.senyasenyavski.uk:2096/veilark/geo/current/geosite-category-ru.srs",
       "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-category-ru.srs",
     )
     const val MAX_SRS_BYTES = 32L * 1024L * 1024L
     const val MAX_JSON_BYTES = 64L * 1024L * 1024L
+    const val MAX_MANIFEST_BYTES = 16L * 1024L
+    const val REMOTE_MANIFEST_VERSION = 1
     val GENERATION_PATTERN = Regex("[0-9a-f]{32}")
     val SHA256_PATTERN = Regex("[0-9a-f]{64}")
+    val GENERATED_AT_PATTERN = Regex("\\d{8}T\\d{6}Z")
   }
 }
