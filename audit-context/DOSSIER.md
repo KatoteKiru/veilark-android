@@ -2,6 +2,13 @@
 
 Scope: source-level orientation only. This document does not identify a cause or assert behavior on the affected Mac. Paths below are relative to repository root; `L` denotes source lines.
 
+## Owner-reported reproduction (2026-09-29)
+
+- One macOS user is affected; Telegram's own proxy is disabled.
+- Sending files succeeds, but received media/files do not download.
+- The failure reproduces with TrustTunnel in both full-tunnel and Russia-direct modes after a GEO update.
+- Exact app build, selected TrustTunnel location, comparison with sing-box on the same Mac/network/file, and timestamped runtime logs are still unavailable. These observations do not identify a code defect by themselves.
+
 ## Flow and cross-function invariants
 
 1. `VeilarkSession` restores the engine, selected profile IDs, and per-engine routing preferences from encrypted storage (`macos/src/main/kotlin/com/example/veilark/session/VeilarkSession.kt:L104-L160`). Offline routing changes are restricted to `all`, `manual`, or `ru_direct`; manual entries are validated against the selected engine before persistence (`VeilarkSession.kt:L618-L679`). Engine switching restores its own saved routing mode and manual entries (`VeilarkSession.kt:L766-L793`).
