@@ -8,10 +8,11 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assert
-import androidx.compose.ui.test.hasAnyDescendant
 import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollToIndex
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -48,12 +49,15 @@ class MainScreenAccessibilityInstrumentedTest {
     }
 
     composeRule.onNodeWithText("Test profile").performClick()
-    val nodeChoice = hasAnyDescendant(hasText(nodeTitle)).and(
+    val nodeChoice = hasText(nodeTitle).and(
       SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.RadioButton),
     )
     composeRule.onNode(nodeChoice)
       .assert(SemanticsMatcher.expectValue(SemanticsProperties.Selected, false))
       .performClick()
+
+    composeRule.onNodeWithText("Test profile").performClick()
+    composeRule.onNode(nodeChoice)
       .assert(SemanticsMatcher.expectValue(SemanticsProperties.Selected, true))
 
     composeRule.onNodeWithText(context.getString(R.string.automatic))
@@ -71,8 +75,9 @@ class MainScreenAccessibilityInstrumentedTest {
       }
     }
 
-    composeRule.onNodeWithText(context.getString(R.string.routing)).performClick()
-    val routingChoice = hasAnyDescendant(hasText(russiaDirect)).and(
+    composeRule.onNodeWithTag("main_content_list").performScrollToIndex(3)
+    composeRule.onNodeWithTag("routing_card").performClick()
+    val routingChoice = hasText(russiaDirect).and(
       SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.RadioButton),
     )
     composeRule.onNode(routingChoice)

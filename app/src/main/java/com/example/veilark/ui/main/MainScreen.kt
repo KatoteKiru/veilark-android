@@ -111,6 +111,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.pluralStringResource
@@ -446,6 +447,7 @@ fun MainScreen(
   ) { innerPadding ->
     LazyColumn(
       modifier = Modifier
+        .testTag("main_content_list")
         .fillMaxHeight()
         .fillMaxWidth()
         .wrapContentWidth(Alignment.CenterHorizontally)
@@ -1965,7 +1967,7 @@ private fun RoutingCard(
       color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
     Surface(
-      modifier = Modifier.fillMaxWidth().clickable(
+      modifier = Modifier.fillMaxWidth().testTag("routing_card").clickable(
         enabled = available,
         role = Role.Button,
         onClick = onClick,
