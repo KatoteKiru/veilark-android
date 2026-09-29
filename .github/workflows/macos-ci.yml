@@ -40,8 +40,16 @@ jobs:
           hdiutil verify "$dmg"
           shasum -a 256 "$dmg"
       - name: Upload unpromoted Mac candidate
+        if: success()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: veilark-macos-unpromoted
           retention-days: 3
           path: macos/build/compose/binaries/main/dmg/*.dmg
+      - name: Upload test diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: veilark-macos-test-diagnostics
+          retention-days: 3
+          path: macos/build/test-results/test/*.xml
