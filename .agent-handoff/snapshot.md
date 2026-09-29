@@ -7,7 +7,7 @@
 - Current objective: deliver a tested macOS fix and OTA without breaking update trust continuity.
 - Status: source changes pushed; next DMG/OTA **not published**.
 - Live OTA: version `1.0.11`, build `10011`, ARM64, read from the HTTPS manifest on 2026-09-29.
-- Source HEAD: `4ee1e30` on `cursor/deep-link-import-macos`; `macos-v1.0.11` tags `75404f7`. Post-release changes are GEO fallback `3945c4e`, helper recovery `612fbc8`, Keychain argv removal `4ee1e30`.
+- Source branch: `cursor/deep-link-import-macos`; prepared handoff/version commit `e993024` is pushed. `macos-v1.0.11` tags `75404f7`. Post-release fixes are GEO fallback `3945c4e`, helper recovery `612fbc8`, Keychain argv removal `4ee1e30`.
 - Prepared source version: `1.0.12` / build `10012`; release tag has **not** been pushed and no DMG exists.
 - Immediate next actions: obtain a working Mac build environment; run native package/update verification; only then publish DMG and signed manifest atomically. Forced JVM tests and signed live-manifest preflight passed.
 - Active files: `macos/gradle.properties`, `.github/workflows/macos-ota-release.yml`, `macos/src/main/kotlin/com/example/veilark/{profile/GeoRoutingRepository.kt,session/VeilarkSession.kt,storage/EncryptedStore.kt}`.
