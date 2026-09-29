@@ -63,7 +63,7 @@ class MacPackagingMetadataTest {
 
   @Test
   fun helperTreatsAStalePidAsAnIdempotentStop() {
-    val helper = File("helper/veilark-helper.swift").readText()
+    val helper = File("helper/main.swift").readText()
     val stalePidBranch = helper.substringAfter("guard isManagedProcess(pid) else {")
       .substringBefore("}")
     assertTrue(stalePidBranch.contains("clearPidFile()"))
@@ -73,7 +73,7 @@ class MacPackagingMetadataTest {
 
   @Test
   fun helperV7FailsClosedForPidPersistenceAndUnstoppableChild() {
-    val helper = File("helper/veilark-helper.swift").readText()
+    val helper = File("helper/main.swift").readText()
     val controller = File("src/main/kotlin/com/example/veilark/engine/PrivilegedHelper.kt").readText()
     assertTrue(controller.contains("const val VERSION = \"7\""))
     assertTrue(helper.contains("failed to persist engine pid"))
@@ -84,7 +84,7 @@ class MacPackagingMetadataTest {
 
   @Test
   fun helperExportsOnlyFixedDiagnosticsAndDrainsLogsThroughBoundedSink() {
-    val helper = File("helper/veilark-helper.swift").readText()
+    val helper = File("helper/main.swift").readText()
     val diagnostics = helper.substringAfter("func diagnostics()").substringBefore("func failFromEngineLog")
     assertTrue(diagnostics.contains("print(marker)"))
     assertFalse(diagnostics.contains("print(text)"))

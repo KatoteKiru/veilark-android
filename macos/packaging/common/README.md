@@ -4,4 +4,4 @@ Expected:
 
 - `sing-box` (SagerNet, GPL-3.0-or-later)
 - `trusttunnel_client` (TrustTunnel, Apache-2.0)
-- `veilark-helper` (compiled from `../../helper/veilark-helper.swift`)
+- `veilark-helper` (compiled from `../../helper/main.swift` and `../../helper/HelperConfigPolicy.swift`)
