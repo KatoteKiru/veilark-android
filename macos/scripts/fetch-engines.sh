@@ -24,9 +24,9 @@ case "$(uname -m)" in
     ;;
 esac
 SING_BOX_URL="https://github.com/SagerNet/sing-box/releases/download/v${SING_BOX_VERSION}/sing-box-${SING_BOX_VERSION}-darwin-${SING_BOX_ARCH}.tar.gz"
-TRUST_VERSION="1.1.5"
+TRUST_VERSION="1.1.7"
 TRUST_URL="https://github.com/TrustTunnel/TrustTunnelClient/releases/download/v${TRUST_VERSION}/trusttunnel_client-v${TRUST_VERSION}-macos-universal.tar.gz"
-TRUST_ARCHIVE_SHA256="4af128703281b2a9db5ced88138c18078ed7d883563701ead2ff76a88a63c97f"
+TRUST_ARCHIVE_SHA256="e449a4e427fccc6bbe0e9fbfce14f2c2309928a1ae7c441b76dc88b13a30121d"
 GEOIP_COMMIT="b9c5e675b4d5359d4b47f4434fa7ae77e9991306"
 GEOSITE_COMMIT="11fb9814c7de626956aab504f83e066e70b250d4"
 GEOIP_URL="https://raw.githubusercontent.com/SagerNet/sing-geoip/${GEOIP_COMMIT}/geoip-ru.srs"
@@ -36,7 +36,7 @@ GEOIP_JSON_SHA256="ad921e489713e5a837417e3a0f5ed5ce07d9f8ffe9aeecf47c13ee397bff0
 GEOSITE_SHA256="c36e157adf86edf7b722b51f3acb93bbb2a7f8083932dae29b4b5ef2c1ced870"
 SING_BOX_BINARY_SHA256_ARM64="c71877673f3f444a11b3197b5f4c8e3954afb1341ddcf7ea8068f3bf6b187e12"
 SING_BOX_BINARY_SHA256_AMD64="a14b86ae891ce92a740cc1f0647a3c2c5a6b951bf60a47294d0311099626cf5c"
-TRUST_BINARY_SHA256="27554c0da2bf02f160de3d7be36896f4325bc823d0da4f4b88ea6aca92d0c4c8"
+TRUST_BINARY_SHA256="8d78cef1c1e0496c3d0f7f0f317dc8b5f8fd7b0e5dc6121105a4db36f6b2ed4d"
 
 verify_sha256() {
   local expected="$1"

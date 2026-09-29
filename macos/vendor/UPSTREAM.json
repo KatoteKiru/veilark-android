@@ -13,10 +13,10 @@
     "license": "GPL-3.0-or-later"
   },
   "trusttunnel_client": {
-    "version": "1.1.5",
-    "url": "https://github.com/TrustTunnel/TrustTunnelClient/releases/download/v1.1.5/trusttunnel_client-v1.1.5-macos-universal.tar.gz",
-    "archiveSha256": "4af128703281b2a9db5ced88138c18078ed7d883563701ead2ff76a88a63c97f",
-    "binarySha256": "27554c0da2bf02f160de3d7be36896f4325bc823d0da4f4b88ea6aca92d0c4c8",
+    "version": "1.1.7",
+    "url": "https://github.com/TrustTunnel/TrustTunnelClient/releases/download/v1.1.7/trusttunnel_client-v1.1.7-macos-universal.tar.gz",
+    "archiveSha256": "e449a4e427fccc6bbe0e9fbfce14f2c2309928a1ae7c441b76dc88b13a30121d",
+    "binarySha256": "8d78cef1c1e0496c3d0f7f0f317dc8b5f8fd7b0e5dc6121105a4db36f6b2ed4d",
     "license": "Apache-2.0"
   },
   "geoip-ru": {

@@ -17,7 +17,7 @@ class MacPackagingMetadataTest {
     val trust = root.getJSONObject("trusttunnel_client")
 
     assertEquals("1.13.21", singBox.getString("version"))
-    assertEquals("1.1.5", trust.getString("version"))
+    assertEquals("1.1.7", trust.getString("version"))
     assertTrue(singBox.getJSONObject("binarySha256").getString("arm64").matches(HEX_SHA256))
     assertTrue(singBox.getJSONObject("binarySha256").getString("amd64").matches(HEX_SHA256))
     assertTrue(trust.getString("binarySha256").matches(HEX_SHA256))

@@ -19,7 +19,7 @@ case "$(uname -m)" in
   *) fail "unsupported architecture: $(uname -m)" ;;
 esac
 
-TRUST_SHA="27554c0da2bf02f160de3d7be36896f4325bc823d0da4f4b88ea6aca92d0c4c8"
+TRUST_SHA="8d78cef1c1e0496c3d0f7f0f317dc8b5f8fd7b0e5dc6121105a4db36f6b2ed4d"
 GEOIP_SHA="1a8115af741918ff24b37b87d3c6da21eccabc58f1eec059e461dca8bac16ff7"
 GEOIP_JSON_SHA="ad921e489713e5a837417e3a0f5ed5ce07d9f8ffe9aeecf47c13ee397bff0d2b"
 GEOSITE_SHA="c36e157adf86edf7b722b51f3acb93bbb2a7f8083932dae29b4b5ef2c1ced870"
