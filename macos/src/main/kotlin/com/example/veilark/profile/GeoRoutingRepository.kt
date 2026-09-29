@@ -72,9 +72,9 @@ class GeoRoutingRepository(
         synchronized(lock) {
           move(staging, completed)
           publish(generation, hashes, prepared.manifest.generatedAt)
-          cached = bundleAt(completed)
+          cached = bundleAt(completed.canonicalFile)
         }
-        val active = bundleAt(completed)
+        val active = bundleAt(completed.canonicalFile)
         active
       } finally {
         staging.deleteRecursively()
