@@ -330,6 +330,7 @@ val generateAppIcon by tasks.registering(Exec::class) {
 val compileHelper by tasks.registering(Exec::class) {
   val output = layout.buildDirectory.file("helper/veilark-helper")
   inputs.file("helper/veilark-helper.swift")
+  inputs.file("helper/HelperConfigPolicy.swift")
   outputs.file(output)
   doFirst {
     output.get().asFile.parentFile.mkdirs()
@@ -340,6 +341,7 @@ val compileHelper by tasks.registering(Exec::class) {
     *if (macosOtaRequireGatekeeper) arrayOf("-D", "VEILARK_REQUIRE_GATEKEEPER") else emptyArray(),
     "-o", output.get().asFile.absolutePath,
     file("helper/veilark-helper.swift").absolutePath,
+    file("helper/HelperConfigPolicy.swift").absolutePath,
   )
   onlyIf { isMacOs }
   doLast {

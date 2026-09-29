@@ -32,6 +32,8 @@ jobs:
           set -euo pipefail
           chmod +x gradlew scripts/*.sh
           test "$(uname -m)" = arm64
+          swiftc helper/HelperConfigPolicy.swift helper/HelperConfigPolicyTests.swift -o "$RUNNER_TEMP/helper-config-policy-tests"
+          "$RUNNER_TEMP/helper-config-policy-tests"
           ./gradlew --no-daemon test
           ./scripts/fetch-engines.sh
           ./gradlew --no-daemon packageDmg

@@ -71,6 +71,8 @@ jobs:
 
       - name: Test, fetch verified engines, and package DMG
         run: |
+          swiftc helper/HelperConfigPolicy.swift helper/HelperConfigPolicyTests.swift -o "$RUNNER_TEMP/helper-config-policy-tests"
+          "$RUNNER_TEMP/helper-config-policy-tests"
           ./gradlew --no-daemon test
           ./scripts/fetch-engines.sh
           ./gradlew --no-daemon packageDmg
@@ -85,7 +87,7 @@ jobs:
           cp "$SOURCE_DMG" "build/ota/$ARTIFACT"
           printf '%s' "$OTA_SIGNING_KEY_B64" | base64 --decode > "$RUNNER_TEMP/veilark-macos-ota.pem"
           chmod 0600 "$RUNNER_TEMP/veilark-macos-ota.pem"
-          NOTES="Veilark $VERSION: надёжнее загрузка GEO и восстановление состояния VPN после временных ошибок helper. Улучшено сохранение ключа профилей в Keychain. / More resilient GEO downloads and VPN state recovery after transient helper errors. Safer profile-key storage in Keychain. Preview build, not Apple-notarized."
+          NOTES="Veilark $VERSION: надёжнее загрузка GEO и восстановление VPN после временных ошибок. Проверка конфигурации перед запуском привилегированного ядра. / More resilient GEO downloads and VPN recovery after transient errors. Config validation before privileged engine startup. Preview build, not Apple-notarized."
           ./gradlew --no-daemon createOtaManifest \
             "-PotaDmg=build/ota/$ARTIFACT" \
             "-PotaManifestOutput=build/ota/manifest.json" \

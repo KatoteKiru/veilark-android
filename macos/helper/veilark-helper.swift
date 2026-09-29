@@ -209,6 +209,9 @@ func startEngine(name: String, config: String) {
           configData.count <= 4 * 1024 * 1024 else {
         fail("config could not be read safely")
     }
+    if name == "sing-box" && !HelperConfigPolicy.acceptsSingBox(configData) {
+        fail("unsupported engine config")
+    }
     becomeRoot()
     guard FileManager.default.isExecutableFile(atPath: engine) else {
         fail("engine binary missing")
