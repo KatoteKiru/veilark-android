@@ -76,6 +76,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -121,6 +122,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeoutOrNull
 import java.awt.Desktop
 import java.awt.Dimension
 import java.awt.FileDialog
@@ -130,6 +133,8 @@ import java.awt.image.BufferedImage
 import java.io.File
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicReference
 
 private enum class MacSection(
   val icon: ImageVector,
@@ -149,6 +154,20 @@ private enum class MacSection(
  */
 private val externalImportRequests = MutableStateFlow<String?>(null)
 private val reopenRequests = MutableStateFlow(0L)
+private val shutdownSession = AtomicReference<VeilarkSession?>(null)
+private val shutdownCleanupStarted = AtomicBoolean(false)
+
+private fun installShutdownCleanup() {
+  Runtime.getRuntime().addShutdownHook(Thread({
+    val session = shutdownSession.get() ?: return@Thread
+    if (!shutdownCleanupStarted.compareAndSet(false, true)) return@Thread
+    runCatching {
+      runBlocking {
+        withTimeoutOrNull(20_000) { session.stopForQuit() }
+      }
+    }
+  }, "veilark-macos-shutdown"))
+}
 
 private fun installImportDeepLinkHandler() {
   if (!Desktop.isDesktopSupported()) return
@@ -165,6 +184,7 @@ fun main() {
   // CTrayIcon reads this once. Set it before any AWT/Compose initialization, also for IDE runs.
   System.setProperty("apple.awt.enableTemplateImages", "true")
   StartupDiagnostics.install()
+  runCatching(::installShutdownCleanup)
   runCatching(::installImportDeepLinkHandler)
   application {
   var startupAttempt by remember { mutableStateOf(0) }
@@ -205,6 +225,7 @@ fun main() {
     return@application
   }
   val session = loadedSession!!
+  SideEffect { shutdownSession.set(session) }
   val scope = rememberCoroutineScope()
   var selectedSection by remember { mutableStateOf(MacSection.OVERVIEW) }
   var tick by remember { mutableStateOf(0) }

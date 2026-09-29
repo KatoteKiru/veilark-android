@@ -11,6 +11,7 @@
 - Preview DMGs lack Apple Developer ID signing/notarization. Ed25519 verifies Veilark OTA integrity but does not replace Gatekeeper distribution trust.
 - The starter version installed by a friend may have a different signing/updater lineage; exact version and on-disk bundle identity are UNKNOWN. Builds without an updater require one manual install.
 - Intermittent no-window launch could fail before `Main.main`; source-only unit tests cannot diagnose that without macOS logs.
+- The new bounded JVM shutdown hook compiles and passes JVM tests on Windows, but macOS Cmd+Q, forced termination, helper cleanup and IPv6/DNS behavior have not been tested on a Mac. The setuid helper still runs user-supplied engine configuration as root after path/ownership checks; do not claim the Gemini MAC-002/MAC-003 findings are closed.
 
 ## Unknowns / Confirmations Needed
 

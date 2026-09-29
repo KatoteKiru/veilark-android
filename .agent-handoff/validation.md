@@ -9,3 +9,4 @@
 | 2026-09-29 | Self-hosted runner API | passed | Total registered runners: 0. |
 | 2026-09-29 | Physical Mac launch, update, VPN traffic | not run | No Mac attached. |
 | 2026-09-29 | Native DMG/package/update | not run | Windows cannot run Apple packaging/verification. |
+| 2026-09-29 | Forced JVM tests after bounded shutdown hook | passed | `java -cp gradle/wrapper/gradle-wrapper.jar org.gradle.wrapper.GradleWrapperMain test --no-daemon --rerun-tasks --max-workers=2`; 12 tasks executed. Does not validate OS-level Quit on a Mac. |
