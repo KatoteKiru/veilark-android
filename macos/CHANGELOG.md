@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.13 preview
+
+- Update the bundled TrustTunnel client from stable 1.1.5 to stable 1.1.7.
+- Keep the existing routing and GEO configuration unchanged.
+- The report of incoming Telegram media failing on one Mac still requires a real-device comparison; this update is not claimed as a verified fix for it.
+
 ## 1.0.9 preview
 
 - Use the shared monochrome Veilark artwork instead of generic shield symbols.

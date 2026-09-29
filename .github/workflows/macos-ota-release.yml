@@ -87,7 +87,7 @@ jobs:
           cp "$SOURCE_DMG" "build/ota/$ARTIFACT"
           printf '%s' "$OTA_SIGNING_KEY_B64" | base64 --decode > "$RUNNER_TEMP/veilark-macos-ota.pem"
           chmod 0600 "$RUNNER_TEMP/veilark-macos-ota.pem"
-          NOTES="Veilark $VERSION: надёжнее загрузка GEO и восстановление VPN после временных ошибок. Проверка конфигурации перед запуском привилегированного ядра. / More resilient GEO downloads and VPN recovery after transient errors. Config validation before privileged engine startup. Preview build, not Apple-notarized."
+          NOTES="Veilark $VERSION: обновлено ядро TrustTunnel до 1.1.7; настройки маршрутов не изменены. / TrustTunnel engine updated to 1.1.7; routing settings unchanged. Preview build, not Apple-notarized."
           ./gradlew --no-daemon createOtaManifest \
             "-PotaDmg=build/ota/$ARTIFACT" \
             "-PotaManifestOutput=build/ota/manifest.json" \
@@ -155,7 +155,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          NOTES="Veilark $VERSION for Apple Silicon. This preview improves GEO downloads, recovers VPN state after transient helper errors, and keeps the profile key out of process arguments when storing it in Keychain. OTA retains the established Veilark Ed25519 key. This build is not Apple-signed or notarized; physical-Mac acceptance remains pending."
+          NOTES="Veilark $VERSION for Apple Silicon. Updates the pinned TrustTunnel engine to stable 1.1.7 without changing routing settings. OTA retains the established Veilark Ed25519 key. This build is not Apple-signed or notarized; physical-Mac acceptance of the Telegram media issue remains pending."
           gh release create "$GITHUB_REF_NAME" \
             "build/ota/$ARTIFACT#Veilark $VERSION DMG (ARM64 preview)" \
             "build/ota/manifest.json#Signed macOS OTA manifest" \
