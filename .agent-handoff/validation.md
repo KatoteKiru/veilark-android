@@ -10,3 +10,4 @@
 | 2026-09-29 | Physical Mac launch, update, VPN traffic | not run | No Mac attached. |
 | 2026-09-29 | Native DMG/package/update | not run | Windows cannot run Apple packaging/verification. |
 | 2026-09-29 | Forced JVM tests after bounded shutdown hook | passed | `java -cp gradle/wrapper/gradle-wrapper.jar org.gradle.wrapper.GradleWrapperMain test --no-daemon --rerun-tasks --max-workers=2`; 12 tasks executed. Does not validate OS-level Quit on a Mac. |
+| 2026-09-29 | Non-deploy macOS package CI `36558096490` | failed before steps | GitHub reports account payments/spending limit; 0 job steps. Neither Swift helper nor DMG was compiled. |
