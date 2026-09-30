@@ -15,10 +15,14 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -41,6 +45,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
@@ -61,6 +66,7 @@ import androidx.compose.material.icons.rounded.FileDownload
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.QrCodeScanner
+import androidx.compose.material.icons.rounded.PowerSettingsNew
 import androidx.compose.material.icons.rounded.Speed
 import androidx.compose.material.icons.rounded.Troubleshoot
 import androidx.compose.material3.AlertDialog
@@ -76,6 +82,7 @@ import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -117,6 +124,8 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
@@ -744,6 +753,19 @@ private fun ConnectionCard(
 ) {
   val connected = state == ConnectionState.Connected
   val connecting = state == ConnectionState.Connecting
+  val failed = state == ConnectionState.Failed
+  val buttonInteraction = remember { MutableInteractionSource() }
+  val buttonPressed by buttonInteraction.collectIsPressedAsState()
+  val buttonCorner by animateDpAsState(
+    targetValue = if (buttonPressed) 18.dp else 30.dp,
+    animationSpec = spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMedium),
+    label = "connection button shape",
+  )
+  val markCorner by animateDpAsState(
+    targetValue = if (connected) 32.dp else 24.dp,
+    animationSpec = spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMediumLow),
+    label = "connection emblem shape",
+  )
   val container by animateColorAsState(targetValue = when {
     connected -> MaterialTheme.colorScheme.primaryContainer
     state == ConnectionState.Failed -> MaterialTheme.colorScheme.errorContainer
@@ -766,15 +788,20 @@ private fun ConnectionCard(
     modifier = Modifier.fillMaxWidth(),
     shape = RoundedCornerShape(corner),
     color = container,
+    contentColor = when {
+      connected -> MaterialTheme.colorScheme.onPrimaryContainer
+      failed -> MaterialTheme.colorScheme.onErrorContainer
+      else -> MaterialTheme.colorScheme.onSurface
+    },
   ) {
     Column(
-      modifier = Modifier.padding(horizontal = 24.dp, vertical = 28.dp),
+      modifier = Modifier.padding(24.dp),
       horizontalAlignment = Alignment.CenterHorizontally,
     ) {
       Surface(
         modifier = Modifier
-          .size(104.dp),
-        shape = CircleShape,
+          .size(88.dp),
+        shape = RoundedCornerShape(markCorner),
         color = if (connected) {
           MaterialTheme.colorScheme.primary
         } else {
@@ -784,8 +811,8 @@ private fun ConnectionCard(
         Box(contentAlignment = Alignment.Center) {
           if (connecting) {
             CircularProgressIndicator(
-              modifier = Modifier.size(62.dp),
-              strokeWidth = 4.dp,
+              modifier = Modifier.size(48.dp),
+              strokeWidth = 3.dp,
             )
           } else {
             VeilarkMark(
@@ -794,7 +821,7 @@ private fun ConnectionCard(
               } else {
                 MaterialTheme.colorScheme.primary
               },
-              modifier = Modifier.size(58.dp).graphicsLayer {
+              modifier = Modifier.size(50.dp).graphicsLayer {
                 scaleX = markScale
                 scaleY = markScale
               },
@@ -802,7 +829,7 @@ private fun ConnectionCard(
           }
         }
       }
-      Spacer(Modifier.height(22.dp))
+      Spacer(Modifier.height(20.dp))
       AnimatedContent(
         targetState = state,
         transitionSpec = {
@@ -832,7 +859,7 @@ private fun ConnectionCard(
           else -> stringResource(R.string.vpn_ready_hint)
         },
         style = MaterialTheme.typography.bodyMedium,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        color = if (failed) MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.onSurfaceVariant,
         textAlign = TextAlign.Center,
       )
       if (connected && latency != null) {
@@ -853,14 +880,25 @@ private fun ConnectionCard(
       Button(
         onClick = onConnect,
         enabled = !importing,
-        modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp),
-        shape = CircleShape,
+        modifier = Modifier.fillMaxWidth().heightIn(min = 60.dp),
+        shape = RoundedCornerShape(buttonCorner),
+        interactionSource = buttonInteraction,
         colors = if (connected || connecting) {
           ButtonDefaults.filledTonalButtonColors()
         } else {
           ButtonDefaults.buttonColors()
         },
       ) {
+        Icon(
+          imageVector = when {
+            profileName == null -> Icons.Rounded.Add
+            connecting -> Icons.Rounded.Close
+            else -> Icons.Rounded.PowerSettingsNew
+          },
+          contentDescription = null,
+          modifier = Modifier.size(20.dp),
+        )
+        Spacer(Modifier.size(10.dp))
         Text(
           text = when {
           importing -> stringResource(R.string.profile_checking)
@@ -887,68 +925,61 @@ private fun EngineSelectorCard(
   val alternativeAvailable = if (trustTunnelActive) singBoxAvailable else trustTunnelAvailable
   val idle = connectionState.allowsProfileSwitch()
   val canSwitch = idle && alternativeAvailable
-  val stackModes = LocalDensity.current.fontScale >= 1.3f
+  val fontScale = LocalDensity.current.fontScale
   Column {
-    Text(
-      text = stringResource(R.string.connection_mode),
-      modifier = Modifier.padding(start = 16.dp, bottom = 8.dp),
-      style = MaterialTheme.typography.titleSmall,
-      color = MaterialTheme.colorScheme.onSurfaceVariant,
-    )
+    SectionHeading(stringResource(R.string.connection_mode))
     Surface(
       modifier = Modifier.fillMaxWidth().animateContentSize(),
       shape = MaterialTheme.shapes.large,
       color = MaterialTheme.colorScheme.surfaceContainer,
     ) {
-      Column(
-        modifier = Modifier.padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-      ) {
-        if (stackModes) {
-          Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            EngineModeButton(
-              title = "sing-box",
-              trust = false,
-              selected = !trustTunnelActive,
-              enabled = idle && singBoxAvailable,
+      BoxWithConstraints(Modifier.padding(12.dp).selectableGroup()) {
+        val stackModes = fontScale >= 1.3f || maxWidth < 300.dp
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+          if (stackModes) {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+              EngineModeButton(
+                title = "sing-box",
+                trust = false,
+                selected = !trustTunnelActive,
+                enabled = idle && singBoxAvailable,
+                modifier = Modifier.fillMaxWidth(),
+                onClick = { if (trustTunnelActive && canSwitch) onSwitchProfile() },
+              )
+              EngineModeButton(
+                title = "TrustTunnel",
+                trust = true,
+                selected = trustTunnelActive,
+                enabled = idle && trustTunnelAvailable,
+                modifier = Modifier.fillMaxWidth(),
+                onClick = { if (!trustTunnelActive && canSwitch) onSwitchProfile() },
+              )
+            }
+          } else {
+            Row(
               modifier = Modifier.fillMaxWidth(),
-              onClick = { if (trustTunnelActive && canSwitch) onSwitchProfile() },
-            )
-            EngineModeButton(
-              title = "TrustTunnel",
-              trust = true,
-              selected = trustTunnelActive,
-              enabled = idle && trustTunnelAvailable,
-              modifier = Modifier.fillMaxWidth(),
-              onClick = { if (!trustTunnelActive && canSwitch) onSwitchProfile() },
-            )
+              horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+              EngineModeButton(
+                title = "sing-box",
+                trust = false,
+                selected = !trustTunnelActive,
+                enabled = idle && singBoxAvailable,
+                modifier = Modifier.weight(1f),
+                onClick = { if (trustTunnelActive && canSwitch) onSwitchProfile() },
+              )
+              EngineModeButton(
+                title = "TrustTunnel",
+                trust = true,
+                selected = trustTunnelActive,
+                enabled = idle && trustTunnelAvailable,
+                modifier = Modifier.weight(1f),
+                onClick = { if (!trustTunnelActive && canSwitch) onSwitchProfile() },
+              )
+            }
           }
-        } else {
-          Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-          ) {
-            EngineModeButton(
-              title = "sing-box",
-              trust = false,
-              selected = !trustTunnelActive,
-              enabled = idle && singBoxAvailable,
-              modifier = Modifier.weight(1f),
-              onClick = { if (trustTunnelActive && canSwitch) onSwitchProfile() },
-            )
-            EngineModeButton(
-              title = "TrustTunnel",
-              trust = true,
-              selected = trustTunnelActive,
-              enabled = idle && trustTunnelAvailable,
-              modifier = Modifier.weight(1f),
-              onClick = { if (!trustTunnelActive && canSwitch) onSwitchProfile() },
-            )
-          }
-        }
-        Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
           Text(
-            when {
+            text = when {
               !idle ->
                 stringResource(R.string.engine_switch_disconnect_first)
               !alternativeAvailable ->
@@ -958,6 +989,7 @@ private fun EngineSelectorCard(
               else ->
                 stringResource(R.string.engine_singbox_summary)
             },
+            modifier = Modifier.padding(horizontal = 4.dp),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
           )
@@ -977,23 +1009,24 @@ private fun EngineModeButton(
   onClick: () -> Unit,
 ) {
   val container = if (selected) {
-    MaterialTheme.colorScheme.primaryContainer
+    MaterialTheme.colorScheme.primary
   } else {
     MaterialTheme.colorScheme.surfaceContainerHigh
   }
   val content = if (selected) {
-    MaterialTheme.colorScheme.onPrimaryContainer
+    MaterialTheme.colorScheme.onPrimary
   } else {
     MaterialTheme.colorScheme.onSurfaceVariant
   }
-  val animatedContainer by animateColorAsState(
-    targetValue = container,
-    animationSpec = tween(180),
-    label = "engine selection color",
-  )
+  val interaction = remember { MutableInteractionSource() }
+  val pressed by interaction.collectIsPressedAsState()
   val corner by animateDpAsState(
-    targetValue = if (selected) 24.dp else 16.dp,
-    animationSpec = spring(stiffness = Spring.StiffnessMedium),
+    targetValue = when {
+      pressed -> 16.dp
+      selected -> 28.dp
+      else -> 20.dp
+    },
+    animationSpec = spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMedium),
     label = "engine selection shape",
   )
   Surface(
@@ -1003,22 +1036,29 @@ private fun EngineModeButton(
         selected = selected,
         enabled = enabled,
         role = Role.RadioButton,
+        interactionSource = interaction,
+        indication = LocalIndication.current,
         onClick = { if (!selected) onClick() },
       ),
     shape = RoundedCornerShape(corner),
-    color = animatedContainer,
+    color = container,
     contentColor = content,
   ) {
     Row(
-      modifier = Modifier.padding(horizontal = 14.dp, vertical = 14.dp),
+      modifier = Modifier.padding(horizontal = 14.dp, vertical = 16.dp),
       verticalAlignment = Alignment.CenterVertically,
       horizontalArrangement = Arrangement.spacedBy(9.dp),
     ) {
-      EngineGlyph(trust = trust, color = content, modifier = Modifier.size(22.dp))
+      val contentAlpha = if (enabled || selected) 1f else 0.38f
+      EngineGlyph(trust = trust, color = content.copy(alpha = contentAlpha), modifier = Modifier.size(22.dp))
       Text(
         title,
+        modifier = Modifier.weight(1f),
+        style = MaterialTheme.typography.titleSmall,
+        color = content.copy(alpha = contentAlpha),
         fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
         maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
       )
     }
   }
@@ -1466,13 +1506,10 @@ private fun ProfileCard(
     )
   }
   Column {
-    Text(
+    SectionHeading(
       text = stringResource(
         if (trustTunnelActive) R.string.trust_profile else R.string.singbox_profile,
       ),
-      modifier = Modifier.padding(start = 16.dp, bottom = 8.dp),
-      style = MaterialTheme.typography.titleMedium,
-      color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
     Surface(
       modifier = Modifier.fillMaxWidth().animateContentSize(),
@@ -1951,6 +1988,16 @@ private fun DropdownChevron(
 }
 
 @Composable
+private fun SectionHeading(text: String) {
+  Text(
+    text = text,
+    modifier = Modifier.padding(start = 16.dp, bottom = 8.dp).semantics { heading() },
+    style = MaterialTheme.typography.titleSmall,
+    color = MaterialTheme.colorScheme.onSurfaceVariant,
+  )
+}
+
+@Composable
 private fun RoutingCard(
   routingMode: String,
   applicationMode: String,
@@ -1960,12 +2007,7 @@ private fun RoutingCard(
   onClick: () -> Unit,
 ) {
   Column {
-    Text(
-      text = stringResource(R.string.routing),
-      modifier = Modifier.padding(start = 16.dp, bottom = 8.dp),
-      style = MaterialTheme.typography.titleMedium,
-      color = MaterialTheme.colorScheme.onSurfaceVariant,
-    )
+    SectionHeading(stringResource(R.string.routing))
     Surface(
       modifier = Modifier.fillMaxWidth().testTag("routing_card").clickable(
         enabled = available,
@@ -2163,21 +2205,7 @@ private fun NodeChoice(
       verticalAlignment = Alignment.CenterVertically,
       horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-      Box(
-        modifier = Modifier
-          .size(20.dp)
-          .background(
-            if (selected) MaterialTheme.colorScheme.primary else Color.Transparent,
-            CircleShape,
-          ),
-        contentAlignment = Alignment.Center,
-      ) {
-        if (selected) {
-          Box(
-            Modifier.size(7.dp).background(MaterialTheme.colorScheme.onPrimary, CircleShape),
-          )
-        }
-      }
+      SelectionIndicator(selected)
       Column(Modifier.weight(1f)) {
         Text(title, fontWeight = FontWeight.Medium)
         Text(
@@ -2578,6 +2606,17 @@ private fun SettingChoice(
   selected: Boolean,
   onClick: () -> Unit,
 ) {
+  val container by animateColorAsState(
+    targetValue = if (selected) MaterialTheme.colorScheme.secondaryContainer
+      else MaterialTheme.colorScheme.surfaceContainerHigh,
+    animationSpec = tween(180),
+    label = "routing selection color",
+  )
+  val corner by animateDpAsState(
+    targetValue = if (selected) 24.dp else 16.dp,
+    animationSpec = spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMedium),
+    label = "routing selection shape",
+  )
   Surface(
     modifier = Modifier
       .fillMaxWidth()
@@ -2587,28 +2626,16 @@ private fun SettingChoice(
         role = Role.RadioButton,
         onClick = onClick,
       ),
-    shape = RoundedCornerShape(16.dp),
-    color = if (selected) {
-      MaterialTheme.colorScheme.secondaryContainer
-    } else {
-      MaterialTheme.colorScheme.surfaceContainerHigh
-    },
+    shape = RoundedCornerShape(corner),
+    color = container,
   ) {
     Row(
       modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
       verticalAlignment = Alignment.CenterVertically,
       horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-      Box(
-        modifier = Modifier
-          .size(18.dp)
-          .background(
-            if (selected) MaterialTheme.colorScheme.primary
-            else MaterialTheme.colorScheme.outlineVariant,
-            CircleShape,
-          ),
-      )
-      Column {
+      SelectionIndicator(selected)
+      Column(Modifier.weight(1f)) {
         Text(title, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
         subtitle?.let {
           Text(
@@ -2620,6 +2647,15 @@ private fun SettingChoice(
       }
     }
   }
+}
+
+@Composable
+private fun SelectionIndicator(selected: Boolean) {
+  RadioButton(
+    selected = selected,
+    onClick = null,
+    modifier = Modifier.size(24.dp).clearAndSetSemantics {},
+  )
 }
 
 @Composable
@@ -2870,10 +2906,50 @@ private fun VeilarkMark(
   )
 }
 
-@Preview(showBackground = true, heightDp = 900)
+@Preview(name = "Disconnected · light", showBackground = true, widthDp = 393, heightDp = 900)
+@Preview(name = "Compact · large text", showBackground = true, widthDp = 320, heightDp = 900, fontScale = 1.5f)
+@Preview(name = "Landscape · light", showBackground = true, widthDp = 800, heightDp = 360)
+@Preview(name = "Tablet · light", showBackground = true, widthDp = 840, heightDp = 900)
 @Composable
 private fun MainScreenPreview() {
   VeilarkTheme(dynamicColor = false) {
-    MainScreen(profileName = "Veilark · 10 servers")
+    MainScreen(
+      profileName = "Personal subscription",
+      singBoxAvailable = true,
+      trustTunnelAvailable = true,
+    )
+  }
+}
+
+@Preview(name = "Connected · dark", showBackground = true, widthDp = 393, heightDp = 900)
+@Composable
+private fun ConnectedMainScreenPreview() {
+  VeilarkTheme(darkTheme = true) {
+    MainScreen(
+      profileName = "Personal subscription",
+      connectionState = ConnectionState.Connected,
+      trustTunnelActive = true,
+      singBoxAvailable = true,
+      trustTunnelAvailable = true,
+      selectedNodeTag = "preview-nl",
+      connectionNodes = listOf(ConnectionNode("preview-nl", "Netherlands", "TrustTunnel")),
+      nodeLatencies = mapOf("preview-nl" to 42),
+    )
+  }
+}
+
+@Preview(name = "Connecting · light", showBackground = true, widthDp = 393, heightDp = 900)
+@Composable
+private fun ConnectingMainScreenPreview() {
+  VeilarkTheme {
+    MainScreen(profileName = "Personal subscription", connectionState = ConnectionState.Connecting)
+  }
+}
+
+@Preview(name = "Failed · dark · large text", showBackground = true, widthDp = 360, heightDp = 900, fontScale = 1.3f)
+@Composable
+private fun FailedMainScreenPreview() {
+  VeilarkTheme(darkTheme = true) {
+    MainScreen(profileName = "Personal subscription", connectionState = ConnectionState.Failed)
   }
 }
