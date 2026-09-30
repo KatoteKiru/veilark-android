@@ -69,6 +69,7 @@ import androidx.compose.material3.TooltipDefaults
 import androidx.compose.material3.rememberTooltipState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -118,9 +119,11 @@ import com.example.veilark.ui.Strings
 import com.example.veilark.update.MacUpdate
 import com.example.veilark.update.MacUpdateClient
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeoutOrNull
@@ -154,6 +157,8 @@ private enum class MacSection(
  */
 private val externalImportRequests = MutableStateFlow<String?>(null)
 private val reopenRequests = MutableStateFlow(0L)
+private val nativeNavigationRequests = MutableSharedFlow<Int>(extraBufferCapacity = 8)
+private val nativeDisplayRevision = MutableStateFlow(0L)
 private val shutdownSession = AtomicReference<VeilarkSession?>(null)
 private val shutdownCleanupStarted = AtomicBoolean(false)
 
@@ -235,7 +240,8 @@ fun main() {
   val darkTheme = isSystemInDarkTheme()
   val trayIcon = remember { MenuBarIcon() }
   val windowIcon = remember(darkTheme) { BitmapPainter(brandBitmap(256, darkTheme).toComposeImageBitmap()) }
-  val visualPreferences by produceState(VisualPreferences()) {
+  val displayRevision by nativeDisplayRevision.collectAsState()
+  val visualPreferences by produceState(VisualPreferences(), displayRevision) {
     value = withContext(Dispatchers.IO) { readVisualPreferences() }
   }
   val externalImportUrl by externalImportRequests.collectAsState()
@@ -339,10 +345,46 @@ fun main() {
         window.toFront()
         window.requestFocus()
       }
+      DisposableEffect(window) {
+        MacNativeChrome.setNavigationHandler { nativeNavigationRequests.tryEmit(it) }
+        MacNativeChrome.setDisplayHandler { nativeDisplayRevision.value += 1 }
+        onDispose {
+          MacNativeChrome.setNavigationHandler(null)
+          MacNativeChrome.setDisplayHandler(null)
+        }
+      }
+      val nativeSidebar by produceState(0L, window, displayRevision) {
+        var installed = 0L
+        try {
+          withContext(Dispatchers.IO) {
+            val labels = (MacSection.entries.map { it.label } +
+              listOf(Strings.macClient, Strings.keyboardHint, connectionStatusText(session.status))).toTypedArray()
+            repeat(10) {
+              if (installed == 0L) {
+                installed = NativeSidebar.install(Strings.appName, labels)
+                if (installed == 0L) delay(100)
+              }
+            }
+          }
+          value = installed
+          awaitCancellation()
+        } finally {
+          NativeSidebar.remove(installed)
+        }
+      }
+      LaunchedEffect(window) {
+        nativeNavigationRequests.collect { index ->
+          MacSection.entries.getOrNull(index)?.let { selectedSection = it }
+        }
+      }
+      LaunchedEffect(nativeSidebar, selectedSection, session.status) {
+        NativeSidebar.update(nativeSidebar, selectedSection.ordinal, connectionStatusText(session.status))
+      }
       VeilarkTheme {
         CompositionLocalProvider(LocalVisualPreferences provides visualPreferences) {
         MacShell(
           session = session,
+          nativeSidebar = nativeSidebar != 0L,
           selectedSection = selectedSection,
           onSectionSelected = { selectedSection = it },
           tick = tick,
@@ -370,6 +412,7 @@ internal fun brandBitmap(size: Int, darkTheme: Boolean = true, tray: Boolean = f
 @Composable
 private fun MacShell(
   session: VeilarkSession,
+  nativeSidebar: Boolean = false,
   selectedSection: MacSection,
   onSectionSelected: (MacSection) -> Unit,
   tick: Int,
@@ -400,7 +443,7 @@ private fun MacShell(
 
   Surface(modifier = Modifier.fillMaxSize().then(shortcutModifier)) {
     Row(Modifier.fillMaxSize()) {
-      MacSidebar(
+      if (nativeSidebar) Spacer(Modifier.width(240.dp).fillMaxHeight()) else MacSidebar(
         session = session,
         selectedSection = selectedSection,
         onSectionSelected = onSectionSelected,
@@ -410,7 +453,7 @@ private fun MacShell(
         modifier = Modifier
           .weight(1f)
           .fillMaxHeight()
-          .padding(horizontal = 36.dp, vertical = 28.dp),
+          .padding(horizontal = 32.dp, vertical = 26.dp),
       ) {
         when (selectedSection) {
           MacSection.OVERVIEW -> OverviewSection(session, onSectionSelected, onToggleConnection)
@@ -593,10 +636,10 @@ private fun ConnectionPanel(
   Surface(
     modifier = Modifier.fillMaxWidth(),
     shape = RoundedCornerShape(18.dp),
-    color = if (failed) colors.errorContainer else colors.primaryContainer,
+    color = if (failed) colors.errorContainer else colors.surfaceVariant.copy(alpha = 0.38f),
   ) {
     Row(
-      modifier = Modifier.fillMaxWidth().padding(22.dp),
+      modifier = Modifier.fillMaxWidth().padding(24.dp),
       verticalAlignment = Alignment.CenterVertically,
       horizontalArrangement = Arrangement.spacedBy(16.dp),
     ) {
@@ -612,14 +655,7 @@ private fun ConnectionPanel(
       )
       Column(modifier = Modifier.weight(1f)) {
         Text(
-          when {
-            connected -> Strings.connected
-            session.status == TunnelStatus.CONNECTING -> Strings.connecting
-            session.status == TunnelStatus.RECONNECTING -> RuntimeMessages.reconnecting
-            session.status == TunnelStatus.DEGRADED -> RuntimeMessages.handoverDegraded
-            failed -> Strings.failed
-            else -> Strings.disconnected
-          },
+          connectionStatusText(session.status),
           style = MaterialTheme.typography.titleLarge,
           fontWeight = FontWeight.SemiBold,
         )
@@ -636,7 +672,7 @@ private fun ConnectionPanel(
         enabled = connected && !session.busy,
         onClick = onCheckHealth,
       )
-      Button(onClick = onToggleConnection, enabled = !unavailable) {
+      Button(onClick = onToggleConnection, enabled = !unavailable, shape = RoundedCornerShape(10.dp)) {
         if (connecting) {
           CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
           Spacer(Modifier.width(8.dp))
@@ -1434,18 +1470,20 @@ private fun StatusLine(status: TunnelStatus) {
   Row(modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
     Surface(modifier = Modifier.size(8.dp), shape = RoundedCornerShape(50), color = color) {}
     Text(
-      when {
-        connected -> Strings.connected
-        status == TunnelStatus.CONNECTING -> Strings.connecting
-        status == TunnelStatus.RECONNECTING -> RuntimeMessages.reconnecting
-        status == TunnelStatus.DEGRADED -> RuntimeMessages.handoverDegraded
-        failed -> Strings.failed
-        else -> Strings.disconnected
-      },
+      connectionStatusText(status),
       style = MaterialTheme.typography.labelMedium,
       color = color,
     )
   }
+}
+
+internal fun connectionStatusText(status: TunnelStatus): String = when (status) {
+  TunnelStatus.CONNECTED -> Strings.connected
+  TunnelStatus.CONNECTING -> Strings.connecting
+  TunnelStatus.RECONNECTING -> RuntimeMessages.reconnecting
+  TunnelStatus.DEGRADED -> RuntimeMessages.handoverDegraded
+  TunnelStatus.FAILED -> Strings.failed
+  else -> Strings.disconnected
 }
 
 @Composable

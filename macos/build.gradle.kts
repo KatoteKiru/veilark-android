@@ -327,6 +327,27 @@ val generateAppIcon by tasks.registering(Exec::class) {
   )
 }
 
+val compileNativeChrome by tasks.registering(Exec::class) {
+  val output = layout.buildDirectory.file("native/libveilark-chrome.dylib")
+  inputs.file("native/chrome.m")
+  outputs.file(output)
+  onlyIf { isMacOs }
+  doFirst { output.get().asFile.parentFile.mkdirs() }
+  commandLine(
+    "clang", "-dynamiclib", "-fobjc-arc", "-Wall", "-Wextra", "-Werror",
+    "-Wno-unused-parameter", "-mmacosx-version-min=12.0", "-framework", "Cocoa",
+    "-I${System.getProperty("java.home")}/include",
+    "-I${System.getProperty("java.home")}/include/darwin",
+    file("native/chrome.m").absolutePath, "-o", output.get().asFile.absolutePath,
+  )
+  doLast {
+    check(output.get().asFile.isFile) { "Native chrome compilation failed" }
+    val bundled = file("packaging/common/libveilark-chrome.dylib")
+    bundled.parentFile.mkdirs()
+    output.get().asFile.copyTo(bundled, overwrite = true)
+  }
+}
+
 val compileHelper by tasks.registering(Exec::class) {
   val output = layout.buildDirectory.file("helper/veilark-helper")
   inputs.file("helper/main.swift")
@@ -386,7 +407,7 @@ val compileUpdater by tasks.registering(Exec::class) {
 }
 
 tasks.named("processResources") {
-  dependsOn(compileHelper, compileUpdater, generateAppIcon)
+  dependsOn(compileHelper, compileUpdater, compileNativeChrome, generateAppIcon)
 }
 
 fun File.markBundledEnginesExecutable() {
@@ -397,7 +418,7 @@ fun File.markBundledEnginesExecutable() {
 }
 
 val verifyBundledAssets by tasks.registering(Exec::class) {
-  dependsOn(compileHelper, compileUpdater)
+  dependsOn(compileHelper, compileUpdater, compileNativeChrome)
   onlyIf { isMacOs }
   commandLine("bash", file("scripts/verify-bundled-assets.sh").absolutePath)
 }
