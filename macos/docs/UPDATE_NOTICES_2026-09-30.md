@@ -1,6 +1,6 @@
 # macOS update notices
 
-Source-only change, not an OTA publication. Checks continue every six hours while
+Published in 1.0.15 / 10015; see `RELEASE_1.0.15.md`. Checks continue every six hours while
 the application runs, including with its window closed. Fully quitting stops them.
 Only the existing verified manifest is used. No automatic download/install and
 no VPN interruption is introduced.
