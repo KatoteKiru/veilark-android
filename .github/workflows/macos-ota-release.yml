@@ -87,7 +87,7 @@ jobs:
           cp "$SOURCE_DMG" "build/ota/$ARTIFACT"
           printf '%s' "$OTA_SIGNING_KEY_B64" | base64 --decode > "$RUNNER_TEMP/veilark-macos-ota.pem"
           chmod 0600 "$RUNNER_TEMP/veilark-macos-ota.pem"
-          NOTES="Veilark $VERSION: системная боковая панель Liquid Glass на macOS 26, чёткие SF Symbols и короткие переходы с поддержкой Reduce Motion. Ядра, маршруты и helper v7 не менялись. / Native Liquid Glass sidebar on macOS 26, crisp SF Symbols and brief Reduce Motion-aware transitions. Engines, routing and helper v7 unchanged. Preview build, not Apple-notarized."
+          NOTES="Veilark $VERSION: редкая проверка обновлений в строке меню, системное уведомление один раз на новую версию и переход в настройки по нажатию. VPN, маршруты и helper не менялись. / Periodic update checks while running in the menu bar, one native notification per new release, click to open Settings. VPN, routing and helper unchanged. Preview, not Apple-notarized."
           ./gradlew --no-daemon createOtaManifest \
             "-PotaDmg=build/ota/$ARTIFACT" \
             "-PotaManifestOutput=build/ota/manifest.json" \
@@ -158,7 +158,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          NOTES="Veilark $VERSION for Apple Silicon: native Liquid Glass navigation on macOS 26, system vibrancy on older macOS, monochrome branding, consistent SF Symbols and short accessible state transitions. The main content remains Compose. Engines, routing and helper v7 are unchanged. OTA retains the established Veilark Ed25519 key. Preview: not Apple-notarized; physical-Mac VPN and accessibility acceptance remain separate checks."
+          NOTES="Veilark $VERSION for Apple Silicon: update checks continue while the app runs in the menu bar. One native notification per new release; click it to open Settings. VPN, routing and helper are unchanged. Existing Ed25519 OTA key retained. Preview: not Apple-notarized. Physical notification delivery and VPN acceptance are not claimed by CI."
           gh release create "$GITHUB_REF_NAME" \
             "build/ota/$ARTIFACT#Veilark $VERSION DMG (ARM64 preview)" \
             "build/ota/manifest.json#Signed macOS OTA manifest" \
