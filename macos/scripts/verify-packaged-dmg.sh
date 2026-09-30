@@ -47,6 +47,8 @@ cp "$ROOT/build/native/libveilark-chrome.dylib" "$CHROME_CHECK/source.dylib"
 cp "$RESOURCES/libveilark-chrome.dylib" "$CHROME_CHECK/packaged.dylib"
 codesign --remove-signature "$CHROME_CHECK/source.dylib"
 codesign --remove-signature "$CHROME_CHECK/packaged.dylib"
+python3 "$ROOT/scripts/normalize-macho-signature.py" "$CHROME_CHECK/source.dylib"
+python3 "$ROOT/scripts/normalize-macho-signature.py" "$CHROME_CHECK/packaged.dylib"
 cmp "$CHROME_CHECK/source.dylib" "$CHROME_CHECK/packaged.dylib" || {
   otool -D "$CHROME_CHECK/source.dylib" "$CHROME_CHECK/packaged.dylib"
   otool -L "$CHROME_CHECK/source.dylib" "$CHROME_CHECK/packaged.dylib"
