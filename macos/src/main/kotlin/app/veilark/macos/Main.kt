@@ -159,6 +159,10 @@ private val externalImportRequests = MutableStateFlow<String?>(null)
 private val reopenRequests = MutableStateFlow(0L)
 private val nativeNavigationRequests = MutableSharedFlow<Int>(extraBufferCapacity = 8)
 private val nativeDisplayRevision = MutableStateFlow(0L)
+private val nativeToolbarRequests = MutableSharedFlow<Int>(extraBufferCapacity = 4)
+
+/** Native window chrome handle of the main window (0 = Compose-only UI). */
+internal val LocalNativeChromeHandle = androidx.compose.runtime.staticCompositionLocalOf { 0L }
 private val shutdownSession = AtomicReference<VeilarkSession?>(null)
 private val shutdownCleanupStarted = AtomicBoolean(false)
 
@@ -329,13 +333,8 @@ fun main() {
     menu = {
       Item(Strings.appName, onClick = { windowVisible = true })
       Item(
-        when (session.status) {
-          TunnelStatus.CONNECTED, TunnelStatus.DEGRADED -> Strings.disconnect
-          TunnelStatus.CONNECTING, TunnelStatus.RECONNECTING -> Strings.cancelConnection
-          else -> Strings.connect
-        },
-        enabled = !session.busy || session.status == TunnelStatus.CONNECTING ||
-          session.status == TunnelStatus.RECONNECTING,
+        connectionActionText(session.status),
+        enabled = connectionActionEnabled(session.busy, session.status),
         onClick = ::toggleConnection,
       )
       Separator()
@@ -377,28 +376,50 @@ fun main() {
       DisposableEffect(window) {
         MacNativeChrome.setNavigationHandler { nativeNavigationRequests.tryEmit(it) }
         MacNativeChrome.setDisplayHandler { nativeDisplayRevision.value += 1 }
+        MacNativeChrome.setToolbarHandler { nativeToolbarRequests.tryEmit(it) }
         onDispose {
           MacNativeChrome.setNavigationHandler(null)
           MacNativeChrome.setDisplayHandler(null)
+          MacNativeChrome.setToolbarHandler(null)
         }
       }
+      var nativeTopInset by remember { mutableStateOf(0) }
       val nativeSidebar by produceState(0L, window, displayRevision) {
         var installed = 0L
+        // AWT owns the NSWindow style bits: ask it for a full-size, transparent titlebar so
+        // the native glass sidebar can run under the unified toolbar. Reverted on failure.
+        val unified = NativeSidebar.loaded && setUnifiedTitlebar(window, true)
         try {
+          val windowHandle = runCatching { window.windowHandle }.getOrDefault(0L)
+          val bounds = window.bounds.let { intArrayOf(it.x, it.y, it.width, it.height) }
           withContext(Dispatchers.IO) {
             val labels = (MacSection.entries.map { it.label } +
-              listOf(Strings.macClient, Strings.keyboardHint, connectionStatusText(session.status))).toTypedArray()
+              listOf(Strings.macClient, Strings.keyboardHint, connectionStatusText(session.status),
+                connectionActionText(session.status))).toTypedArray()
             repeat(10) {
               if (installed == 0L) {
-                installed = NativeSidebar.install(Strings.appName, labels)
+                installed = NativeSidebar.install(windowHandle, Strings.appName, bounds, unified, labels)
                 if (installed == 0L) delay(100)
               }
             }
           }
+          if (installed == 0L && unified) setUnifiedTitlebar(window, false)
           value = installed
+          if (installed != 0L) {
+            // AWT applies the titlebar style asynchronously; settle the inset briefly.
+            for (attempt in 0 until 10) {
+              val inset = withContext(Dispatchers.IO) { NativeSidebar.state(installed)?.topInset } ?: 0
+              nativeTopInset = inset
+              if (inset > 0 || !unified) break
+              delay(100)
+            }
+          }
+          withContext(Dispatchers.IO) { NativeSidebar.writeReportIfRequested(installed) }
           awaitCancellation()
         } finally {
           NativeSidebar.remove(installed)
+          nativeTopInset = 0
+          if (installed != 0L && unified) setUnifiedTitlebar(window, false)
         }
       }
       LaunchedEffect(window) {
@@ -406,14 +427,25 @@ fun main() {
           MacSection.entries.getOrNull(index)?.let { selectedSection = it }
         }
       }
-      LaunchedEffect(nativeSidebar, selectedSection, session.status) {
-        NativeSidebar.update(nativeSidebar, selectedSection.ordinal, connectionStatusText(session.status))
+      LaunchedEffect(window) {
+        nativeToolbarRequests.collect { action ->
+          if (action == MacNativeChrome.TOOLBAR_TOGGLE_CONNECTION &&
+            connectionActionEnabled(session.busy, session.status)) toggleConnection()
+        }
+      }
+      LaunchedEffect(nativeSidebar, selectedSection, session.status, session.busy) {
+        NativeSidebar.update(nativeSidebar, selectedSection.ordinal, connectionStatusText(session.status),
+          connectionActionText(session.status), connectionActionEnabled(session.busy, session.status))
       }
       VeilarkTheme {
-        CompositionLocalProvider(LocalVisualPreferences provides visualPreferences) {
+        CompositionLocalProvider(
+          LocalVisualPreferences provides visualPreferences,
+          LocalNativeChromeHandle provides nativeSidebar,
+        ) {
         MacShell(
           session = session,
           nativeSidebar = nativeSidebar != 0L,
+          nativeTopInset = nativeTopInset.dp,
           selectedSection = selectedSection,
           onSectionSelected = { selectedSection = it },
           tick = tick,
@@ -442,6 +474,7 @@ internal fun brandBitmap(size: Int, darkTheme: Boolean = true, tray: Boolean = f
 private fun MacShell(
   session: VeilarkSession,
   nativeSidebar: Boolean = false,
+  nativeTopInset: androidx.compose.ui.unit.Dp = 0.dp,
   selectedSection: MacSection,
   onSectionSelected: (MacSection) -> Unit,
   tick: Int,
@@ -482,6 +515,7 @@ private fun MacShell(
         modifier = Modifier
           .weight(1f)
           .fillMaxHeight()
+          .padding(top = nativeTopInset)
           .padding(horizontal = 32.dp, vertical = 26.dp),
       ) {
         when (selectedSection) {
@@ -516,7 +550,7 @@ private fun MacSidebar(
   Surface(
     modifier = Modifier.widthIn(min = 220.dp, max = 240.dp).fillMaxHeight(),
     color = MaterialTheme.colorScheme.surfaceVariant.copy(
-      alpha = if (LocalVisualPreferences.current.reduceTransparency) 1f else 0.55f,
+      alpha = LocalVisualPreferences.current.let { if (it.reduceTransparency || it.increaseContrast) 1f else 0.55f },
     ),
   ) {
     Column(
@@ -987,6 +1021,27 @@ private fun ProfilesSection(
 private fun ProfileActions(session: VeilarkSession) {
   val scope = rememberCoroutineScope()
   var confirmDelete by remember { mutableStateOf(false) }
+  val nativeChrome = LocalNativeChromeHandle.current
+  fun requestDelete() {
+    // Native NSAlert sheet first; the Compose dialog below remains the fallback.
+    val shown = NativeSidebar.confirm(
+      nativeChrome,
+      title = Strings.deleteSubscription,
+      message = Strings.deleteSubscriptionConfirm,
+      confirmTitle = Strings.deleteSubscription,
+      cancelTitle = Strings.cancel,
+      destructive = true,
+      onUnavailable = { javax.swing.SwingUtilities.invokeLater { confirmDelete = true } },
+      onAnswer = { confirmed ->
+        if (confirmed) javax.swing.SwingUtilities.invokeLater {
+          if (session.status == TunnelStatus.DISCONNECTED && !session.busy) {
+            runCatching { session.deleteSelectedSubscription() }
+          }
+        }
+      },
+    )
+    if (!shown) confirmDelete = true
+  }
   val sourceUrl = when (session.engine) {
     TunnelEngineKind.SING_BOX -> session.singBoxEntries.firstOrNull { it.id == session.selectedSingBoxId }?.sourceUrl
     TunnelEngineKind.TRUST_TUNNEL -> session.trustEntries.firstOrNull { it.id == session.selectedTrustId }?.sourceUrl
@@ -1017,7 +1072,7 @@ private fun ProfileActions(session: VeilarkSession) {
       icon = Icons.Outlined.Delete,
       description = Strings.deleteSubscription,
       enabled = hasSelection && session.status == TunnelStatus.DISCONNECTED && !session.busy,
-      onClick = { confirmDelete = true },
+      onClick = ::requestDelete,
     )
   }
   if (confirmDelete) {
@@ -1681,3 +1736,19 @@ private fun VerticalRule() {
 }
 
 private val TIME_FORMAT = DateTimeFormatter.ofPattern("HH:mm:ss")
+
+internal fun connectionActionText(status: TunnelStatus): String = when (status) {
+  TunnelStatus.CONNECTED, TunnelStatus.DEGRADED -> Strings.disconnect
+  TunnelStatus.CONNECTING, TunnelStatus.RECONNECTING -> Strings.cancelConnection
+  else -> Strings.connect
+}
+
+internal fun connectionActionEnabled(busy: Boolean, status: TunnelStatus): Boolean =
+  !busy || status == TunnelStatus.CONNECTING || status == TunnelStatus.RECONNECTING
+
+/** AWT-sanctioned full-size content + transparent titlebar (JDK 12+ client properties). */
+private fun setUnifiedTitlebar(window: javax.swing.JFrame, enabled: Boolean): Boolean = runCatching {
+  window.rootPane.putClientProperty("apple.awt.fullWindowContent", enabled)
+  window.rootPane.putClientProperty("apple.awt.transparentTitleBar", enabled)
+  true
+}.getOrDefault(false)
