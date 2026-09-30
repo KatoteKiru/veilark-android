@@ -62,10 +62,46 @@ private func log(_ message: String) {
     try? handle.write(contentsOf: data)
 }
 
+// The mounted update image, if any. `exit` never runs `defer`, so every exit path —
+// failure, SIGTERM/SIGINT/SIGHUP and success — detaches it explicitly.
+private var mountedImage: URL?
+
+private func detachMountedImage() {
+    guard let mountPoint = mountedImage else { return }
+    mountedImage = nil
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: "/usr/bin/hdiutil")
+    process.arguments = ["detach", mountPoint.path, "-quiet", "-force"]
+    process.standardOutput = FileHandle.nullDevice
+    process.standardError = FileHandle.nullDevice
+    do {
+        try process.run()
+        process.waitUntilExit()
+        if process.terminationStatus != 0 { log("WARN could not detach update image") }
+    } catch {
+        log("WARN could not detach update image: \(error)")
+    }
+}
+
 private func fail(_ message: String) -> Never {
     log("ERROR \(message)")
     fputs(message + "\n", stderr)
+    detachMountedImage()
     exit(1)
+}
+
+private var signalSources: [DispatchSourceSignal] = []
+private func detachOnTerminationSignals() {
+    for signalNumber in [SIGTERM, SIGINT, SIGHUP] {
+        signal(signalNumber, SIG_IGN)
+        let source = DispatchSource.makeSignalSource(signal: signalNumber, queue: .global())
+        source.setEventHandler {
+            log("updater received signal \(signalNumber)")
+            fail("updater interrupted by signal \(signalNumber)")
+        }
+        source.resume()
+        signalSources.append(source)
+    }
 }
 
 private func parseOptions() -> Options {
@@ -223,9 +259,20 @@ private func mount(_ dmg: URL) -> URL {
         let entities = dictionary["system-entities"] as? [[String: Any]],
         let mountPoint = entities.compactMap({ $0["mount-point"] as? String }).last
     else {
+        // hdiutil may have attached the image without reporting a mount point: detach
+        // every device node it did report so no orphaned disk image stays attached.
+        let plist = result.output.data(using: .utf8).flatMap {
+            try? PropertyListSerialization.propertyList(from: $0, format: nil)
+        } as? [String: Any]
+        let devices = (plist?["system-entities"] as? [[String: Any]])?.compactMap { $0["dev-entry"] as? String } ?? []
+        if let device = devices.first {
+            mountedImage = URL(fileURLWithPath: device)
+        }
         fail("update image did not expose a mount point")
     }
-    return URL(fileURLWithPath: mountPoint, isDirectory: true)
+    let url = URL(fileURLWithPath: mountPoint, isDirectory: true)
+    mountedImage = url
+    return url
 }
 
 private func verifyBundle(_ app: URL, expectedVersion: String, currentApp: URL) {
@@ -314,6 +361,7 @@ private func install(_ source: URL, over target: URL) {
     guard elevated.status == 0 else { fail("administrator update failed: \(elevated.output)") }
 }
 
+detachOnTerminationSignals()
 private let options = parseOptions()
 log("START version=\(options.expectedVersion)")
 verifyManifestSignature(options)
@@ -327,7 +375,6 @@ guard Bundle(url: options.currentApp)?.bundleIdentifier == expectedBundleIdentif
 }
 waitForParentToExit(options.parentPID)
 let mountPoint = mount(options.dmg)
-defer { _ = run("/usr/bin/hdiutil", ["detach", mountPoint.path, "-quiet", "-force"]) }
 let updateApp = mountPoint.appendingPathComponent("Veilark.app", isDirectory: true)
 guard
     let updateBuildText = Bundle(url: updateApp)?.object(forInfoDictionaryKey: "CFBundleVersion") as? String,
@@ -339,6 +386,7 @@ else {
 }
 verifyBundle(updateApp, expectedVersion: options.expectedVersion, currentApp: options.currentApp)
 install(updateApp, over: options.currentApp)
+detachMountedImage()
 if options.relaunch {
     let launch = run("/usr/bin/open", ["-n", options.currentApp.path])
     guard launch.status == 0 else { fail("Veilark was updated but could not be relaunched") }
