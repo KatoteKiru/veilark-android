@@ -122,6 +122,7 @@ jobs:
           install -m 0600 /dev/null "$RUNNER_TEMP/known_hosts"
           printf '%s\n' "$OTA_KNOWN_HOSTS" > "$RUNNER_TEMP/known_hosts"
           MANIFEST_TMP=".manifest.$GITHUB_RUN_ID.json"
+          MANIFEST_BACKUP="manifest.backup.$(date -u +%Y%m%dT%H%M%SZ).$GITHUB_RUN_ID.json"
           sftp -b - \
             -i "$RUNNER_TEMP/ota_deploy_key" \
             -o BatchMode=yes \
@@ -129,6 +130,8 @@ jobs:
             -o StrictHostKeyChecking=yes \
             -o UserKnownHostsFile="$RUNNER_TEMP/known_hosts" \
             "$OTA_USER@$OTA_HOST" <<EOF
+          put $RUNNER_TEMP/live-manifest.json /veilark-macos/$MANIFEST_BACKUP
+          chmod 0644 /veilark-macos/$MANIFEST_BACKUP
           put build/ota/$ARTIFACT /veilark-macos/.$ARTIFACT.uploading
           chmod 0644 /veilark-macos/.$ARTIFACT.uploading
           rename /veilark-macos/.$ARTIFACT.uploading /veilark-macos/$ARTIFACT
