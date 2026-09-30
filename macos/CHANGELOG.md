@@ -1,5 +1,23 @@
 # Changelog
 
+## Unreleased
+
+- Build the macOS app with Xcode 26 / macOS 26 SDK; the AppKit bridge, helper and updater
+  now declare an explicit macOS 12 deployment target, and `LSMinimumSystemVersion` is 12.0.
+  CI prints `LC_BUILD_VERSION` for the launcher and every Veilark binary.
+- Native window chrome: unified toolbar with connection status and Connect/Disconnect,
+  Liquid Glass button bezels on macOS 26, glass sidebar extending under a transparent
+  titlebar. macOS 12–15 keep the vibrancy sidebar and standard toolbar buttons.
+- The native chrome attaches to the main window by its native handle or exact frame, never
+  to the startup window that shares its title.
+- Reduce Motion, Reduce Transparency and Increase Contrast now follow System Settings
+  live through AppKit; `defaults read` remains only as a fallback.
+- Deleting a subscription asks with a native macOS sheet (Compose dialog as fallback).
+- The in-app updater detaches the update disk image on every failure path and on
+  termination signals, not only on success.
+- VPN engines, routing, subscriptions, helper privileges, OTA keys and manifest format are
+  unchanged. Physical-Mac visual acceptance is still required.
+
 ## 1.0.13 preview
 
 - Update the bundled TrustTunnel client from stable 1.1.5 to stable 1.1.7.
