@@ -224,6 +224,8 @@ JNIEXPORT jlong JNICALL Java_app_veilark_macos_MacNativeChrome_install
             button.alignment = NSTextAlignmentLeft;
             button.font = [NSFont systemFontOfSize:13 weight:NSFontWeightRegular];
             button.image = [NSImage imageWithSystemSymbolName:symbols[i] accessibilityDescription:nil];
+            button.image = [button.image imageWithSymbolConfiguration:
+                [NSImageSymbolConfiguration configurationWithPointSize:15 weight:NSFontWeightMedium]];
             button.imagePosition = NSImageLeft;
             button.imageScaling = NSImageScaleProportionallyDown;
             button.keyEquivalent = [NSString stringWithFormat:@"%ld", (long)i + 1];
@@ -282,6 +284,22 @@ JNIEXPORT void JNICALL Java_app_veilark_macos_MacNativeChrome_update
     dispatch_async(dispatch_get_main_queue(), ^{
         VLKSidebar *sidebar = sidebars[@(handle)];
         if (!sidebar) return;
+        BOOL changed = sidebar.selectedIndex != selected;
+        BOOL reduce = NSWorkspace.sharedWorkspace.accessibilityDisplayShouldReduceMotion;
+        // One bounded transition per confirmed section change, never an idle loop.
+        if (changed && !reduce) {
+            for (NSButton *button in sidebar.buttons) {
+                CABasicAnimation *transition = [CABasicAnimation animationWithKeyPath:@"backgroundColor"];
+                transition.fromValue = (__bridge id)(button.layer.presentationLayer ?: button.layer).backgroundColor;
+                BOOL active = button.tag == selected;
+                transition.toValue = (__bridge id)(active ? [NSColor.controlAccentColor colorWithAlphaComponent:0.12].CGColor : NSColor.clearColor.CGColor);
+                transition.duration = 0.14;
+                transition.timingFunction = [CAMediaTimingFunction functionWithName:kCAMediaTimingFunctionEaseOut];
+                [button.layer addAnimation:transition forKey:@"selection"];
+            }
+        } else if (reduce) {
+            for (NSButton *button in sidebar.buttons) [button.layer removeAnimationForKey:@"selection"];
+        }
         sidebar.status.stringValue = text;
         sidebar.selectedIndex = selected;
         [sidebar refreshColors];

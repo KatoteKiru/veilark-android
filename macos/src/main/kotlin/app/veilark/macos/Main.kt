@@ -633,10 +633,15 @@ private fun ConnectionPanel(
   val unavailable = session.busy && !connecting
   val failed = session.status == TunnelStatus.FAILED || session.status == TunnelStatus.DEGRADED
   val colors = MaterialTheme.colorScheme
+  val panelColor by animateColorAsState(
+    targetValue = if (failed) colors.errorContainer else colors.surfaceVariant.copy(alpha = 0.38f),
+    animationSpec = tween(if (LocalVisualPreferences.current.reduceMotion) 0 else 160),
+    label = "connection-state",
+  )
   Surface(
     modifier = Modifier.fillMaxWidth(),
     shape = RoundedCornerShape(18.dp),
-    color = if (failed) colors.errorContainer else colors.surfaceVariant.copy(alpha = 0.38f),
+    color = panelColor,
   ) {
     Row(
       modifier = Modifier.fillMaxWidth().padding(24.dp),
@@ -736,6 +741,11 @@ private fun EngineChoice(
   onClick: () -> Unit,
 ) {
   val colors = MaterialTheme.colorScheme
+  val choiceColor by animateColorAsState(
+    targetValue = if (selected) colors.secondaryContainer else colors.surface,
+    animationSpec = tween(if (LocalVisualPreferences.current.reduceMotion) 0 else 140),
+    label = "engine-selection",
+  )
   Surface(
     modifier = modifier
       .clip(RoundedCornerShape(12.dp))
@@ -746,7 +756,7 @@ private fun EngineChoice(
         stateDescription = if (selected) Strings.selectedState else Strings.notSelectedState
       },
     shape = RoundedCornerShape(12.dp),
-    color = if (selected) colors.secondaryContainer else colors.surface,
+    color = choiceColor,
     border = BorderStroke(1.dp, if (selected) colors.primary.copy(alpha = 0.55f) else colors.outlineVariant),
   ) {
     Row(
