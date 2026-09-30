@@ -5,6 +5,8 @@
 - Build the macOS app with Xcode 26 / macOS 26 SDK; the AppKit bridge, helper and updater
   now declare an explicit macOS 12 deployment target, and `LSMinimumSystemVersion` is 12.0.
   CI prints `LC_BUILD_VERSION` for the launcher and every Veilark binary.
+- The packaged launcher is stamped with the build SDK (26.x) and re-signed, so macOS 26
+  applies Liquid Glass to system chrome. A running packaged app reports SDK 26.5 in CI.
 - Native window chrome: unified toolbar with connection status and Connect/Disconnect,
   Liquid Glass button bezels on macOS 26, glass sidebar extending under a transparent
   titlebar. macOS 12–15 keep the vibrancy sidebar and standard toolbar buttons.

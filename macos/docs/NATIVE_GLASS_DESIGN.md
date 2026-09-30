@@ -77,11 +77,14 @@ updates keep their existing functionality.
    covering content. Check light/dark, RU/EN, small window, focus and Cmd1–Cmd5.
 5. Physical Mac: VoiceOver, accessibility toggles, window close/reopen, connected VPN
    and OTA acceptance are distinct from CI and remain unverified without a device.
-6. Not yet evidenced: the jpackage launcher comes from the JDK and is linked against an
-   older SDK (printed by `check-build-version.sh`). AppKit's automatic Liquid Glass
-   styling that depends on the main executable's SDK may therefore stay in compatibility
-   mode; explicit `NSGlassEffectView` and `NSBezelStyleGlass` do not depend on it. Visual
-   confirmation of the toolbar on a physical macOS 26 Mac is still required.
+6. Launcher SDK (closed in `72cdde7`): the jpackage launcher comes from the JDK (SDK
+   14.2). `stamp-launcher-sdk.sh` runs after `createDistributable` (Compose feeds that
+   image to `packageDmg`) and uses `vtool -set-build-version macos 12.0 <xcrun SDK>` on
+   every slice. It then re-signs the bundle with its previous identity: ad-hoc stays
+   ad-hoc, and a real identity must come from `VEILARK_MACOS_SIGNING_IDENTITY`. Metadata
+   is preserved, and `codesign --verify --deep --strict` must pass. AppKit's
+   linked-on-or-after checks therefore see SDK 26. The AWT code in the JDK was still
+   compiled against 14.2, so new AppKit behaviours need physical-Mac checks.
 
 ## Verification closeout
 
@@ -104,6 +107,13 @@ No physical VPN/OTA acceptance or production promotion is implied by these resul
 - Package verification `36774897729` (macos-26, DMG) and preview `36774897842`
   (macos-14, older SDK compile) passed. The updater's new post-mount detach assertions
   run only in the tag-triggered OTA workflow and are not yet exercised.
+
+Run `36777731739` (macos-26, DMG): packaged launcher and all Veilark binaries report
+`minos=12.0 sdk=26.5`, and the bundle signature is valid (deep, strict). The running
+packaged app reported `programSdk=26.5 material=2 toolbar=2 matchedBy=1 topInset=52`
+(read from the main executable's `LC_BUILD_VERSION` via public dyld APIs). With the
+older SDK on macos-14 (run `36777731711`), the launcher reports `sdk=14.5` and the
+check is report-only.
 
 ## Sources
 
