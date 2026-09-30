@@ -1,6 +1,6 @@
 # Android update notices
 
-Source-only change; the current published OTA is unchanged.
+Published in private rc39 / 66; see `RC39_OTA_NOTES.md` for release evidence.
 
 A persisted JobScheduler job checks the existing signed update manifest on a
 six-hour schedule, with network and battery-not-low constraints. Android may
