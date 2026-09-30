@@ -69,7 +69,8 @@ class NativeChromeMacTest {
       }
       assertNotNull(state)
       state!!
-      println("Native chrome: $state; macOS ${System.getProperty("os.version")}; " +
+      println("Native chrome: $state; test JVM program SDK ${NativeSidebar.programSdk()}; " +
+        "macOS ${System.getProperty("os.version")}; " +
         "display mask ${MacNativeChrome.observeDisplayPreferences()}")
       assertEquals("Attached to the same-titled startup-sized window", 960, state.width)
       assertEquals(640, state.height)
@@ -77,6 +78,7 @@ class NativeChromeMacTest {
       assertTrue("Unified toolbar missing", state.toolbar >= 1)
       assertTrue("Full-size content view should put the toolbar over the content", state.topInset > 0)
       assertEquals(state.material, MacNativeChrome.materialMode(handle))
+      assertNotNull("Main executable SDK unreadable", NativeSidebar.programSdk())
       if (System.getenv("VEILARK_REQUIRE_SYSTEM_GLASS") == "1") {
         assertEquals("Expected real NSGlassEffectView, not an opaque/blur fallback", 2, state.material)
         assertEquals("Expected glass-bezel toolbar buttons", 2, state.toolbar)

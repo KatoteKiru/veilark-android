@@ -117,6 +117,23 @@ internal object NativeSidebar {
     return shown
   }
 
+  /** "26.5" style SDK of the running main executable, or null when unknown. */
+  fun programSdk(): String? {
+    if (!loaded) return null
+    return runCatching { formatPackedVersion(MacNativeChrome.programSdkVersion()) }.getOrNull()
+  }
+
+  /**
+   * CI evidence only: when VEILARK_NATIVE_CHROME_REPORT names a file, record the running
+   * executable's SDK and the attached chrome. Contains no profile or network data.
+   */
+  fun writeReportIfRequested(handle: Long) {
+    val path = System.getenv("VEILARK_NATIVE_CHROME_REPORT")?.takeIf(String::isNotBlank) ?: return
+    runCatching {
+      File(path).writeText(nativeChromeReport(programSdk(), state(handle)))
+    }.onFailure { StartupDiagnostics.record(it, "native-chrome-report") }
+  }
+
   fun postUpdateNotice(title: String, body: String, build: Int): Boolean =
     loaded && runCatching { MacNativeChrome.postUpdateNotice(title, body, build) }.getOrDefault(false)
 
@@ -125,4 +142,21 @@ internal object NativeSidebar {
     runCatching { MacNativeChrome.remove(handle) }
       .onFailure { StartupDiagnostics.record(it, "native-chrome-remove") }
   }
+}
+
+/** dyld packs versions as major << 16 | minor << 8 | patch. */
+internal fun formatPackedVersion(packed: Int): String? {
+  if (packed <= 0) return null
+  val major = packed ushr 16
+  val minor = (packed shr 8) and 0xff
+  val patch = packed and 0xff
+  return if (patch == 0) "$major.$minor" else "$major.$minor.$patch"
+}
+
+internal fun nativeChromeReport(programSdk: String?, state: NativeChromeState?): String = buildString {
+  append("programSdk=").append(programSdk ?: "unknown").append('\n')
+  append("material=").append(state?.material ?: -1).append('\n')
+  append("toolbar=").append(state?.toolbar ?: -1).append('\n')
+  append("matchedBy=").append(state?.matchedBy ?: 0).append('\n')
+  append("topInset=").append(state?.topInset ?: 0).append('\n')
 }

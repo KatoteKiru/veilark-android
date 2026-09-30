@@ -8,8 +8,10 @@
 #   VEILARK_REQUIRE_SDK_MAJOR        when set (e.g. 26), Veilark's own binaries must be
 #                                    linked against at least this SDK major version
 #
-# The jpackage launcher comes from the JDK and is reported, not asserted: AppKit decides
-# some "linked on or after" behaviour from the main executable's SDK.
+# The jpackage launcher comes from the JDK; stamp-launcher-sdk.sh re-stamps it with the
+# build SDK because AppKit decides "linked on or after" behaviour (Liquid Glass system
+# chrome) from the main executable. It is asserted only when VEILARK_REQUIRE_SDK_MAJOR is
+# set, and reported otherwise.
 set -euo pipefail
 
 APP="${1:?app bundle required}"
@@ -41,6 +43,10 @@ LAUNCHER="$APP/Contents/MacOS/$LAUNCHER_NAME"
 [ -f "$LAUNCHER" ] || fail "launcher $LAUNCHER_NAME missing"
 read -r LAUNCHER_MIN LAUNCHER_SDK <<<"$(build_version "$LAUNCHER")"
 echo "launcher $LAUNCHER_NAME: minos=${LAUNCHER_MIN:-?} sdk=${LAUNCHER_SDK:-?} ($(lipo -archs "$LAUNCHER"))"
+if [ -n "$REQUIRE_SDK" ]; then
+  [ "${LAUNCHER_SDK%%.*}" -ge "$REQUIRE_SDK" ] 2>/dev/null || fail "launcher was linked against SDK ${LAUNCHER_SDK:-unknown}, need >= $REQUIRE_SDK"
+  [ "$LAUNCHER_MIN" = "$TARGET" ] || fail "launcher deployment target is ${LAUNCHER_MIN:-unknown}, expected $TARGET"
+fi
 
 for binary in libveilark-chrome.dylib veilark-helper veilark-updater; do
   path="$RESOURCES/$binary"

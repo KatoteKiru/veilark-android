@@ -3,6 +3,8 @@
 #import <UserNotifications/UserNotifications.h>
 #import <objc/message.h>
 #include <jni.h>
+#include <mach-o/dyld.h>
+#include <mach-o/loader.h>
 
 // AppKit owns layout, SF Symbols, focus, vibrancy, toolbar, sheets and accessibility.
 // JNI transports only section indices, public UI labels and window geometry; tunnel
@@ -717,4 +719,22 @@ JNIEXPORT jboolean JNICALL Java_app_veilark_macos_MacNativeChrome_confirm
         });
         return JNI_TRUE;
     }
+}
+
+// SDK version the running process's MAIN executable was linked against, packed like dyld
+// (major << 16 | minor << 8 | patch); -1 if unknown. This is what AppKit's
+// linked-on-or-after checks use, read with public dyld/Mach-O APIs only.
+JNIEXPORT jint JNICALL Java_app_veilark_macos_MacNativeChrome_programSdkVersion
+  (JNIEnv *env, jclass cls) {
+    const struct mach_header *header = _dyld_get_image_header(0);
+    if (!header || header->magic != MH_MAGIC_64) return -1;
+    const uint8_t *cursor = (const uint8_t *)header + sizeof(struct mach_header_64);
+    for (uint32_t i = 0; i < header->ncmds; i++) {
+        const struct load_command *command = (const struct load_command *)cursor;
+        if (command->cmdsize < sizeof(struct load_command)) return -1;
+        if (command->cmd == LC_BUILD_VERSION) return (jint)((const struct build_version_command *)command)->sdk;
+        if (command->cmd == LC_VERSION_MIN_MACOSX) return (jint)((const struct version_min_command *)command)->sdk;
+        cursor += command->cmdsize;
+    }
+    return -1;
 }

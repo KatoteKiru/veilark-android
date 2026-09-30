@@ -84,6 +84,8 @@ public final class MacNativeChrome {
     public static native int[] nativeState(long handle);
     /** Current display-preference mask, or -1 when AppKit could not be queried. */
     public static native int observeDisplayPreferences();
+    /** SDK of the main executable, packed major<<16 | minor<<8 | patch; -1 if unknown. */
+    public static native int programSdkVersion();
     public static native boolean confirm(long handle, int requestId, String title, String message,
                                          String confirmTitle, String cancelTitle, boolean destructive);
 }

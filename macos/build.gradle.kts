@@ -464,6 +464,21 @@ tasks.matching {
   }
 }
 
+// AppKit enables macOS 26 Liquid Glass system chrome from the MAIN executable's SDK. The
+// jpackage launcher comes from the JDK (older SDK), so stamp it with the build SDK and
+// re-sign with the same identity. packageDmg consumes this app image (Compose wires
+// packageDmg.appImage to createDistributable), so the DMG carries the stamped launcher.
+tasks.matching { it.name == "createDistributable" }.configureEach {
+  doLast {
+    if (!isMacOs) return@doLast
+    val app = file("build/compose/binaries/main/app/Veilark.app")
+    val process = ProcessBuilder(
+      "bash", file("scripts/stamp-launcher-sdk.sh").absolutePath, app.absolutePath, macosDeploymentTarget,
+    ).inheritIO().start()
+    check(process.waitFor() == 0) { "Launcher SDK stamping failed" }
+  }
+}
+
 compose.desktop {
   application {
     mainClass = "app.veilark.macos.MainKt"

@@ -64,9 +64,21 @@ private func log(_ message: String) {
 
 // The mounted update image, if any. `exit` never runs `defer`, so every exit path —
 // failure, SIGTERM/SIGINT/SIGHUP and success — detaches it explicitly.
+// Guarded by mountLock: detach can race between the signal queue and the main thread.
+// The lock is held for the whole detach, so it runs exactly once and a second caller
+// only returns after the image is gone.
 private var mountedImage: URL?
+private let mountLock = NSLock()
+
+private func setMountedImage(_ url: URL) {
+    mountLock.lock()
+    mountedImage = url
+    mountLock.unlock()
+}
 
 private func detachMountedImage() {
+    mountLock.lock()
+    defer { mountLock.unlock() }
     guard let mountPoint = mountedImage else { return }
     mountedImage = nil
     let process = Process()
@@ -266,12 +278,12 @@ private func mount(_ dmg: URL) -> URL {
         } as? [String: Any]
         let devices = (plist?["system-entities"] as? [[String: Any]])?.compactMap { $0["dev-entry"] as? String } ?? []
         if let device = devices.first {
-            mountedImage = URL(fileURLWithPath: device)
+            setMountedImage(URL(fileURLWithPath: device))
         }
         fail("update image did not expose a mount point")
     }
     let url = URL(fileURLWithPath: mountPoint, isDirectory: true)
-    mountedImage = url
+    setMountedImage(url)
     return url
 }
 

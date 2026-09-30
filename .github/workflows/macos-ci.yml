@@ -62,6 +62,10 @@ jobs:
           set -euo pipefail
           app="build/compose/binaries/main/app/Veilark.app"
           test -d "$app"
+          defaults write com.apple.universalaccess reduceTransparency -bool false
+          # The DMG is packaged from this app image: its running launcher must report the
+          # macOS 26 SDK and the native glass chrome.
+          ./scripts/assert-runtime-chrome.sh "$app" 26 2 2
           open -n "$app"
           sleep 12
           screencapture -x "$RUNNER_TEMP/veilark-macos-window.png"

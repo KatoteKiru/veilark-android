@@ -96,4 +96,18 @@ class NativeSidebarTest {
     assertFalse(connectionActionEnabled(busy = true, status = TunnelStatus.CONNECTED))
     assertTrue(connectionActionEnabled(busy = false, status = TunnelStatus.DISCONNECTED))
   }
+
+  @Test fun packedSdkVersionsAreFormattedLikeDyld() {
+    assertNull(formatPackedVersion(-1))
+    assertNull(formatPackedVersion(0))
+    assertEquals("26.5", formatPackedVersion((26 shl 16) or (5 shl 8)))
+    assertEquals("14.2.1", formatPackedVersion((14 shl 16) or (2 shl 8) or 1))
+  }
+
+  @Test fun chromeReportIsKeyValueAndSafeWhenDetached() {
+    assertEquals("programSdk=unknown\nmaterial=-1\ntoolbar=-1\nmatchedBy=0\ntopInset=0\n",
+      nativeChromeReport(null, null))
+    assertTrue(nativeChromeReport("26.5", NativeChromeState(2, 2, 1, 52, 1040, 720))
+      .contains("programSdk=26.5\nmaterial=2\ntoolbar=2\nmatchedBy=1\n"))
+  }
 }

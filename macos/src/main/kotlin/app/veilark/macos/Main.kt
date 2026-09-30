@@ -414,6 +414,7 @@ fun main() {
               delay(100)
             }
           }
+          withContext(Dispatchers.IO) { NativeSidebar.writeReportIfRequested(installed) }
           awaitCancellation()
         } finally {
           NativeSidebar.remove(installed)
