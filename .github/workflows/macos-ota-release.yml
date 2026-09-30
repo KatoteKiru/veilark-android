@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
   build-publish-verify:
-    runs-on: macos-14
+    runs-on: macos-26
     timeout-minutes: 45
     defaults:
       run:
@@ -64,12 +64,25 @@ jobs:
             echo "OTA_URL=$URL"
           } >> "$GITHUB_ENV"
 
+      - name: Select Xcode 26 (macOS 26 SDK)
+        run: |
+          set -euo pipefail
+          xcode="$(ls -d /Applications/Xcode_26*.app 2>/dev/null | grep -Eiv 'beta|_rc|release_candidate' | sort -V | tail -1 || true)"
+          [ -n "$xcode" ] || xcode="$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1 || true)"
+          [ -n "$xcode" ] || { echo "No Xcode 26 on this runner" >&2; ls -d /Applications/Xcode*.app >&2; exit 1; }
+          sudo xcode-select -s "$xcode/Contents/Developer"
+          xcodebuild -version
+          sdk="$(xcrun --sdk macosx --show-sdk-version)"
+          echo "macOS SDK $sdk; $(swiftc --version 2>&1 | head -1); $(clang --version | head -1)"
+          [ "${sdk%%.*}" -ge 26 ] || { echo "macOS 26 SDK required, found $sdk" >&2; exit 1; }
       - name: Prepare scripts and assert Apple Silicon
         run: |
           chmod +x gradlew scripts/*.sh
           test "$(uname -m)" = arm64
 
       - name: Test, fetch verified engines, and package DMG
+        env:
+          VEILARK_REQUIRE_SDK_MAJOR: "26"
         run: |
           swiftc helper/HelperConfigPolicy.swift helper/HelperConfigPolicyTests.swift -o "$RUNNER_TEMP/helper-config-policy-tests"
           "$RUNNER_TEMP/helper-config-policy-tests"

@@ -19,6 +19,18 @@ group = "app.veilark"
 
 val isMacOs = System.getProperty("os.name").startsWith("Mac", ignoreCase = true)
 
+// One deployment target for every native piece and for LSMinimumSystemVersion. macOS 12
+// is the floor of the AppKit/SF Symbols/UserNotifications/CryptoKit APIs used; macOS 26
+// features (NSGlassEffectView, glass bezels) are looked up or availability-guarded at run
+// time, so a binary built with the macOS 26 SDK still runs on macOS 12-15.
+val macosDeploymentTarget = "12.0"
+val nativeArchitecture = when (System.getProperty("os.arch").lowercase()) {
+  "aarch64", "arm64" -> "arm64"
+  "x86_64", "amd64" -> "x86_64"
+  else -> System.getProperty("os.arch")
+}
+val nativeTarget = "$nativeArchitecture-apple-macos$macosDeploymentTarget"
+
 java {
   toolchain {
     languageVersion.set(JavaLanguageVersion.of(17))
@@ -336,7 +348,7 @@ val compileNativeChrome by tasks.registering(Exec::class) {
   commandLine(
     "clang", "-dynamiclib", "-fobjc-arc", "-Wall", "-Wextra", "-Werror",
     "-Wl,-install_name,@rpath/libveilark-chrome.dylib",
-    "-Wno-unused-parameter", "-mmacosx-version-min=12.0", "-framework", "Cocoa",
+    "-Wno-unused-parameter", "-target", nativeTarget, "-framework", "Cocoa",
     "-framework", "QuartzCore", "-framework", "UserNotifications",
     "-I${System.getProperty("java.home")}/include",
     "-I${System.getProperty("java.home")}/include/darwin",
@@ -361,6 +373,7 @@ val compileHelper by tasks.registering(Exec::class) {
   commandLine(
     "swiftc",
     "-O",
+    "-target", nativeTarget,
     *if (macosOtaRequireGatekeeper) arrayOf("-D", "VEILARK_REQUIRE_GATEKEEPER") else emptyArray(),
     "-o", output.get().asFile.absolutePath,
     file("helper/main.swift").absolutePath,
@@ -390,6 +403,7 @@ val compileUpdater by tasks.registering(Exec::class) {
   commandLine(
     "swiftc",
     "-O",
+    "-target", nativeTarget,
     *if (macosOtaRequireGatekeeper) arrayOf("-D", "VEILARK_REQUIRE_GATEKEEPER") else emptyArray(),
     "-o", output.get().asFile.absolutePath,
     file("updater/veilark-updater.swift").absolutePath,
@@ -427,6 +441,7 @@ val verifyBundledAssets by tasks.registering(Exec::class) {
 
 val verifyPackagedDmg by tasks.registering(Exec::class) {
   onlyIf { isMacOs }
+  environment("VEILARK_MACOS_DEPLOYMENT_TARGET", macosDeploymentTarget)
   commandLine("bash", file("scripts/verify-packaged-dmg.sh").absolutePath)
 }
 
@@ -465,6 +480,7 @@ compose.desktop {
         iconFile.set(layout.buildDirectory.file("branding/Veilark.icns"))
         packageBuildVersion = macosBuild.toString()
         bundleID = "app.veilark.macos"
+        minimumSystemVersion = macosDeploymentTarget
         dockName = "Veilark"
         infoPlist {
           // `veilark://import?url=...` hands a subscription to the running app through

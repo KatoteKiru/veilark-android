@@ -2,6 +2,8 @@ name: macOS native chrome
 
 on:
   workflow_dispatch:
+  pull_request:
+    paths: ['macos/**', '.github/workflows/macos-native-chrome.yml']
   push:
     branches: [codex/macos-native-glass]
     paths: ['macos/**', '.github/workflows/macos-native-chrome.yml']
@@ -10,11 +12,57 @@ permissions:
   contents: read
 
 jobs:
+  # The release configuration: AppKit bridge compiled once with the macOS 26 SDK and a
+  # macOS 12 deployment target. The same binary is then exercised on 14, 15 and 26.
+  build-chrome:
+    runs-on: macos-26
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: macos
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Select Xcode 26 (macOS 26 SDK)
+        run: |
+          set -euo pipefail
+          xcode="$(ls -d /Applications/Xcode_26*.app 2>/dev/null | grep -Eiv 'beta|_rc|release_candidate' | sort -V | tail -1 || true)"
+          [ -n "$xcode" ] || xcode="$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1 || true)"
+          [ -n "$xcode" ] || { echo "No Xcode 26 on this runner" >&2; ls -d /Applications/Xcode*.app >&2; exit 1; }
+          sudo xcode-select -s "$xcode/Contents/Developer"
+          xcodebuild -version
+          sdk="$(xcrun --sdk macosx --show-sdk-version)"
+          echo "macOS SDK $sdk; $(swiftc --version 2>&1 | head -1); $(clang --version | head -1)"
+          [ "${sdk%%.*}" -ge 26 ] || { echo "macOS 26 SDK required, found $sdk" >&2; exit 1; }
+      - name: Compile AppKit bridge and report LC_BUILD_VERSION
+        run: |
+          set -euo pipefail
+          chmod +x gradlew
+          ./gradlew --no-daemon compileNativeChrome --max-workers=2
+          dylib=build/native/libveilark-chrome.dylib
+          lipo -archs "$dylib"
+          otool -l "$dylib" | grep -A4 LC_BUILD_VERSION
+          otool -l "$dylib" | awk '/cmd LC_BUILD_VERSION/{f=1} f&&$1=="minos"{m=$2} f&&$1=="sdk"{print m, $2; exit}' > "$RUNNER_TEMP/build-version"
+          read -r minos sdk < "$RUNNER_TEMP/build-version"
+          echo "minos=$minos sdk=$sdk"
+          [ "$minos" = "12.0" ] || { echo "Deployment target must be 12.0, got $minos" >&2; exit 1; }
+          [ "${sdk%%.*}" -ge 26 ] || { echo "macOS 26 SDK required, got $sdk" >&2; exit 1; }
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: native-chrome-dylib-sdk26
+          retention-days: 3
+          path: macos/build/native/libveilark-chrome.dylib
+          if-no-files-found: error
+
   native-ui:
+    needs: build-chrome
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-14, macos-26]
+        os: [macos-14, macos-15, macos-26]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 25
     defaults:
@@ -28,14 +76,31 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - name: Compile AppKit bridge and test UI lifecycle
+      - uses: actions/download-artifact@v4
+        with:
+          name: native-chrome-dylib-sdk26
+          path: macos/packaging/common
+      - name: Test the macOS 26 SDK bridge on this macOS (glass on 26, fallback before)
         env:
           VEILARK_REQUIRE_SYSTEM_GLASS: ${{ matrix.os == 'macos-26' && '1' || '0' }}
+          VEILARK_EXPECT_FALLBACK_CHROME: ${{ matrix.os != 'macos-26' && '1' || '0' }}
         run: |
           set -euo pipefail
+          sw_vers
+          test -f packaging/common/libveilark-chrome.dylib
           defaults write com.apple.universalaccess reduceTransparency -bool false
           chmod +x gradlew
-          ./gradlew --no-daemon test --max-workers=2
+          # Keep the downloaded SDK 26 build instead of recompiling with this runner's SDK.
+          ./gradlew --no-daemon test --max-workers=2 -x compileNativeChrome
+          grep -h "Native chrome:" build/test-results/test/*.xml || true
+      - name: Select Xcode 26 for the full application capture
+        if: matrix.os == 'macos-26'
+        run: |
+          set -euo pipefail
+          xcode="$(ls -d /Applications/Xcode_26*.app 2>/dev/null | grep -Eiv 'beta|_rc|release_candidate' | sort -V | tail -1 || true)"
+          [ -n "$xcode" ] || xcode="$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1 || true)"
+          [ -n "$xcode" ] && sudo xcode-select -s "$xcode/Contents/Developer"
+          xcrun --sdk macosx --show-sdk-version
       - name: Capture complete Veilark on macOS 26
         if: matrix.os == 'macos-26'
         run: |
@@ -45,6 +110,7 @@ jobs:
           ./gradlew --no-daemon createDistributable --max-workers=2
           app="build/compose/binaries/main/app/Veilark.app"
           test -d "$app"
+          VEILARK_REQUIRE_SDK_MAJOR=26 ./scripts/check-build-version.sh "$app"
           open -n "$app"
           sleep 12
           screencapture -x build/reports/veilark-window.png

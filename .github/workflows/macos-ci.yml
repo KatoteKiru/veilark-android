@@ -16,7 +16,9 @@ permissions:
 
 jobs:
   verify:
-    runs-on: macos-14
+    # Release-equivalent packaging: macOS 26 SDK so AppKit Liquid Glass APIs are compiled in.
+    # Runtime lookups/availability guards keep the same DMG working on macOS 12-15.
+    runs-on: macos-26
     timeout-minutes: 45
     defaults:
       run:
@@ -27,7 +29,20 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+      - name: Select Xcode 26 (macOS 26 SDK)
+        run: |
+          set -euo pipefail
+          xcode="$(ls -d /Applications/Xcode_26*.app 2>/dev/null | grep -Eiv 'beta|_rc|release_candidate' | sort -V | tail -1 || true)"
+          [ -n "$xcode" ] || xcode="$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1 || true)"
+          [ -n "$xcode" ] || { echo "No Xcode 26 on this runner" >&2; ls -d /Applications/Xcode*.app >&2; exit 1; }
+          sudo xcode-select -s "$xcode/Contents/Developer"
+          xcodebuild -version
+          sdk="$(xcrun --sdk macosx --show-sdk-version)"
+          echo "macOS SDK $sdk; $(swiftc --version 2>&1 | head -1); $(clang --version | head -1)"
+          [ "${sdk%%.*}" -ge 26 ] || { echo "macOS 26 SDK required, found $sdk" >&2; exit 1; }
       - name: Test, compile helper and package DMG
+        env:
+          VEILARK_REQUIRE_SDK_MAJOR: '26'
         run: |
           set -euo pipefail
           chmod +x gradlew scripts/*.sh

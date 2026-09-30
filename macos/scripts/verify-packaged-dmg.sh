@@ -55,4 +55,5 @@ cmp "$CHROME_CHECK/source.dylib" "$CHROME_CHECK/packaged.dylib" || {
   cmp -l "$CHROME_CHECK/source.dylib" "$CHROME_CHECK/packaged.dylib" | head -12 || true
   echo "Packaged native chrome differs from compiled library" >&2; exit 1;
 }
+bash "$ROOT/scripts/check-build-version.sh" "$APP"
 echo "Verified packaged DMG inventory: $(basename "$DMG")"
