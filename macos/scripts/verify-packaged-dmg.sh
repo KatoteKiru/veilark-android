@@ -48,6 +48,9 @@ cp "$RESOURCES/libveilark-chrome.dylib" "$CHROME_CHECK/packaged.dylib"
 codesign --remove-signature "$CHROME_CHECK/source.dylib"
 codesign --remove-signature "$CHROME_CHECK/packaged.dylib"
 cmp "$CHROME_CHECK/source.dylib" "$CHROME_CHECK/packaged.dylib" || {
+  otool -D "$CHROME_CHECK/source.dylib" "$CHROME_CHECK/packaged.dylib"
+  otool -L "$CHROME_CHECK/source.dylib" "$CHROME_CHECK/packaged.dylib"
+  cmp -l "$CHROME_CHECK/source.dylib" "$CHROME_CHECK/packaged.dylib" | head -12 || true
   echo "Packaged native chrome differs from compiled library" >&2; exit 1;
 }
 echo "Verified packaged DMG inventory: $(basename "$DMG")"

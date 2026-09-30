@@ -64,4 +64,7 @@ jobs:
         with:
           name: veilark-macos-test-diagnostics
           retention-days: 3
-          path: macos/build/test-results/test/*.xml
+          path: |
+            macos/build/test-results/test/*.xml
+            macos/build/native/libveilark-chrome.dylib
+            macos/build/compose/binaries/main/app/Veilark.app/Contents/app/resources/libveilark-chrome.dylib
