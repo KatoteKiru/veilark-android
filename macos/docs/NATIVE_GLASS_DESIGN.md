@@ -93,6 +93,18 @@ normalize only the proven signature-induced `__LINKEDIT.vmsize` reserve before s
 comparison. Distribution artifacts are never normalized or modified by that check.
 No physical VPN/OTA acceptance or production promotion is implied by these results.
 
+## Liquid Glass extension evidence (PR #7, source `feddc4e`)
+
+- Native chrome run `36774897828`: bridge built on macOS 26 runner with SDK 26.5,
+  `minos 12.0`. Same dylib on macOS 26.6.2: `material=2, toolbar=2, matchedBy=2,
+  topInset=52, 960x640` (decoy 420x220 window ignored). macOS 14 and 15: fallback
+  material and standard bezels asserted.
+- Distributable on macOS 26: `LSMinimumSystemVersion 12.0`; chrome dylib, helper and
+  updater `minos=12.0 sdk=26.5`; jpackage launcher `minos=11.0 sdk=14.2` (see gap 6).
+- Package verification `36774897729` (macos-26, DMG) and preview `36774897842`
+  (macos-14, older SDK compile) passed. The updater's new post-mount detach assertions
+  run only in the tag-triggered OTA workflow and are not yet exercised.
+
 ## Sources
 
 - [Apple NSGlassEffectView](https://developer.apple.com/documentation/appkit/nsglasseffectview)
