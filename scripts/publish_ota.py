@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+from datetime import datetime, timezone
 import hashlib
 import hmac
 import json
@@ -448,6 +449,21 @@ def main() -> None:
 
     client = connect_node(env)
     try:
+        backup_name = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ") + "-" + uuid.uuid4().hex[:8]
+        backup_dir = f"/var/backups/veilark/android/before-{args.version_code}-{backup_name}"
+        previous_apk = f"{remote_dir}/veilark-{live_manifest['versionName']}.apk"
+        if remote_sha256(client, previous_apk) != live_manifest["sha256"]:
+            raise RuntimeError("Previous live APK does not match its signed manifest")
+        _, stdout, stderr = client.exec_command(
+            f"install -d -m 0700 -- {shlex.quote(backup_dir)} && "
+            f"cp -- {shlex.quote(remote_dir + '/manifest.json')} {shlex.quote(backup_dir + '/manifest.json')} && "
+            f"cp -- {shlex.quote(previous_apk)} {shlex.quote(backup_dir + '/previous.apk')} && "
+            f"chmod 0600 -- {shlex.quote(backup_dir + '/manifest.json')} {shlex.quote(backup_dir + '/previous.apk')}"
+        )
+        if stdout.channel.recv_exit_status() != 0:
+            raise RuntimeError("Mandatory OTA rollback snapshot failed")
+        if remote_sha256(client, backup_dir + "/previous.apk") != live_manifest["sha256"]:
+            raise RuntimeError("OTA rollback APK verification failed")
         sftp = client.open_sftp()
         try:
             sftp.put(str(local_manifest), remote_manifest_tmp)
@@ -472,7 +488,7 @@ def main() -> None:
         raise RuntimeError("Downloaded production APK does not match the signed artifact")
 
     print(
-        json.dumps({**result, "published": True}, ensure_ascii=False)
+        json.dumps({**result, "published": True, "rollbackDirectory": backup_dir}, ensure_ascii=False)
     )
 
 
