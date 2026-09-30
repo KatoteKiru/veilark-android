@@ -12,6 +12,19 @@ static jmethodID displayMethod;
 static NSMutableDictionary<NSNumber *, id> *sidebars;
 static uint64_t nextHandle = 1;
 
+@class VLKSidebar;
+@interface VLKContentView : NSView
+@property(nonatomic, weak) VLKSidebar *owner;
+@end
+
+@interface VLKSidebarButtonCell : NSButtonCell
+@end
+@implementation VLKSidebarButtonCell
+- (void)drawWithFrame:(NSRect)cellFrame inView:(NSView *)controlView {
+    [super drawWithFrame:NSInsetRect(cellFrame, 10, 0) inView:controlView];
+}
+@end
+
 @interface VLKSidebar : NSObject
 @property(nonatomic, strong) NSView *view;
 @property(nonatomic, strong) NSTextField *status;
@@ -20,6 +33,13 @@ static uint64_t nextHandle = 1;
 @property(nonatomic, strong) id colorObserver;
 @property(nonatomic) NSInteger selectedIndex;
 - (void)refreshColors;
+@end
+
+@implementation VLKContentView
+- (void)viewDidChangeEffectiveAppearance {
+    [super viewDidChangeEffectiveAppearance];
+    [self.owner refreshColors];
+}
 @end
 
 @implementation VLKSidebar
@@ -36,7 +56,7 @@ static uint64_t nextHandle = 1;
         for (NSButton *button in self.buttons) {
             BOOL active = button.tag == self.selectedIndex;
             button.state = active ? NSControlStateValueOn : NSControlStateValueOff;
-            button.contentTintColor = active ? NSColor.controlAccentColor : NSColor.labelColor;
+            button.contentTintColor = NSColor.labelColor;
             button.layer.backgroundColor = active ? [NSColor.controlAccentColor colorWithAlphaComponent:0.12].CGColor : NSColor.clearColor.CGColor;
             button.font = [NSFont systemFontOfSize:13 weight:active ? NSFontWeightSemibold : NSFontWeightRegular];
         }
@@ -141,7 +161,8 @@ JNIEXPORT jlong JNICALL Java_app_veilark_macos_MacNativeChrome_install
         ]];
         sidebar.view = material;
 
-        NSView *content = [NSView new];
+        VLKContentView *content = [VLKContentView new];
+        content.owner = sidebar;
         content.translatesAutoresizingMaskIntoConstraints = NO;
         if (!reduce && glassClass && [material isKindOfClass:glassClass]) {
             ((void (*)(id, SEL, id))objc_msgSend)(material, @selector(setContentView:), content);
@@ -185,7 +206,11 @@ JNIEXPORT jlong JNICALL Java_app_veilark_macos_MacNativeChrome_install
                              @"waveform.path.ecg", @"gearshape"];
         NSMutableArray *buttons = [NSMutableArray new];
         for (NSInteger i = 0; i < 5; i++) {
-            NSButton *button = [NSButton buttonWithTitle:strings[i] target:sidebar action:@selector(navigate:)];
+            NSButton *button = [NSButton new];
+            button.cell = [VLKSidebarButtonCell new];
+            button.title = [@"  " stringByAppendingString:strings[i]];
+            button.target = sidebar;
+            button.action = @selector(navigate:);
             button.tag = i;
             button.bordered = NO;
             [button setButtonType:NSButtonTypePushOnPushOff];
@@ -231,6 +256,9 @@ JNIEXPORT jlong JNICALL Java_app_veilark_macos_MacNativeChrome_install
         NSTextField *hint = label(strings[6], 10, NSFontWeightRegular);
         hint.textColor = NSColor.secondaryLabelColor;
         [stack addArrangedSubview:hint];
+        for (NSTextField *field in @[subtitle, sidebar.status, hint]) {
+            [field.widthAnchor constraintLessThanOrEqualToAnchor:stack.widthAnchor].active = YES;
+        }
         if (!sidebars) sidebars = [NSMutableDictionary new];
         handle = (jlong)nextHandle++;
         sidebars[@(handle)] = sidebar;

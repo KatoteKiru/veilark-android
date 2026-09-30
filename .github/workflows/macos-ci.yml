@@ -41,13 +41,23 @@ jobs:
           test -n "$dmg" && test -s "$dmg"
           hdiutil verify "$dmg"
           shasum -a 256 "$dmg"
+      - name: Capture actual candidate window without starting a VPN
+        run: |
+          set -euo pipefail
+          app="build/compose/binaries/main/app/Veilark.app"
+          test -d "$app"
+          open -n "$app"
+          sleep 12
+          screencapture -x "$RUNNER_TEMP/veilark-macos-window.png"
       - name: Upload unpromoted Mac candidate
         if: success()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: veilark-macos-unpromoted
           retention-days: 3
-          path: macos/build/compose/binaries/main/dmg/*.dmg
+          path: |
+            macos/build/compose/binaries/main/dmg/*.dmg
+            ${{ runner.temp }}/veilark-macos-window.png
       - name: Upload test diagnostics on failure
         if: failure()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

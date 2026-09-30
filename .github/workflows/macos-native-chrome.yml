@@ -33,6 +33,18 @@ jobs:
           set -euo pipefail
           chmod +x gradlew
           ./gradlew --no-daemon test --max-workers=2
+      - name: Capture complete Veilark on macOS 26
+        if: matrix.os == 'macos-26'
+        run: |
+          set -euo pipefail
+          chmod +x scripts/*.sh
+          ./scripts/fetch-engines.sh
+          ./gradlew --no-daemon createDistributable --max-workers=2
+          app="build/compose/binaries/main/app/Veilark.app"
+          test -d "$app"
+          open -n "$app"
+          sleep 12
+          screencapture -x build/reports/veilark-window.png
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
@@ -41,3 +53,4 @@ jobs:
           path: |
             macos/build/test-results/test/*.xml
             macos/build/reports/native-chrome.png
+            macos/build/reports/veilark-window.png
