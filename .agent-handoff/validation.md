@@ -2,6 +2,15 @@
 
 | Date | Check | Result | Notes |
 | --- | --- | --- | --- |
+| 2026-09-30 | Final source b623821: native CI `36687256301`, DMG CI `36687256258` | passed | Real native UI on macOS 14/26; package integrity/signature/inventory and normalized unsigned native byte comparison. Not physical VPN/OTA acceptance. |
+| 2026-09-30 | Code closeout | passed within scope | Diff whitespace check clean; production macOS sources contain no TODO/FIXME/debug println/GlobalScope/Timer additions; only wrapper JAR is tracked binary in macOS source inventory. Network/session/helper/OTA configuration unchanged. |
+| 2026-09-30 | Signature normalization independent gate | accepted | Actual binary pair differs only in LINKEDIT reserve after signature removal; four tests include rejection of signed/malformed input and preservation of payload differences. |
+| 2026-09-30 | JVM UI tests | passed | Includes JNI callback bounds, no-handler callback, zero-handle fallback and status labels; native integration skipped on Windows. |
+| 2026-09-30 | Native macOS 14/26 CI `36683764827` and `36684435115` | passed | Real JNI attach/update/remove test, native fixture screenshots; c0a7017 also captures complete Veilark on macOS 26. |
+| 2026-09-30 | DMG CI `36683764786`, `36684435028` | passed | Compiled dylib included in matching-architecture candidate DMG; full macOS 14 window captured. No OTA publication. |
+| 2026-09-30 | Independent native-chrome review | fixed in source | Accessibility observer, effective-appearance colors, autorelease pools, then repeat-click selected state. No new P1 reported; physical acceptance not claimed. |
+| 2026-09-30 | Native forced-glass CI `36684981729` | passed | Source 7f4031f; macOS 26.6.2 reports material mode 2, macOS 14 also passed. Full Overview capture inspected; scoped reviewer accepted EN/light/empty state and repeat-click fix. |
+| 2026-09-30 | Package CI `36684981839`, `36685699562`, `36686375789` | failed, subsequently corrected | Actual binaries established retained LINKEDIT VM reserve after signature removal; b623821 narrowly normalizes only that field. Final CI36687256258 passed. |
 | 2026-09-29 | Live HTTPS macOS OTA manifest | passed | Still version 1.0.11 / build 10011, ARM64. |
 | 2026-09-29 | Forced JVM test (`test --rerun-tasks`) | passed | 12 tasks executed; does not compile Swift helper/updater or DMG. |
 | 2026-09-29 | Signed live-manifest preflight | passed | Ed25519 signature verified; live build 10011 is older than prepared 10012. |

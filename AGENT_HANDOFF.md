@@ -14,4 +14,4 @@ Read this file first, then `.agent-handoff/snapshot.md`, `risks.md`, and `backlo
 
 Global ecosystem map: `C:\AI-Agent\VEILARK_PROJECT_MAP.md` (local workspace file; revalidate drift-prone facts).
 
-Last updated: 2026-09-29 (MSK). Before closeout run `python C:\Users\Den\.codex\skills\agent-handoff\scripts\maintain_handoff.py --repo C:\AI-Agent\veilark-macos --compact-if-needed` and reread changed files.
+Last updated: 2026-09-30 (MSK). Before closeout run `python C:\Users\Den\.codex\skills\agent-handoff\scripts\maintain_handoff.py --repo C:\AI-Agent\veilark-macos --compact-if-needed` and reread changed files.

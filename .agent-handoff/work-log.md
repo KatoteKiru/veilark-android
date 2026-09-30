@@ -1,5 +1,12 @@
 # Current Work Log
 
+## 2026-09-30
+
+- Installed the official OpenAI `swiftui-liquid-glass` skill; applied native-material/fallback guidance to existing Compose client through an AppKit/JNI boundary, not a SwiftUI rewrite.
+- Created source-only candidate branch `codex/macos-native-glass`; native SF Symbols/buttons/font and Veilark logo; compact typography and restrained connection panel.
+- Added native build/DMG inventory checks, Mac 14/26 real JNI lifecycle tests and full-app CI captures. Network engines, profiles, helper and OTA signing lineage were not changed.
+- Fixed independent review findings; final native macOS 14/26 CI36687256301 and DMG CI36687256258 passed at b623821. Strict mode 2 proves real glass, not fallback. Independently reviewed exact signature-induced LINKEDIT normalization; four parser tests passed. No OTA promotion or physical VPN acceptance. Details in `macos/docs/NATIVE_GLASS_DESIGN.md` and `macos/DESIGN.md`.
+
 ## 2026-09-29
 
 - Confirmed live macOS OTA is 1.0.11/10011 while post-release source contains GEO, helper recovery and Keychain fixes.

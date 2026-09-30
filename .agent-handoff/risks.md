@@ -2,6 +2,8 @@
 
 ## Current Blockers
 
+- Native-glass candidate is not published. Final macOS 14/26 JNI CI `36687256301` and corrected DMG byte/signature verification `36687256258` passed, as did scoped EN/light/empty Overview review. Physical VoiceOver, live accessibility switching, close/reopen under active VPN and OTA acceptance remain unverified.
+
 - No physical Mac is connected for installed-version upgrade, real VPN traffic, menu-bar, profile preservation, system Quit and no-window launch acceptance.
 
 ## Current Risks

@@ -1,5 +1,10 @@
 # Task Backlog
 
+- [x] Native AppKit material navigation with accessibility/appearance observers, safe Compose fallback and narrow JNI boundary.
+- [x] Native macOS 14/26 lifecycle CI; strict NSGlassEffectView proof and actual full-window Overview screenshot.
+- [x] Final DMG re-signing-aware verification (`36687256258`); promotion remains a separate release gate.
+- [ ] Physical native chrome checks: RU/EN, light/dark, VoiceOver, accessibility changes, resize, populated profiles and active-session close/reopen.
+
 - [x] Resolve shared repository visibility by explicit owner approval and verify public macOS CI can run.
 - [x] Fix native macOS GEO test failure caused by `/var` vs `/private/var` path identity.
 - [x] Reject the known privileged sing-box config write/listener footguns and test the Swift policy.

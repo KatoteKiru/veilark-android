@@ -35,7 +35,17 @@ updates keep their existing functionality.
 5. Physical Mac: VoiceOver, accessibility toggles, window close/reopen, connected VPN
    and OTA acceptance are distinct from CI and remain unverified without a device.
 
-## References
+## Verification closeout
+
+Source `b623821`: native macOS 14/26 CI `36687256301` and DMG CI `36687256258`
+completed successfully. JVM tests and the four signature-normalization tests passed.
+Independent review accepted the shown EN/light/empty Overview and narrow packaging
+comparison. Original packaged code signature is checked; temporary unsigned copies
+normalize only the proven signature-induced `__LINKEDIT.vmsize` reserve before strict
+comparison. Distribution artifacts are never normalized or modified by that check.
+No physical VPN/OTA acceptance or production promotion is implied by these results.
+
+## Sources
 
 - [Apple NSGlassEffectView](https://developer.apple.com/documentation/appkit/nsglasseffectview)
 - [Apple adopting Liquid Glass](https://developer.apple.com/documentation/technologyoverviews/adopting-liquid-glass)
