@@ -8,6 +8,10 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assert
+import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -15,8 +19,10 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToIndex
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.test.core.app.ApplicationProvider
+import androidx.test.espresso.Espresso
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.example.veilark.R
+import com.example.veilark.diagnostics.TechnicalLogEntry
 import com.example.veilark.profile.ConnectionNode
 import com.example.veilark.profile.ProfileSelection
 import com.example.veilark.theme.VeilarkTheme
@@ -84,5 +90,51 @@ class MainScreenAccessibilityInstrumentedTest {
       .assert(SemanticsMatcher.expectValue(SemanticsProperties.Selected, false))
       .performClick()
       .assert(SemanticsMatcher.expectValue(SemanticsProperties.Selected, true))
+  }
+
+  @Test
+  fun engineSelectorExposesRadioGroupSemantics() {
+    composeRule.setContent {
+      VeilarkTheme(dynamicColor = false) {
+        MainScreen(profileName = "Test profile", trustTunnelAvailable = true)
+      }
+    }
+
+    val radio = SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.RadioButton)
+    composeRule.onNode(hasText("sing-box").and(radio))
+      .assert(SemanticsMatcher.expectValue(SemanticsProperties.Selected, true))
+    composeRule.onNode(hasText("TrustTunnel").and(radio))
+      .assert(SemanticsMatcher.expectValue(SemanticsProperties.Selected, false))
+  }
+
+  @Test
+  fun systemBackClosesAboutInsteadOfLeavingTheApp() {
+    val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+
+    composeRule.setContent {
+      VeilarkTheme(dynamicColor = false) {
+        MainScreen(profileName = "Test profile")
+      }
+    }
+
+    composeRule.onNodeWithContentDescription(context.getString(R.string.open_about)).performClick()
+    composeRule.onNodeWithTag("main_content_list").assertDoesNotExist()
+    Espresso.pressBack()
+    composeRule.onNodeWithTag("main_content_list").assertIsDisplayed()
+  }
+
+  @Test
+  fun technicalLogRendersDuplicateEntries() {
+    val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+    val duplicate = TechnicalLogEntry(1_000L, "WARN", "vpn", "Retrying handshake")
+
+    composeRule.setContent {
+      VeilarkTheme(dynamicColor = false) {
+        MainScreen(profileName = "Test profile", technicalLogs = listOf(duplicate, duplicate))
+      }
+    }
+
+    composeRule.onNodeWithContentDescription(context.getString(R.string.open_technical_log)).performClick()
+    composeRule.onAllNodesWithText("Retrying handshake").assertCountEquals(2)
   }
 }

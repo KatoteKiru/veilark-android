@@ -4,6 +4,24 @@ All notable changes to the public distribution are documented here.
 
 ## Unreleased
 
+- adopted Material 3 Expressive on Android: `MaterialExpressiveTheme` with the
+  expressive motion scheme, the expressive shape ladder and emphasized type
+  roles; a morphing Material-shape connection emblem, a shape-morphing medium
+  Connect button, `LoadingIndicator`, wavy update-download progress, a
+  connected toggle-button group for the engine selector, large flexible app
+  bars on secondary screens, a FAB menu for adding profiles, a floating toolbar
+  for subscription actions and labelled dialog buttons. This depends on the
+  pre-release `material3` 1.5.0-alpha18 (see
+  `docs/ANDROID_EXPRESSIVE_POLISH_2026-09-30.md` for the trade-off);
+- system and predictive back now close About, licence and log screens instead
+  of leaving the app; screen state survives rotation; duplicate technical-log
+  entries no longer crash the log; lists respect navigation-bar and cutout
+  insets; the routing dialog keeps unsaved edits; full-screen dialogs close on
+  a scrim tap; connection-state changes are announced by TalkBack; dark mode
+  no longer flashes a white window on cold start; "checking profile" shows a
+  progress indicator instead of an action icon; WARN log entries use a
+  distinct amber accent. VPN runtimes, routing and saved settings are
+  unchanged.
 - bound manual GEO refreshes to the managed generation manifest, verified both
   downloaded rule sets by declared size and SHA-256 before activation, rejected
   manifest rollbacks, and added recovery from a previously completed local
