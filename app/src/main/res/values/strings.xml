@@ -224,4 +224,13 @@
     <string name="network_cellular">cellular network</string>
     <string name="network_physical">new physical network</string>
     <plurals name="server_count"><item quantity="one">%1$d server</item><item quantity="other">%1$d servers</item></plurals>
+    <!-- Material 3 Expressive labelled actions -->
+    <string name="action_paste">Paste link</string>
+    <string name="action_scan_qr">Scan QR code</string>
+    <string name="action_choose_file">Choose file</string>
+    <string name="action_apply">Apply</string>
+    <string name="action_import">Import</string>
+    <string name="action_enter_link">Enter link</string>
+    <string name="fab_menu_close">Close add menu</string>
+    <string name="connection_picker_actions">Subscription actions</string>
 </resources>
