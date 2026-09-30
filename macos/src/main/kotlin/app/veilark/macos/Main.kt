@@ -237,6 +237,15 @@ fun main() {
   var windowVisible by remember { mutableStateOf(true) }
   var startupUpdate by remember { mutableStateOf<MacUpdate?>(null) }
   var startupUpdateError by remember { mutableStateOf<String?>(null) }
+  val updateNoticeRequests = remember { kotlinx.coroutines.flow.MutableStateFlow(0L) }
+  val updateNoticeRequest by updateNoticeRequests.collectAsState()
+  DisposableEffect(Unit) {
+    MacNativeChrome.setUpdateNoticeHandler { updateNoticeRequests.value += 1 }
+    onDispose { MacNativeChrome.setUpdateNoticeHandler(null) }
+  }
+  LaunchedEffect(updateNoticeRequest) {
+    if (updateNoticeRequest > 0) { selectedSection = MacSection.SETTINGS; windowVisible = true }
+  }
   val darkTheme = isSystemInDarkTheme()
   val trayIcon = remember { MenuBarIcon() }
   val windowIcon = remember(darkTheme) { BitmapPainter(brandBitmap(256, darkTheme).toComposeImageBitmap()) }
@@ -260,9 +269,29 @@ fun main() {
 
   LaunchedEffect(Unit) {
     if (MacUpdateClient.configured) {
-      runCatching { MacUpdateClient.check() }
-        .onSuccess { startupUpdate = it }
-        .onFailure { startupUpdateError = it.message ?: Strings.updateCheckFailed }
+      while (true) {
+        try {
+          val available = MacUpdateClient.check()
+          startupUpdate = available
+          startupUpdateError = null
+          if (available != null) {
+            val last = runCatching {
+              java.util.prefs.Preferences.userRoot().node("app/veilark/macos/update-notices").getInt("last", 0)
+            }.getOrDefault(0)
+            if (available.build > last) {
+              val russian = java.util.Locale.getDefault().language == "ru"
+              NativeSidebar.postUpdateNotice("Veilark ${available.version}",
+                if (russian) "Доступно обновление. Нажмите, чтобы открыть настройки."
+                else "An update is available. Click to open settings.", available.build)
+            }
+          }
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+          throw cancelled
+        } catch (error: Exception) {
+          if (startupUpdate == null) startupUpdateError = error.message ?: Strings.updateCheckFailed
+        }
+        delay(6L * 60 * 60 * 1000)
+      }
     }
   }
 

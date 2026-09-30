@@ -1,5 +1,6 @@
 #import <Cocoa/Cocoa.h>
 #import <QuartzCore/QuartzCore.h>
+#import <UserNotifications/UserNotifications.h>
 #import <objc/message.h>
 #include <jni.h>
 
@@ -89,6 +90,76 @@ static NSString *readString(JNIEnv *env, jstring value) {
                                                   length:(NSUInteger)(*env)->GetStringLength(env, value)];
     (*env)->ReleaseStringChars(env, value, characters);
     return text;
+}
+
+// Separate JNI callbacks: notification clicks also work when the main window is closed.
+static JavaVM *noticeVM;
+static jclass noticeClass;
+static jmethodID noticeOpened, noticePosted;
+static void notifyJava(jmethodID method, jint build, BOOL posted) {
+    JNIEnv *env = NULL; BOOL attached = NO;
+    if (!noticeVM || !noticeClass || !method) return;
+    jint result = (*noticeVM)->GetEnv(noticeVM, (void **)&env, JNI_VERSION_1_6);
+    if (result == JNI_EDETACHED) {
+        if ((*noticeVM)->AttachCurrentThread(noticeVM, (void **)&env, NULL) != JNI_OK) return;
+        attached = YES;
+    } else if (result != JNI_OK) return;
+    if (posted) (*env)->CallStaticVoidMethod(env, noticeClass, method, build);
+    else (*env)->CallStaticVoidMethod(env, noticeClass, method);
+    if ((*env)->ExceptionCheck(env)) (*env)->ExceptionClear(env);
+    if (attached) (*noticeVM)->DetachCurrentThread(noticeVM);
+}
+@interface VLKUpdateNoticeDelegate : NSObject <UNUserNotificationCenterDelegate>
+@end
+@implementation VLKUpdateNoticeDelegate
+- (void)userNotificationCenter:(UNUserNotificationCenter *)center
+  didReceiveNotificationResponse:(UNNotificationResponse *)response
+  withCompletionHandler:(void (^)(void))completion {
+    if ([response.notification.request.identifier hasPrefix:@"veilark-update-"] &&
+        [response.actionIdentifier isEqualToString:UNNotificationDefaultActionIdentifier]) {
+        notifyJava(noticeOpened, 0, NO);
+    }
+    completion();
+}
+- (void)userNotificationCenter:(UNUserNotificationCenter *)center
+  willPresentNotification:(UNNotification *)notification
+  withCompletionHandler:(void (^)(UNNotificationPresentationOptions))completion {
+    completion(UNNotificationPresentationOptionBanner | UNNotificationPresentationOptionList);
+}
+@end
+static VLKUpdateNoticeDelegate *noticeDelegate;
+JNIEXPORT jboolean JNICALL Java_app_veilark_macos_MacNativeChrome_postUpdateNotice
+  (JNIEnv *env, jclass cls, jstring title, jstring body, jint build) {
+    @autoreleasepool {
+        if (build <= 0 || !title || !body || (*env)->GetStringLength(env, title) > 200 ||
+            (*env)->GetStringLength(env, body) > 1000 ||
+            ![NSBundle.mainBundle.bundleIdentifier isEqualToString:@"app.veilark.macos"]) return JNI_FALSE;
+        NSString *caption = readString(env, title), *message = readString(env, body);
+        if (!noticeVM) {
+            if ((*env)->GetJavaVM(env, &noticeVM) != JNI_OK) return JNI_FALSE;
+            noticeClass = (*env)->NewGlobalRef(env, cls);
+            noticeOpened = (*env)->GetStaticMethodID(env, cls, "onUpdateNoticeOpened", "()V");
+            noticePosted = (*env)->GetStaticMethodID(env, cls, "onUpdateNoticePosted", "(I)V");
+            if (!noticeClass || !noticeOpened || !noticePosted) return JNI_FALSE;
+        }
+        dispatch_async(dispatch_get_main_queue(), ^{
+            UNUserNotificationCenter *center = UNUserNotificationCenter.currentNotificationCenter;
+            if (!noticeDelegate) noticeDelegate = [VLKUpdateNoticeDelegate new];
+            if (center.delegate && center.delegate != noticeDelegate) return;
+            center.delegate = noticeDelegate;
+            [center requestAuthorizationWithOptions:UNAuthorizationOptionAlert completionHandler:^(BOOL granted, NSError *error) {
+                if (!granted || error) return;
+                UNMutableNotificationContent *content = [UNMutableNotificationContent new];
+                content.title = caption; content.body = message;
+                NSString *identifier = [NSString stringWithFormat:@"veilark-update-%d", build];
+                UNNotificationRequest *request = [UNNotificationRequest requestWithIdentifier:identifier content:content trigger:nil];
+                [center addNotificationRequest:request withCompletionHandler:^(NSError *failure) {
+                    if (!failure) notifyJava(noticePosted, build, YES);
+                }];
+            }];
+        });
+        return JNI_TRUE;
+    }
 }
 
 static NSTextField *label(NSString *text, CGFloat size, NSFontWeight weight) {

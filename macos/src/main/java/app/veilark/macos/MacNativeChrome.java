@@ -6,6 +6,19 @@ import java.util.function.IntConsumer;
 public final class MacNativeChrome {
     private static volatile IntConsumer navigationHandler;
     private static volatile Runnable displayHandler;
+    private static volatile Runnable updateNoticeHandler;
+    public static void setUpdateNoticeHandler(Runnable handler) { updateNoticeHandler = handler; }
+    public static void onUpdateNoticeOpened() {
+        Runnable handler = updateNoticeHandler;
+        if (handler != null) handler.run();
+    }
+    public static void onUpdateNoticePosted(int build) {
+        try {
+            java.util.prefs.Preferences prefs = java.util.prefs.Preferences.userRoot().node("app/veilark/macos/update-notices");
+            prefs.putInt("last", Math.max(build, prefs.getInt("last", 0)));
+        } catch (RuntimeException ignored) { /* Notification persistence must not break the client. */ }
+    }
+    public static native boolean postUpdateNotice(String title, String body, int build);
     private MacNativeChrome() {}
 
     public static void setNavigationHandler(IntConsumer handler) { navigationHandler = handler; }

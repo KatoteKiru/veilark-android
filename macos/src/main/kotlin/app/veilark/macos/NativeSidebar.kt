@@ -40,6 +40,9 @@ internal object NativeSidebar {
       .onFailure { StartupDiagnostics.record(it, "native-chrome-update") }
   }
 
+  fun postUpdateNotice(title: String, body: String, build: Int): Boolean =
+    loaded && runCatching { MacNativeChrome.postUpdateNotice(title, body, build) }.getOrDefault(false)
+
   fun remove(handle: Long) {
     if (handle == 0L) return
     runCatching { MacNativeChrome.remove(handle) }
