@@ -337,6 +337,7 @@ val compileNativeChrome by tasks.registering(Exec::class) {
     "clang", "-dynamiclib", "-fobjc-arc", "-Wall", "-Wextra", "-Werror",
     "-Wl,-install_name,@rpath/libveilark-chrome.dylib",
     "-Wno-unused-parameter", "-mmacosx-version-min=12.0", "-framework", "Cocoa",
+    "-framework", "QuartzCore",
     "-I${System.getProperty("java.home")}/include",
     "-I${System.getProperty("java.home")}/include/darwin",
     file("native/chrome.m").absolutePath, "-o", output.get().asFile.absolutePath,
