@@ -1,4 +1,5 @@
 <resources>
+    <string name="update_notice_body">Откройте Veilark, чтобы посмотреть изменения и установить обновление.</string>
     <string name="subscriptions_and_servers">Подписки и серверы</string>
     <string name="profiles_and_servers">Профили и серверы</string>
     <string name="subscriptions">Подписки</string>

@@ -69,10 +69,12 @@ class MainActivity : ComponentActivity() {
   private var pendingUpdateApk: File? = null
   private val tileConnectRequests = MutableStateFlow(0)
   private val externalImportRequests = MutableStateFlow<String?>(null)
+  private val updateNoticeRequests = MutableStateFlow(0L)
 
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
     consumeTileConnectIntent(intent)
+    consumeUpdateNoticeIntent(intent)
     externalImportRequests.value = ImportDeepLink.parse(intent)
     SecureProfileStore.migrateLegacy(this)
     val initialProfilePreferences = getSharedPreferences("profile_meta", MODE_PRIVATE)
@@ -112,6 +114,7 @@ class MainActivity : ComponentActivity() {
         mutableStateOf(TrustTunnelCatalog.load(this))
       }
       val externalImportUrl by externalImportRequests.collectAsStateWithLifecycle()
+      val updateNoticeRequest by updateNoticeRequests.collectAsStateWithLifecycle()
       var singBoxProfiles by remember {
         mutableStateOf(SingBoxCatalog.load(this))
       }
@@ -652,6 +655,7 @@ class MainActivity : ComponentActivity() {
           updateStatus = updateStatus,
           updateNotes = availableUpdate?.notes.orEmpty(),
           updateAvailable = availableUpdate != null,
+          updateNoticeRequest = updateNoticeRequest,
           updating = updating,
           updateProgress = updateProgress,
           importing = importing,
@@ -1631,6 +1635,7 @@ class MainActivity : ComponentActivity() {
     super.onNewIntent(intent)
     setIntent(intent)
     consumeTileConnectIntent(intent)
+    consumeUpdateNoticeIntent(intent)
     ImportDeepLink.parse(intent)?.let { externalImportRequests.value = it }
   }
 
@@ -1638,6 +1643,12 @@ class MainActivity : ComponentActivity() {
     if (intent?.action != ACTION_CONNECT_FROM_TILE) return
     intent.action = null
     tileConnectRequests.value += 1
+  }
+
+  private fun consumeUpdateNoticeIntent(intent: Intent?) {
+    if (intent?.action != com.example.veilark.update.UpdateNoticeJob.OPEN_UPDATES) return
+    intent.action = null
+    if (BuildConfig.SELF_UPDATE_ENABLED) updateNoticeRequests.value += 1
   }
 
   private fun shouldRequestNotificationPermission(): Boolean =

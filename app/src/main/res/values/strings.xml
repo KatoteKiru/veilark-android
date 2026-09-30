@@ -1,4 +1,5 @@
 <resources>
+    <string name="update_notice_body">Open Veilark to review and install the update.</string>
     <string name="app_name" translatable="false">Veilark</string>
     <string name="subscriptions_and_servers">Subscriptions and servers</string>
     <string name="profiles_and_servers">Profiles and servers</string>

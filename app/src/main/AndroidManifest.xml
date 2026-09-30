@@ -10,6 +10,7 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
@@ -35,6 +36,11 @@
         <activity
             android:name="com.example.veilark.QrScannerActivity"
             android:exported="false" />
+        <service
+            android:name="com.example.veilark.update.UpdateNoticeJob"
+            android:process=":updates"
+            android:permission="android.permission.BIND_JOB_SERVICE"
+            android:exported="true" />
         <activity
             android:name="com.example.veilark.MainActivity"
             android:launchMode="singleTop"

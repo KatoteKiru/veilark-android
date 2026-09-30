@@ -14,6 +14,9 @@ import java.util.Locale
 class VeilarkApplication : Application() {
   override fun onCreate() {
     super.onCreate()
+    // The periodic manifest checker does not need native engines or profile migrations.
+    if (Application.getProcessName().endsWith(":updates")) return
+    runCatching { com.example.veilark.update.UpdateNoticeJob.schedule(this) }
     TechnicalLogStore.initialize(this)
     SecureProfileStore.migrateLegacy(this)
     BuiltInTrustProfileMigration.migrate(this)

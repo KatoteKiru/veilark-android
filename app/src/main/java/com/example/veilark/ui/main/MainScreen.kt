@@ -42,6 +42,7 @@ import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
@@ -213,6 +214,7 @@ fun MainScreen(
   updateStatus: String = "",
   updateNotes: String = "",
   updateAvailable: Boolean = false,
+  updateNoticeRequest: Long = 0L,
   updating: Boolean = false,
   updateProgress: Float? = null,
   importing: Boolean = false,
@@ -242,6 +244,16 @@ fun MainScreen(
   onConnect: () -> Unit = {},
 ) {
   var showImport by remember { mutableStateOf(false) }
+  val mainList = rememberLazyListState()
+  var consumedNoticeRequest by remember { mutableStateOf(0L) }
+  LaunchedEffect(updateNoticeRequest) {
+    if (updateNoticeRequest > 0 && selfUpdateEnabled) onCheckUpdate()
+  }
+  LaunchedEffect(updateNoticeRequest, updateAvailable) {
+    if (updateNoticeRequest > 0 && updateAvailable && selfUpdateEnabled) {
+      mainList.animateScrollToItem((mainList.layoutInfo.totalItemsCount - 2).coerceAtLeast(0))
+    }
+  }
   var showNodes by remember { mutableStateOf(false) }
   var showRouting by remember { mutableStateOf(false) }
   var showTechnicalLogs by remember { mutableStateOf(false) }
@@ -455,6 +467,7 @@ fun MainScreen(
     },
   ) { innerPadding ->
     LazyColumn(
+      state = mainList,
       modifier = Modifier
         .testTag("main_content_list")
         .fillMaxHeight()
@@ -595,6 +608,9 @@ fun MainScreen(
             progress = updateProgress,
             onCheck = onCheckUpdate,
             onUpdate = onUpdate,
+            noticeRequest = updateNoticeRequest,
+            consumedNoticeRequest = consumedNoticeRequest,
+            onNoticeConsumed = { consumedNoticeRequest = it },
           )
         }
       }
@@ -620,8 +636,17 @@ private fun UpdateCard(
   progress: Float?,
   onCheck: () -> Unit,
   onUpdate: () -> Unit,
+  noticeRequest: Long = 0L,
+  consumedNoticeRequest: Long = 0L,
+  onNoticeConsumed: (Long) -> Unit = {},
 ) {
   var showConfirmation by remember { mutableStateOf(false) }
+  LaunchedEffect(noticeRequest, available) {
+    if (noticeRequest > consumedNoticeRequest && available) {
+      showConfirmation = true
+      onNoticeConsumed(noticeRequest)
+    }
+  }
   val normalizedProgress = progress?.coerceIn(0f, 1f)
   if (showConfirmation && available && !updating) {
     AlertDialog(
