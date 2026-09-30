@@ -2,6 +2,8 @@
 
 | Date | Check | Result | Notes |
 | --- | --- | --- | --- |
+| 2026-09-30 | 1.0.14 OTA workflow36710379427 | passed and published | Ed25519 lineage, native replacement, previous manifest backup, atomic deploy, production redownload/SHA and hdiutil. Live manifest and GitHub asset match version10014/size131887575; physical user acceptance remains open. |
+| 2026-09-30 | 1.0.14 / c695d15 native UI CI36709802260 and DMG CI36709802270 | passed | Fixed missing QuartzCore linkage found by the first motion CI. Full fresh macOS 26 screenshot inspected; runtime mode 2. Helper, engines and routing unchanged from tag1.0.13. |
 | 2026-09-30 | Final source b623821: native CI `36687256301`, DMG CI `36687256258` | passed | Real native UI on macOS 14/26; package integrity/signature/inventory and normalized unsigned native byte comparison. Not physical VPN/OTA acceptance. |
 | 2026-09-30 | Code closeout | passed within scope | Diff whitespace check clean; production macOS sources contain no TODO/FIXME/debug println/GlobalScope/Timer additions; only wrapper JAR is tracked binary in macOS source inventory. Network/session/helper/OTA configuration unchanged. |
 | 2026-09-30 | Signature normalization independent gate | accepted | Actual binary pair differs only in LINKEDIT reserve after signature removal; four tests include rejection of signed/malformed input and preservation of payload differences. |

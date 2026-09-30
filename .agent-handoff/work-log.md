@@ -2,6 +2,8 @@
 
 ## 2026-09-30
 
+- Published preview macOS1.0.14/10014 at c695d15, releaseCI36710379427 succeeded; same OTA key, helper v7 and network behavior. Refined SF Symbols and bounded Reduce Motion-aware transitions. Fresh macOS26 screenshot inspected; native14/26 CI36709802260 and DMG CI36709802270 passed. Rollback manifest backup added. Physical user upgrade/VPN acceptance not claimed.
+
 - Installed the official OpenAI `swiftui-liquid-glass` skill; applied native-material/fallback guidance to existing Compose client through an AppKit/JNI boundary, not a SwiftUI rewrite.
 - Created source-only candidate branch `codex/macos-native-glass`; native SF Symbols/buttons/font and Veilark logo; compact typography and restrained connection panel.
 - Added native build/DMG inventory checks, Mac 14/26 real JNI lifecycle tests and full-app CI captures. Network engines, profiles, helper and OTA signing lineage were not changed.
