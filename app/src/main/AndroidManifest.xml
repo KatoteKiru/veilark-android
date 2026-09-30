@@ -31,11 +31,12 @@
         android:localeConfig="@xml/locales_config"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
-        android:windowSoftInputMode="adjustResize"
+        android:enableOnBackInvokedCallback="true"
         android:theme="@style/Theme.Veilark">
         <activity
             android:name="com.example.veilark.QrScannerActivity"
-            android:exported="false" />
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize" />
         <service
             android:name="com.example.veilark.update.UpdateNoticeJob"
             android:process=":updates"
@@ -44,6 +45,7 @@
         <activity
             android:name="com.example.veilark.MainActivity"
             android:launchMode="singleTop"
+            android:windowSoftInputMode="adjustResize"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

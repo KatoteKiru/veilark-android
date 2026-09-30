@@ -1,26 +1,38 @@
 package com.example.veilark.theme
 
+import android.annotation.SuppressLint
 import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.material3.MaterialTheme
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.MaterialExpressiveTheme
+import androidx.compose.material3.MotionScheme
 import androidx.compose.material3.Shapes
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 
-// A restrained expressive shape scale: the connection surface remains the
-// visual anchor while controls and supporting content share one rhythm.
+// Material 3 Expressive shape scale, including the larger "increased" tokens
+// used by hero surfaces (connection card, full-screen dialogs). Values keep the
+// restrained Veilark rhythm while following the expressive corner ladder.
+// Material 3 1.5.0-alpha18 still marks the expressive Shapes constructor and
+// MaterialExpressiveTheme as library-group restricted; both became public API in
+// later alphas, which need compileSdk 37 (see gradle/libs.versions.toml).
+@SuppressLint("RestrictedApi")
 private val VeilarkShapes = Shapes(
   extraSmall = RoundedCornerShape(8.dp),
   small = RoundedCornerShape(16.dp),
   medium = RoundedCornerShape(22.dp),
   large = RoundedCornerShape(28.dp),
   extraLarge = RoundedCornerShape(36.dp),
+  largeIncreased = RoundedCornerShape(32.dp),
+  extraLargeIncreased = RoundedCornerShape(40.dp),
+  extraExtraLarge = RoundedCornerShape(48.dp),
 )
 
 private val LightColors = lightColorScheme(
@@ -30,6 +42,10 @@ private val LightColors = lightColorScheme(
   onPrimaryContainer = LightOnPrimaryContainer,
   secondaryContainer = LightSecondaryContainer,
   onSecondaryContainer = LightOnSecondaryContainer,
+  tertiary = LightTertiary,
+  onTertiary = LightOnTertiary,
+  tertiaryContainer = LightTertiaryContainer,
+  onTertiaryContainer = LightOnTertiaryContainer,
   background = LightBackground,
   onBackground = LightOnBackground,
   surface = LightSurface,
@@ -37,15 +53,14 @@ private val LightColors = lightColorScheme(
   surfaceVariant = LightSurfaceVariant,
   onSurfaceVariant = LightOnSurfaceVariant,
   secondary = LightOnSurfaceVariant,
-  tertiary = LightPrimary,
   surfaceTint = LightPrimary,
   surfaceContainerLowest = LightOnPrimary,
   surfaceContainerLow = LightBackground,
-  surfaceContainer = androidx.compose.ui.graphics.Color(0xFFF0F0F4),
-  surfaceContainerHigh = androidx.compose.ui.graphics.Color(0xFFEAEAF0),
+  surfaceContainer = LightSurfaceContainer,
+  surfaceContainerHigh = LightSurfaceContainerHigh,
   surfaceContainerHighest = LightSurfaceVariant,
-  outline = androidx.compose.ui.graphics.Color(0xFF797A83),
-  outlineVariant = androidx.compose.ui.graphics.Color(0xFFD0D0D8),
+  outline = Color(0xFF797A83),
+  outlineVariant = Color(0xFFD0D0D8),
 )
 
 private val DarkColors = darkColorScheme(
@@ -55,6 +70,10 @@ private val DarkColors = darkColorScheme(
   onPrimaryContainer = DarkOnPrimaryContainer,
   secondaryContainer = DarkSecondaryContainer,
   onSecondaryContainer = DarkOnSecondaryContainer,
+  tertiary = DarkTertiary,
+  onTertiary = DarkOnTertiary,
+  tertiaryContainer = DarkTertiaryContainer,
+  onTertiaryContainer = DarkOnTertiaryContainer,
   background = DarkBackground,
   onBackground = DarkOnBackground,
   surface = DarkSurface,
@@ -62,17 +81,23 @@ private val DarkColors = darkColorScheme(
   surfaceVariant = DarkSurfaceVariant,
   onSurfaceVariant = DarkOnSurfaceVariant,
   secondary = DarkOnSurfaceVariant,
-  tertiary = DarkPrimary,
   surfaceTint = DarkPrimary,
-  surfaceContainerLowest = androidx.compose.ui.graphics.Color(0xFF0B0C10),
-  surfaceContainerLow = androidx.compose.ui.graphics.Color(0xFF191A20),
-  surfaceContainer = androidx.compose.ui.graphics.Color(0xFF1F2027),
-  surfaceContainerHigh = androidx.compose.ui.graphics.Color(0xFF292A32),
-  surfaceContainerHighest = androidx.compose.ui.graphics.Color(0xFF34353E),
-  outline = androidx.compose.ui.graphics.Color(0xFF93939F),
-  outlineVariant = androidx.compose.ui.graphics.Color(0xFF454650),
+  surfaceContainerLowest = Color(0xFF0B0C10),
+  surfaceContainerLow = Color(0xFF191A20),
+  surfaceContainer = DarkSurfaceContainer,
+  surfaceContainerHigh = DarkSurfaceContainerHigh,
+  surfaceContainerHighest = Color(0xFF34353E),
+  outline = Color(0xFF93939F),
+  outlineVariant = Color(0xFF454650),
 )
 
+/**
+ * Veilark's Material 3 Expressive theme: brand palette, expressive motion
+ * (spring-based spatial and effects specs), the expressive shape ladder and a
+ * typography scale with emphasized roles.
+ */
+@SuppressLint("RestrictedApi")
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun VeilarkTheme(
   darkTheme: Boolean = isSystemInDarkTheme(),
@@ -88,8 +113,9 @@ fun VeilarkTheme(
     darkTheme -> DarkColors
     else -> LightColors
   }
-  MaterialTheme(
+  MaterialExpressiveTheme(
     colorScheme = colors,
+    motionScheme = MotionScheme.expressive(),
     shapes = VeilarkShapes,
     typography = Typography,
     content = content,

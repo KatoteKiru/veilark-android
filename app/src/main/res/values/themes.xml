@@ -1,5 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <!--
+    Day/night split: values-night/ redefines the base theme with a dark parent
+    and a dark window background, so a cold start in dark mode no longer
+    flashes a white window before Compose draws the first frame.
+    -->
+    <style name="Base.Theme.Veilark" parent="android:Theme.Material.Light.NoActionBar" />
 
-    <style name="Theme.Veilark" parent="android:Theme.Material.Light.NoActionBar" />
+    <style name="Theme.Veilark" parent="Base.Theme.Veilark">
+        <item name="android:windowBackground">@color/veilark_window_background</item>
+        <item name="android:colorBackground">@color/veilark_window_background</item>
+    </style>
 </resources>
