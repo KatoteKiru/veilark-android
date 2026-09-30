@@ -22,4 +22,6 @@ public final class MacNativeChrome {
     public static native long install(String windowTitle, String[] labels, byte[] monochromeLogo);
     public static native void update(long handle, int selectedIndex, String status);
     public static native void remove(long handle);
+    /** 0 = opaque, 1 = legacy vibrancy, 2 = system Liquid Glass; -1 = detached. */
+    public static native int materialMode(long handle);
 }

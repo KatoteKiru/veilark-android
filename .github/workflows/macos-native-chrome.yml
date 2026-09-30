@@ -29,8 +29,11 @@ jobs:
           distribution: temurin
           java-version: '17'
       - name: Compile AppKit bridge and test UI lifecycle
+        env:
+          VEILARK_REQUIRE_SYSTEM_GLASS: ${{ matrix.os == 'macos-26' && '1' || '0' }}
         run: |
           set -euo pipefail
+          defaults write com.apple.universalaccess reduceTransparency -bool false
           chmod +x gradlew
           ./gradlew --no-daemon test --max-workers=2
       - name: Capture complete Veilark on macOS 26

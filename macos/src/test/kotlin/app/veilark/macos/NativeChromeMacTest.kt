@@ -30,6 +30,11 @@ class NativeChromeMacTest {
         Thread.sleep(100)
       }
       assertTrue("Native sidebar did not attach to the test window", handle != 0L)
+      val mode = MacNativeChrome.materialMode(handle)
+      println("Native material mode: $mode; macOS ${System.getProperty("os.version")}")
+      if (System.getenv("VEILARK_REQUIRE_SYSTEM_GLASS") == "1") {
+        assertEquals("Expected real NSGlassEffectView, not an opaque/blur fallback", 2, mode)
+      }
       NativeSidebar.update(handle, 3, "VPN is off")
       Thread.sleep(600)
       if (System.getenv("VEILARK_CAPTURE_NATIVE_UI") == "1") {
@@ -39,6 +44,7 @@ class NativeChromeMacTest {
         check(ImageIO.write(image, "png", output))
       }
       NativeSidebar.remove(handle)
+      assertEquals(-1, MacNativeChrome.materialMode(handle))
       // Queued updates to a removed handle are intentionally harmless.
       NativeSidebar.update(handle, 4, "VPN is off")
       assertEquals(0L, NativeSidebar.install("missing-${UUID.randomUUID()}", labels))

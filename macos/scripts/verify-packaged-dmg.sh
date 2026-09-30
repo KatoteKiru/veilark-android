@@ -37,4 +37,7 @@ done
 [ -x "$RESOURCES/veilark-updater" ]
 [ -x "$RESOURCES/sing-box" ]
 [ -x "$RESOURCES/trusttunnel_client" ]
+cmp "$ROOT/build/native/libveilark-chrome.dylib" "$RESOURCES/libveilark-chrome.dylib" || {
+  echo "Packaged native chrome differs from compiled library" >&2; exit 1;
+}
 echo "Verified packaged DMG inventory: $(basename "$DMG")"

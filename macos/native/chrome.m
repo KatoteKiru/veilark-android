@@ -32,6 +32,7 @@ static uint64_t nextHandle = 1;
 @property(nonatomic, strong) id accessibilityObserver;
 @property(nonatomic, strong) id colorObserver;
 @property(nonatomic) NSInteger selectedIndex;
+@property(nonatomic) jint materialMode;
 - (void)refreshColors;
 @end
 
@@ -63,6 +64,9 @@ static uint64_t nextHandle = 1;
     }];
 }
 - (void)navigate:(NSButton *)sender {
+    // Native toggle state must reflect the confirmed section, including a repeat click.
+    // Compose may not emit a new effect when the selected index has not changed.
+    [self refreshColors];
     JNIEnv *env = NULL;
     BOOL attached = NO;
     jint result = (*vm)->GetEnv(vm, (void **)&env, JNI_VERSION_1_8);
@@ -137,6 +141,7 @@ JNIEXPORT jlong JNICALL Java_app_veilark_macos_MacNativeChrome_install
         Class glassClass = NSClassFromString(@"NSGlassEffectView");
         if (!reduce && glassClass && [glassClass instancesRespondToSelector:@selector(setContentView:)]) {
             material = [[glassClass alloc] initWithFrame:NSZeroRect];
+            sidebar.materialMode = 2;
             if ([material respondsToSelector:@selector(setCornerRadius:)]) {
                 ((void (*)(id, SEL, CGFloat))objc_msgSend)(material, @selector(setCornerRadius:), 16);
             }
@@ -146,8 +151,10 @@ JNIEXPORT jlong JNICALL Java_app_veilark_macos_MacNativeChrome_install
             effect.blendingMode = NSVisualEffectBlendingModeBehindWindow;
             effect.state = NSVisualEffectStateFollowsWindowActiveState;
             material = effect;
+            sidebar.materialMode = 1;
         } else {
             material = [NSView new];
+            sidebar.materialMode = 0;
             material.wantsLayer = YES;
             material.layer.backgroundColor = NSColor.windowBackgroundColor.CGColor;
         }
@@ -289,4 +296,15 @@ JNIEXPORT void JNICALL Java_app_veilark_macos_MacNativeChrome_remove
         [sidebar.view removeFromSuperview];
         [sidebars removeObjectForKey:@(handle)];
     });
+}
+
+JNIEXPORT jint JNICALL Java_app_veilark_macos_MacNativeChrome_materialMode
+  (JNIEnv *env, jclass cls, jlong handle) {
+    __block jint result = -1;
+    void (^read)(void) = ^{
+        VLKSidebar *sidebar = sidebars[@(handle)];
+        if (sidebar) result = sidebar.materialMode;
+    };
+    if (NSThread.isMainThread) read(); else dispatch_sync(dispatch_get_main_queue(), read);
+    return result;
 }
