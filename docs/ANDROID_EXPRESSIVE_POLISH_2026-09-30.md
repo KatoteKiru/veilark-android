@@ -53,5 +53,6 @@ configurations are included. Preview profiles contain no credentials.
 
 This pass does not use the owner's phone. The previews are configurations for
 Android Studio, not evidence that these screens have been rendered on a device.
-Local compilation, unit tests and lint are recorded in the project map after
-completion. Production remains on private rc37 until a separate release.
+Local compilation, unit tests and lint are recorded in the project map.
+This iteration was published as private rc38 after the owner's release request;
+see [rc38 release evidence](RC38_OTA_NOTES.md).
