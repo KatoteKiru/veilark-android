@@ -80,7 +80,17 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ inputs.tag }}
         run: |
-          gh release create "$RELEASE_TAG" \
-            app/build/outputs/apk/oss/release/app-oss-release.apk \
-            app/build/outputs/apk/oss/release/app-oss-release.apk.sha256 \
-            --target "$GITHUB_SHA" --generate-notes --title "Veilark $RELEASE_TAG"
+          set -euo pipefail
+          VERSION_NAME="${RELEASE_TAG#v}"
+          RELEASE_APK="Veilark-Android-$VERSION_NAME.apk"
+          cp app/build/outputs/apk/oss/release/app-oss-release.apk "$RELEASE_APK"
+          sha256sum "$RELEASE_APK" > "$RELEASE_APK.sha256"
+          NOTES="docs/releases/$RELEASE_TAG.md"
+          if [[ -f "$NOTES" ]]; then
+            NOTE_ARGS=(--notes-file "$NOTES")
+          else
+            NOTE_ARGS=(--generate-notes)
+          fi
+          gh release create "$RELEASE_TAG" "$RELEASE_APK" "$RELEASE_APK.sha256" \
+            --target "$GITHUB_SHA" --title "Veilark Android $VERSION_NAME" \
+            --latest "${NOTE_ARGS[@]}"
