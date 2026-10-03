@@ -8,6 +8,10 @@ It combines two network engines: `sing-box` for compatible proxy protocols and
 tests, and reproducible build instructions. It does not provide servers, VPN
 access, accounts, or subscriptions.
 
+## TrustTunnel VPN client for Android
+
+Looking for a **TrustTunnel (Trust Tunnel) Android client**? Veilark supports `tt://` profiles and subscription lists, alongside a separate sing-box mode. Import your own provider configuration and choose which applications use the VPN with per-app split tunneling. Veilark is independent and is not an official AdGuard app.
+
 ## Features
 
 - Android 10+ (`minSdk 29`), `arm64-v8a` and `armeabi-v7a`;

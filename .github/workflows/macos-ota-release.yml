@@ -1,4 +1,4 @@
-name: macOS OTA preview release
+name: macOS OTA release
 
 on:
   push:
@@ -149,16 +149,15 @@ jobs:
           [ "$ACTUAL" = "$EXPECTED" ]
           hdiutil verify "$RUNNER_TEMP/$ARTIFACT"
 
-      - name: Publish GitHub prerelease
+      - name: Publish GitHub release
         shell: bash
         run: |
           set -euo pipefail
-          NOTES="Veilark $VERSION development preview for Apple Silicon. Hardens privileged engine shutdown, refuses quit or OTA when the engine cannot stop, reduces background helper polling, rotates updater logs, and binds OTA build numbers consistently. TrustTunnel remains IPv4-only on macOS pending physical IPv6 validation. The DMG and OTA manifest are hash-verified, and the manifest is protected by the Veilark Ed25519 release key. This build is not signed or notarized by Apple and is not a production release."
+          NOTES="Veilark $VERSION release for Apple Silicon. Hardens privileged engine shutdown, refuses quit or OTA when the engine cannot stop, reduces background helper polling, rotates updater logs, and binds OTA build numbers consistently. TrustTunnel remains IPv4-only on macOS pending physical IPv6 validation. The DMG and OTA manifest are hash-verified, and the manifest is protected by the Veilark Ed25519 release key. This build is not signed or notarized by Apple Apple Gatekeeper may require manual approval."
           gh release create "$GITHUB_REF_NAME" \
-            "build/ota/$ARTIFACT#Veilark $VERSION DMG (ARM64 preview)" \
+            "build/ota/$ARTIFACT#Veilark $VERSION DMG (ARM64)" \
             "build/ota/manifest.json#Signed macOS OTA manifest" \
             --verify-tag \
-            --prerelease \
             --title "Veilark $VERSION for macOS" \
             --notes "$NOTES"
 
