@@ -32,6 +32,22 @@ class MacPackagingMetadataTest {
   }
 
   @Test
+  fun fetchAndPackageUseTheSamePinnedSingBoxDigests() {
+    val pins = JSONObject(File("vendor/UPSTREAM.json").readText())
+      .getJSONObject("sing-box").getJSONObject("binarySha256")
+    val fetch = File("scripts/fetch-engines.sh").readText()
+    val verify = File("scripts/verify-bundled-assets.sh").readText()
+    for ((metadataArch, suffix, hostArch) in listOf(
+      Triple("arm64", "ARM64", "arm64"),
+      Triple("amd64", "AMD64", "x86_64"),
+    )) {
+      val digest = pins.getString(metadataArch)
+      assertTrue(fetch.contains("SING_BOX_BINARY_SHA256_$suffix=\"$digest\""))
+      assertTrue(verify.contains("$hostArch) SING_SHA=\"$digest\""))
+    }
+  }
+
+  @Test
   fun packageRequiresTheNativeInAppUpdater() {
     val build = File("build.gradle.kts").readText()
     val inventory = File("scripts/verify-packaged-dmg.sh").readText()
