@@ -4,6 +4,11 @@ All notable changes to the public distribution are documented here.
 
 ## Unreleased
 
+- rebuilt TrustTunnel 1.1.7 for arm64-v8a and armeabi-v7a from pinned upstream
+  sources, preserving per-app routing and lifecycle patches; two independent
+  build directories produced identical AARs. Release CI verifies vendor hashes,
+  native architectures and the existing OSS signing certificate before publishing.
+
 - adopted Material 3 Expressive on Android: `MaterialExpressiveTheme` with the
   expressive motion scheme, the expressive shape ladder and emphasized type
   roles; a morphing Material-shape connection emblem, a shape-morphing medium

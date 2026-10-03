@@ -7,14 +7,14 @@ vendored into Veilark.
 ## Source canary baseline
 
 - Upstream repository: `https://github.com/TrustTunnel/TrustTunnelClient.git`
-- Tag: `v1.1.5`
-- Commit: `8886193f90eea5855a0a3c4a735ed0e44a5a4751`
+- Tag: `v1.1.7`
+- Commit: `170609c24ca865819fed68437b01c013049bc3fa`
 - Patches: `patches/0001-android-per-app-routing.patch`,
   `patches/0002-android-lifecycle-hardening.patch`, and
   `patches/0003-post-close-terminal-fence.patch`
 - Installed AAR: `app/libs/trusttunnel-client.aar`
 - Installed AAR SHA-256:
-  `2AFB788AE66FAADF52142CFA7A7273DD969E225899891B5BA90367D57DB66E5D`
+  `37B13174F6FD7193EB9343E82B88D5D5847B98973B79462A680214B84D9CA949`
 
 The patches preserve Veilark Android lifecycle requirements:
 
@@ -48,43 +48,36 @@ so changing routing while connected requires a controlled tunnel restart.
 
 ## Rebuild
 
-The current artifact adds an adapter-only teardown correction: a native
-DISCONNECTED callback schedules resource closure; only the completed close
-publishes the terminal event. Native libraries are byte-identical to the
-previous verified full-source 1.1.5 build, not rebuilt for this Java/Kotlin-only
-change. `UPSTREAM.json` records the baseline build and the overlay separately.
-
-To reproduce the overlay, first produce the baseline AAR with the full-source
-recipe below (which intentionally applies patches 0001 and 0002). In an exact
-upstream checkout with those patches, apply 0003 and run, from `platform/android`:
-
-```powershell
-.\gradlew.bat :lib:bundleLibRuntimeToJarRelease :lib:testDebugUnitTest --no-daemon --max-workers=2
-```
-
-Use `scripts/package-adapter-only.ps1 -BaseAar <baseline.aar> -ClassesJar
-<checkout>/platform/android/lib/build/intermediates/runtime_library_classes_jar/release/bundleLibRuntimeToJarRelease/classes.jar
--OutputAar <new.aar>`. It verifies the exact baseline hash, corrected callback
-bytecode and byte equality of every non-class payload entry before reporting
-success. Output must be a new file. Physical device acceptance is still required.
+The artifact is built from the complete upstream v1.1.7 source with all three
+local patches applied in order. The official v1.1.5-to-v1.1.7 comparison has no
+Android-source changes; the update advances the upstream client and pins its
+matching `dns-libs` 2.10.2 and `native_libs_common` 8.1.52 dependencies. This
+build recompiles both native Android ABIs; no native library is copied from the
+previous AAR.
 
 The tracked PowerShell recipe clones the exact upstream commit, exports the
-pinned public Conan recipes, applies the patch, builds both Android native ABIs,
-runs the upstream adapter unit tests, and verifies the final AAR and payload
-hashes:
+pinned public Conan recipes, checks and applies each patch sequentially,
+builds both Android native ABIs, runs the upstream adapter unit tests, and
+verifies the final AAR and payload hashes:
 
 ```powershell
 pwsh -File vendor/trusttunnel-android/scripts/build-adapter.ps1 `
-  -OutputAar baseline-trusttunnel-1.1.5.aar `
-  -WorkDirectory C:\build\trusttunnel-1.1.5
+  -OutputAar trusttunnel-client-1.1.7.aar `
+  -WorkDirectory C:\build\trusttunnel-1.1.7
 ```
 
-The final artifact is a full source build. No native library from the previous
-1.1.4 AAR is retained. Exact toolchain, dependency commits, ABI hashes, and
-verification results are recorded in `UPSTREAM.json`. Upstream 1.1.5 adds the
-Android log-export API, exclusion matching improvements, a new HTTP/3 stack,
-and native disconnect/recovery fixes. Veilark intentionally retains its
-on-demand physical-network monitor instead of invoking upstream
+The final artifact is a full source build. Exact toolchain, dependency commits,
+patch hashes, per-ABI hashes, and verification results are recorded in
+`UPSTREAM.json`. Two exact-recipe builds from separate work directories
+produced byte-identical AARs and payload trees. All 23 upstream Android unit
+tests passed. The bytecode gate confirms Android 14+ foreground-service type,
+application routing, lifecycle/session fencing, and runtime exclusions. The
+class-file comparison against the installed v1.1.5 AAR found all 68 class files
+byte-identical; each native ABI retained the same 15 JNI exports. App-level
+integration tests, release lint, and physical-device acceptance remain
+separate checks and are not claimed here.
+
+Veilark intentionally retains its on-demand physical-network monitor instead of invoking upstream
 `VpnService.initialize()`: the upstream initializer starts the monitor for the
 whole process lifetime, while Veilark stops it after each terminal VPN session
 to avoid idle battery and network-callback cost.

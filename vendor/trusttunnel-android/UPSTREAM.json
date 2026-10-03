@@ -1,42 +1,30 @@
 {
-  "schema": 3,
+  "schema": 4,
   "upstream": {
     "repository": "https://github.com/TrustTunnel/TrustTunnelClient.git",
-    "tag": "v1.1.5",
-    "commit": "8886193f90eea5855a0a3c4a735ed0e44a5a4751",
-    "tag_object": "786feaa4f052af1fccd3e63c00b1b0291e975bef",
-    "published_at": "2026-09-02T19:58:56Z",
-    "source_tree": "e064bc7f0f5de01b73f28e17f455884af605f978",
-    "source_archive_sha256": "EE8BD33BBDF8B8F24A8CE309BE1526F91FF59DC0DBF459D584B29F70FFF4C363"
+    "tag": "v1.1.7",
+    "commit": "170609c24ca865819fed68437b01c013049bc3fa",
+    "tag_object": "15032bf2e4bf724a716211613c85c5d0fe6b76bd",
+    "source_tree": "a8f24e354f19614a5c0afbdfc7f5313eb808fd52",
+    "git_archive_tar_sha256": "162DAC13E4CDC0C6A26C3BADCD6392BADE21F6EF4F5CE2302D69B04A2FB32A0B"
   },
   "patches": [
     {
       "path": "patches/0001-android-per-app-routing.patch",
-      "sha256": "7ED0C9D727BE19B647EB415C2828AE2820B85A837423A19C26E98FA0025F2E1F"
+      "sha256_lf_normalized": "7ED0C9D727BE19B647EB415C2828AE2820B85A837423A19C26E98FA0025F2E1F"
     },
     {
       "path": "patches/0002-android-lifecycle-hardening.patch",
-      "sha256": "9B27E966F48AD3B51125524707B52A33C67BDCEDCEDD5BE1B671B6A542E33F7E"
+      "sha256_lf_normalized": "9B27E966F48AD3B51125524707B52A33C67BDCEDCEDD5BE1B671B6A542E33F7E"
     },
     {
       "path": "patches/0003-post-close-terminal-fence.patch",
-      "sha256": "DAD7B05753521D188D9BC9F001B792E0CA833C2E27D1AEBADE8EB7A4D5A9A860"
+      "sha256_lf_normalized": "DAD7B05753521D188D9BC9F001B792E0CA833C2E27D1AEBADE8EB7A4D5A9A860"
     }
   ],
-  "adapter_overlay": {
-    "method": "rebuild-java-kotlin-from-exact-upstream-and-three-patches",
-    "baseline_aar_sha256": "069819F12B9F5D94D79569212D002DF27E6FF77E0B9FAC3BC5640BD01979B7CC",
-    "recipe": "scripts/package-adapter-only.ps1",
-    "native_rebuilt_in_overlay": false,
-    "non_classes_payload": "all entries byte-identical to full-source baseline",
-    "upstream_adapter_tests": "23 passed",
-    "physical_acceptance": "not-run"
-  },
   "packaging": {
     "method": "full-upstream-android-aar-build",
     "native_rebuilt": true,
-    "patched_source_tree": "6946a170b2271a8d00a8251cf922a4654c69fd7f",
-    "patched_source_archive_sha256": "3C9673CA0756F4A55E8DF617849DDBE7C49AB71F4E40CB2FAEDE3CAA6FC2D836",
     "abis": ["arm64-v8a", "armeabi-v7a"],
     "preserved_veilark_adapter_fixes": [
       "android-34-special-use-foreground-service",
@@ -48,18 +36,20 @@
       "network-callback-unregister-and-clear",
       "per-service-executor-shutdown",
       "runtime-native-exclusions",
-      "per-application-routing"
+      "per-application-routing",
+      "post-close-terminal-event-fence"
     ]
   },
   "dependency_bootstrap": {
     "dns_libs": {
-      "package": "dns-libs/2.10.1-1-g7748c6a7@adguard/oss",
-      "source_commit": "7748c6a740f80c63d478a87e4eec049984f9d8a3"
+      "package": "dns-libs/2.10.2@adguard/oss",
+      "repository_tag": "v2.10.2",
+      "source_commit": "0c6e855b12eee2f696e7cc30719532fda4fdd512"
     },
     "native_libs_common": {
-      "package": "native_libs_common/8.1.49@adguard/oss",
-      "repository_tag": "v8.1.49",
-      "source_commit": "fd7405ee27fe040fffa094782fd4e9c5ea35fa34"
+      "package": "native_libs_common/8.1.52@adguard/oss",
+      "repository_tag": "v8.1.52",
+      "source_commit": "58cef252031e2cc1f540ecaec2952f5f32afa3a1"
     }
   },
   "toolchain": {
@@ -78,38 +68,32 @@
     "clang_flags": ["-ffile-prefix-map=<work>=/work/veilark-trusttunnel", "-fmacro-prefix-map=<work>=/work/veilark-trusttunnel"],
     "rust_flags": ["--remap-path-prefix=<work>=/work/veilark-trusttunnel"],
     "linker_flags": ["-Wl,--build-id=none"],
-    "note": "Explicit SHA-1 build IDs drifted despite byte-identical remaining ELF sections. Build IDs are disabled; tombstones require manual correlation by version and per-ABI artifact hash."
+    "two_workdir_aar_comparison": "byte-identical",
+    "note": "Exact recipe builds in two separate work directories produced identical AAR and payload hashes. SHA-1 build IDs are disabled; tombstones require manual correlation by version and per-ABI artifact hash."
   },
   "sha256": {
-    "aar": "2AFB788AE66FAADF52142CFA7A7273DD969E225899891B5BA90367D57DB66E5D",
-    "classes_jar": "F6F0B8504C65145E707D184ECC971CF22886D3B07CFEC3E1D595AA2484152000",
-    "content_tree": "E213441AE413FB109D485862147BE08A8B7E71BE2F91FE18AE77CD5F4F41AC92",
-    "jni_arm64_v8a": "A569F3ABAB852E669E05DC76DFD74C74D56251B16A449C001D9099B098D1561C",
-    "jni_armeabi_v7a": "173DBE338F14FD735C87C33FF21A0100867FA4D17C3B14DDBBE5BD2AFBA3AC0D",
+    "aar": "37B13174F6FD7193EB9343E82B88D5D5847B98973B79462A680214B84D9CA949",
+    "classes_jar": "9037A0F28CA9B1FC5D489909F4D125220F993417CBF8795060DE654878C1F9F6",
+    "content_tree": "3130E0D22F41D005ACEA17552304829EC508B06600D9F14F8228B510FA653A26",
+    "jni_arm64_v8a": "8F30EFD7F14AC002354CF29E424490085255B9ACC954BAB381DEF2DE04547A4D",
+    "jni_armeabi_v7a": "D7D5B62B3E8C0CA3C2394C87309E7C4FD82A6D8CE8BD904C6EC160FDAE526D8E",
     "android_manifest_xml": "E2B8620B22BF37D9860165BBA5DF9B1B4FFF41CBDFDD240D7038628A077941BA",
     "r_txt": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855",
-    "proguard_txt": "59A5016DC2777C4A21B3C88D1D2BA7BDF36999EFF08CECB301E00E2EAD478510",
-    "assets_logback_xml": "7AC50F5A58E5FB5DFA8648CB459E4FB8B45DF3D6C50AEEC4DC1AFA64321D77C4",
-    "aar_metadata_properties": "9CC8517BBDF06D879F57A2CFD6F8C6914E48800D443421CD850971945F98E7B2",
-    "unstripped_arm64_v8a": "A1570CA8F14B7D5184EFDD56C87440A61246C9EB8749BA3A94A2229F108FD9B1",
-    "unstripped_armeabi_v7a": "68FE32A2E5E3914402ABDDEB59218AD96F63D245A3EFDFFC680B639539155974"
-  },
-  "symbols": {
-    "archive": null,
-    "status": "canary-unstripped-libraries-retained-in-isolated-build-only",
-    "automatic_build_id_correlation": false
+    "proguard_txt": "6F171F5DC85E4A7DDBF78238C12B17F8B8CB4EAC5B3243B2E1BD6EC726ECA7E1",
+    "assets_logback_xml": "855E8C942F1D4198F0BECDD9E2FC9ADD6744710EB04607D188D61F3B512A5083",
+    "aar_metadata_properties": "9CC8517BBDF06D879F57A2CFD6F8C6914E48800D443421CD850971945F98E7B2"
   },
   "verification": {
-    "upstream_android_unit_tests": "passed",
+    "android_unit_tests": "passed-23-tests-0-failures-0-errors-0-skipped",
     "release_kotlin_compilation": "passed",
-    "full_native_build": "passed",
-    "patched_bytecode": "passed",
-    "two_workdir_payload_and_aar_comparison": "passed",
-    "jni_export_diff_against_1_1_4": "passed-no-additions-or-removals",
+    "full_native_build": "passed-arm64-v8a-and-armeabi-v7a-in-two-workdirs",
+    "patched_bytecode": "passed-special-use-routing-lifecycle-exclusions",
+    "class_file_diff_against_installed_1_1_5": "68-of-68-class-files-byte-identical",
+    "jni_export_diff_against_installed_1_1_5": "15-exports-per-abi-no-additions-or-removals",
+    "two_workdir_payload_and_aar_comparison": "passed-byte-identical",
     "host_manifest_permissions": "passed",
-    "veilark_private_unit_tests": "passed-168-tests-3-skipped",
-    "veilark_oss_unit_tests": "passed-168-tests-3-skipped",
-    "veilark_release_lint": "passed-0-fatal-0-error-85-existing-warnings-per-flavor",
+    "app_integration_tests": "not-run-in-this-update",
+    "release_lint": "not-run-in-this-update",
     "physical_arm_device": "not-run"
   }
 }

@@ -19,28 +19,29 @@ $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
 $UpstreamRepository = 'https://github.com/TrustTunnel/TrustTunnelClient.git'
-$UpstreamCommit = '8886193f90eea5855a0a3c4a735ed0e44a5a4751'
+$UpstreamCommit = '170609c24ca865819fed68437b01c013049bc3fa'
 $DnsLibsRepository = 'https://github.com/AdguardTeam/DnsLibs.git'
-$DnsLibsCommit = '7748c6a740f80c63d478a87e4eec049984f9d8a3'
+$DnsLibsCommit = '0c6e855b12eee2f696e7cc30719532fda4fdd512'
 $NativeLibsRepository = 'https://github.com/AdguardTeam/NativeLibsCommon.git'
-$NativeLibsCommit = 'fd7405ee27fe040fffa094782fd4e9c5ea35fa34'
+$NativeLibsCommit = '58cef252031e2cc1f540ecaec2952f5f32afa3a1'
 $CMakeVersion = '3.31.6'
-$ExpectedAarHash = '069819F12B9F5D94D79569212D002DF27E6FF77E0B9FAC3BC5640BD01979B7CC'
-$ExpectedClassesHash = '013F54C67F147E27923820BA041A8FE0EB0840A23794003AD339E69AF596A1A2'
-$ExpectedContentTreeHash = 'D985B6FAE3A9CC75AD9E1799BA115A03C2C05071A90D70D9F8F2C3B07619AE9E'
+$ExpectedAarHash = '37B13174F6FD7193EB9343E82B88D5D5847B98973B79462A680214B84D9CA949'
+$ExpectedClassesHash = '9037A0F28CA9B1FC5D489909F4D125220F993417CBF8795060DE654878C1F9F6'
+$ExpectedContentTreeHash = '3130E0D22F41D005ACEA17552304829EC508B06600D9F14F8228B510FA653A26'
 $PatchPaths = @(
     (Resolve-Path (Join-Path $PSScriptRoot '..\patches\0001-android-per-app-routing.patch')).Path
     (Resolve-Path (Join-Path $PSScriptRoot '..\patches\0002-android-lifecycle-hardening.patch')).Path
+    (Resolve-Path (Join-Path $PSScriptRoot '..\patches\0003-post-close-terminal-fence.patch')).Path
 )
 
 $ExpectedPayloadHashes = [ordered]@{
     'AndroidManifest.xml' = 'E2B8620B22BF37D9860165BBA5DF9B1B4FFF41CBDFDD240D7038628A077941BA'
     'R.txt' = 'E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855'
-    'proguard.txt' = '59A5016DC2777C4A21B3C88D1D2BA7BDF36999EFF08CECB301E00E2EAD478510'
-    'assets/logback.xml' = '7AC50F5A58E5FB5DFA8648CB459E4FB8B45DF3D6C50AEEC4DC1AFA64321D77C4'
+    'proguard.txt' = '6F171F5DC85E4A7DDBF78238C12B17F8B8CB4EAC5B3243B2E1BD6EC726ECA7E1'
+    'assets/logback.xml' = '855E8C942F1D4198F0BECDD9E2FC9ADD6744710EB04607D188D61F3B512A5083'
     'META-INF/com/android/build/gradle/aar-metadata.properties' = '9CC8517BBDF06D879F57A2CFD6F8C6914E48800D443421CD850971945F98E7B2'
-    'jni/arm64-v8a/libtrusttunnel_android.so' = 'A569F3ABAB852E669E05DC76DFD74C74D56251B16A449C001D9099B098D1561C'
-    'jni/armeabi-v7a/libtrusttunnel_android.so' = '173DBE338F14FD735C87C33FF21A0100867FA4D17C3B14DDBBE5BD2AFBA3AC0D'
+    'jni/arm64-v8a/libtrusttunnel_android.so' = '8F30EFD7F14AC002354CF29E424490085255B9ACC954BAB381DEF2DE04547A4D'
+    'jni/armeabi-v7a/libtrusttunnel_android.so' = 'D7D5B62B3E8C0CA3C2394C87309E7C4FD82A6D8CE8BD904C6EC160FDAE526D8E'
 }
 
 function Get-Sha256([string]$Path) {
@@ -104,7 +105,7 @@ function Assert-TrustAdapterBytecode([string]$ClassesJar) {
         $companion -notmatch 'public final void initialize\(android\.content\.Context\)' -or
         $companion -notmatch 'public final java\.util\.List<java\.lang\.String> exportLogs\(android\.content\.Context\)' -or
         $companion -notmatch 'public final void clearLogs\(\)') {
-        throw 'Session-fenced service start/stop, cleanup, or TrustTunnel 1.1.5 logging API is missing.'
+        throw 'Session-fenced service start/stop, cleanup, or TrustTunnel logging API is missing.'
     }
     if ($service -notmatch 'notifyDisconnectedOnce' -or
         $service -notmatch 'AtomicLong.compareAndSet' -or
@@ -210,6 +211,7 @@ Invoke-Checked 'rustup' @('run', $RustToolchain, 'rustc', '--version') $work
 Invoke-Checked 'cargo' @('ndk', '--version') $work
 
 Invoke-Checked 'git' @('clone', '--filter=blob:none', '--no-checkout', $UpstreamRepository, $source) $work
+Invoke-Checked 'git' @('config', 'core.autocrlf', 'false') $source
 Invoke-Checked 'git' @('checkout', '--detach', $UpstreamCommit) $source
 $actualCommit = (& git -C $source rev-parse HEAD).Trim()
 if ($actualCommit -ne $UpstreamCommit) {
@@ -225,8 +227,10 @@ Invoke-Checked $GitBash @('scripts/export_conan.sh') $nativeLibs
 Invoke-Checked $GitBash @('scripts/export_conan.sh') $dnsLibs
 
 foreach ($patchPath in $PatchPaths) {
-    Invoke-Checked 'git' @('apply', '--check', $patchPath) $source
-    Invoke-Checked 'git' @('apply', $patchPath) $source
+    # Git for Windows checks out LF blobs as CRLF even with core.autocrlf=false;
+    # ignore whitespace-only line-ending differences without permitting offsets/fuzz.
+    Invoke-Checked 'git' @('apply', '--check', '--ignore-space-change', $patchPath) $source
+    Invoke-Checked 'git' @('apply', '--ignore-space-change', $patchPath) $source
 }
 
 # Upstream uses __FILE__ in loadable strings, so an absolute checkout path
@@ -247,7 +251,7 @@ $env:CXXFLAGS = (@($existingCxxFlags, $clangRemap) | Where-Object { -not [string
 $env:VEILARK_REPRO_CFLAGS = $clangRemap
 $env:VEILARK_REPRO_LINKER_FLAGS = '-Wl,--build-id=none'
 $env:RUSTFLAGS = (@($existingRustFlags, $rustRemap) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }) -join ' '
-$env:TT_CLIENT_VERSION = '1.1.5'
+$env:TT_CLIENT_VERSION = '1.1.7'
 Write-Host "Clang reproducibility flags: $clangRemap"
 Write-Host "Rust reproducibility flags: $rustRemap"
 Write-Host "Linker reproducibility flags: $env:VEILARK_REPRO_LINKER_FLAGS"
@@ -279,5 +283,5 @@ if ($contentTreeHash -ne $ExpectedContentTreeHash) {
 Assert-TrustAdapterBytecode (Join-Path $inspect 'classes.jar')
 Assert-Hash $resolvedOutput $ExpectedAarHash
 
-Write-Host "Built and verified TrustTunnel 1.1.5 Android AAR: $resolvedOutput"
+Write-Host "Built and verified TrustTunnel 1.1.7 Android AAR: $resolvedOutput"
 Write-Host "SHA-256: $ExpectedAarHash"
