@@ -3,10 +3,5 @@
     android:insetLeft="16dp"
     android:insetTop="16dp"
     android:insetRight="16dp"
-    android:insetBottom="16dp">
-    <bitmap
-        android:antialias="true"
-        android:filter="true"
-        android:gravity="fill"
-        android:src="@drawable/veilark_logo_foreground_v2" />
-</inset>
+    android:insetBottom="16dp"
+    android:drawable="@drawable/veilark_mark" />

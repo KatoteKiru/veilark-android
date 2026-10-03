@@ -20,7 +20,7 @@ class TrustTunnelImportInstrumentedTest {
   fun compilesAnUpstreamCompatibleDeepLinkWithTheNativeRuntime() {
     val profile = TrustTunnelProfile.compile(LOCALHOST_FIXTURE)
 
-    // TrustTunnel 1.1.4 no longer emits the fixture host as an endpoint name.
+    // TrustTunnel 1.1.5 does not emit the fixture host as an endpoint name.
     // Veilark deliberately applies its stable fallback instead of guessing.
     assertEquals("TrustTunnel", profile.displayName)
     assertTrue("anti_dpi = true" in profile.config)

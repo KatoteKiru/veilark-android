@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import argparse
 import base64
+from datetime import datetime, timezone
 import hashlib
 import hmac
 import json
 import os
 from pathlib import Path
 import re
+import runpy
 import shlex
 import shutil
 import subprocess
@@ -26,6 +28,11 @@ UPLOAD_ATTEMPTS = 8
 MAX_RELEASE_NOTES_LENGTH = 500
 MAX_MANIFEST_SIZE = 128 * 1024
 OTA_PACKAGE_ID = "uk.senyasenyavski.veilark"
+# Absolute resolution also supports release tools loading this script via runpy
+# from another working directory. Contract tests need no SSH/crypto dependencies.
+_origin_contract = runpy.run_path(str(Path(__file__).with_name("ota_origin.py")))
+OTA_ORIGIN = _origin_contract["OTA_ORIGIN"]
+validate_ota_origin = _origin_contract["validate_ota_origin"]
 
 
 def canonical_payload_v2(fields: list[str]) -> bytes:
@@ -332,9 +339,7 @@ def main() -> None:
     notes = args.notes.strip()
     if not notes or len(notes) > MAX_RELEASE_NOTES_LENGTH:
         raise ValueError("Release notes must contain 1-500 characters")
-    origin = args.origin.rstrip("/")
-    if not origin.startswith("https://"):
-        raise ValueError("OTA origin must use HTTPS")
+    origin = validate_ota_origin(args.origin)
     expected_signer = args.expected_signer_sha256.strip().lower()
     if re.fullmatch(r"[0-9a-f]{64}", expected_signer) is None:
         raise ValueError("Expected signer SHA-256 must contain 64 hexadecimal characters")
@@ -413,7 +418,7 @@ def main() -> None:
         raise ValueError("--server-env is required when publishing")
     live_manifest = fetch_verified_live_manifest(origin, private_key.public_key())
     live_version_code = int(live_manifest["versionCode"])
-    if args.version_code <= live_version_code:
+    if args.version_code < live_version_code:
         raise RuntimeError(
             f"OTA versionCode must increase monotonically: live={live_version_code}, "
             f"requested={args.version_code}"
@@ -444,6 +449,21 @@ def main() -> None:
 
     client = connect_node(env)
     try:
+        backup_name = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ") + "-" + uuid.uuid4().hex[:8]
+        backup_dir = f"/var/backups/veilark/android/before-{args.version_code}-{backup_name}"
+        previous_apk = f"{remote_dir}/veilark-{live_manifest['versionName']}.apk"
+        if remote_sha256(client, previous_apk) != live_manifest["sha256"]:
+            raise RuntimeError("Previous live APK does not match its signed manifest")
+        _, stdout, stderr = client.exec_command(
+            f"install -d -m 0700 -- {shlex.quote(backup_dir)} && "
+            f"cp -- {shlex.quote(remote_dir + '/manifest.json')} {shlex.quote(backup_dir + '/manifest.json')} && "
+            f"cp -- {shlex.quote(previous_apk)} {shlex.quote(backup_dir + '/previous.apk')} && "
+            f"chmod 0600 -- {shlex.quote(backup_dir + '/manifest.json')} {shlex.quote(backup_dir + '/previous.apk')}"
+        )
+        if stdout.channel.recv_exit_status() != 0:
+            raise RuntimeError("Mandatory OTA rollback snapshot failed")
+        if remote_sha256(client, backup_dir + "/previous.apk") != live_manifest["sha256"]:
+            raise RuntimeError("OTA rollback APK verification failed")
         sftp = client.open_sftp()
         try:
             sftp.put(str(local_manifest), remote_manifest_tmp)
@@ -468,7 +488,7 @@ def main() -> None:
         raise RuntimeError("Downloaded production APK does not match the signed artifact")
 
     print(
-        json.dumps({**result, "published": True}, ensure_ascii=False)
+        json.dumps({**result, "published": True, "rollbackDirectory": backup_dir}, ensure_ascii=False)
     )
 
 

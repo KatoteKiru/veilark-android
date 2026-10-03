@@ -60,10 +60,10 @@ object TrustTunnelProfile {
   }
 
   /** Updates only the native general-mode exclusions on a previously compiled profile. */
-  internal fun withDirectCidrs(config: String, directCidrs: List<String>): String {
-    val exclusions = directCidrs.distinct().also { cidrs ->
-      require(cidrs.all(TrustTunnelGeoRouting::isValidCidr)) {
-        "Некорректный список CIDR для маршрутизации TrustTunnel"
+  internal fun withDirectExclusions(config: String, directExclusions: List<String>): String {
+    val exclusions = directExclusions.distinct().also { entries ->
+      require(entries.all(::isValidExclusion)) {
+        "Некорректное правило маршрутизации TrustTunnel"
       }
     }
     val replacement = "exclusions = ${tomlStringArray(exclusions)}"
@@ -74,6 +74,21 @@ object TrustTunnelProfile {
       config.replaceFirst(Regex("(?m)^\\[endpoint\\]"), "$replacement\n\n[endpoint]")
     }
     return updated
+  }
+
+  /** Compatibility wrapper for the pinned Russia-direct CIDR path. */
+  internal fun withDirectCidrs(config: String, directCidrs: List<String>): String =
+    withDirectExclusions(config, directCidrs)
+
+  private fun isValidExclusion(value: String): Boolean {
+    if (TrustTunnelGeoRouting.isValidCidr(value)) return true
+    val domain = value.removePrefix("*.")
+    return domain.isNotBlank() && domain.length <= 253 && domain.split('.').all { label ->
+      label.isNotBlank() && label.length <= 63 &&
+        label.firstOrNull()?.isLetterOrDigit() == true &&
+        label.lastOrNull()?.isLetterOrDigit() == true &&
+        label.all { it.isLetterOrDigit() || it == '-' }
+    }
   }
 
   private fun tomlStringArray(values: List<String>): String =

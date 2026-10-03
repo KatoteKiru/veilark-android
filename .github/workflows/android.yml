@@ -1,14 +1,27 @@
 name: Android verification
 
 on:
+  workflow_dispatch:
+    inputs:
+      upload_debug_apk:
+        description: Retain the optional debug APK in GitHub Actions storage
+        type: boolean
+        default: false
   pull_request:
   push:
-    branches: [master, main]
+    branches: [master, main, cursor/trusttunnel-query-deeplink]
 
 permissions:
   contents: read
 
 jobs:
+  ota-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Verify installed-client OTA origin compatibility
+        run: python3 -I -m unittest discover -s scripts -p 'test_*.py' -v
   oss:
     runs-on: ubuntu-latest
     timeout-minutes: 45
@@ -22,10 +35,14 @@ jobs:
       - name: Verify Gradle wrapper
         uses: gradle/actions/wrapper-validation@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
       - name: Test, lint and assemble OSS
-        run: ./gradlew testOssDebugUnitTest lintOssRelease assembleOssDebug assembleOssDebugAndroidTest --no-daemon --no-configuration-cache
+        run: |
+          python3 scripts/verify_trusttunnel_vendor.py
+          ./gradlew testOssDebugUnitTest lintOssRelease assembleOssDebug assembleOssDebugAndroidTest --no-daemon --no-configuration-cache
       - name: Upload installable debug APK
+        if: github.event_name == 'workflow_dispatch' && inputs.upload_debug_apk
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: veilark-oss-debug
+          retention-days: 3
           path: app/build/outputs/apk/oss/debug/app-oss-debug.apk
           if-no-files-found: error

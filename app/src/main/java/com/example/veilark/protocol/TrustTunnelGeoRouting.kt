@@ -37,8 +37,16 @@ object TrustTunnelGeoRouting {
     }
   }
 
-  fun currentDirectCidrs(context: Context): List<String> {
-    return if (isRussiaDirect(context)) ruCidrs(context) else emptyList()
+  fun currentDirectExclusions(context: Context): List<String> {
+    val preferences = context.getSharedPreferences("profile_meta", Context.MODE_PRIVATE)
+    return when (currentMode(preferences.getString("trust_routing_mode", null), preferences.getString("routing_mode", null))) {
+      ProfileSelection.ROUTING_RU_DIRECT -> ruCidrs(context)
+      ProfileSelection.ROUTING_MANUAL -> manualExclusions(
+        preferences.getString("trust_direct_routes", "").orEmpty(),
+        preferences.getString("trust_vpn_routes", "").orEmpty(),
+      )
+      else -> emptyList()
+    }
   }
 
   internal fun isRussiaDirect(context: Context): Boolean =
@@ -52,17 +60,41 @@ object TrustTunnelGeoRouting {
   internal fun isRussiaDirectMode(mode: String): Boolean =
     mode == ProfileSelection.ROUTING_RU_DIRECT
 
+  internal fun currentMode(trustMode: String?, legacyMode: String?): String =
+    (trustMode ?: legacyMode ?: ProfileSelection.ROUTING_ALL).takeIf {
+      it in setOf(
+        ProfileSelection.ROUTING_ALL,
+        ProfileSelection.ROUTING_MANUAL,
+        ProfileSelection.ROUTING_RU_DIRECT,
+      )
+    } ?: ProfileSelection.ROUTING_ALL
+
   /**
    * TrustTunnel and sing-box retain independent routing choices. The legacy
    * key remains only as a migration fallback for installations that predate
    * the engine-specific keys; it must not override a saved TrustTunnel choice.
    */
   internal fun isRussiaDirectMode(trustMode: String?, legacyMode: String?): Boolean =
-    isRussiaDirectMode(trustMode ?: legacyMode ?: ProfileSelection.ROUTING_ALL)
+    isRussiaDirectMode(currentMode(trustMode, legacyMode))
+
+  internal fun manualExclusions(directEntries: String, vpnEntries: String): List<String> {
+    val direct = ProfileSelection.routingEntries(directEntries)
+    val vpn = ProfileSelection.routingEntries(vpnEntries)
+    require(
+      direct.domains.isNotEmpty() || direct.networks.isNotEmpty() ||
+        vpn.domains.isNotEmpty() || vpn.networks.isNotEmpty(),
+    ) { "Добавьте хотя бы один домен или IP-диапазон" }
+    val vpnOverrides = (vpn.domains + vpn.networks).toSet()
+    return (
+      direct.networks + direct.domains
+        .filterNot(vpnOverrides::contains)
+        .flatMap { domain -> listOf(domain, "*.$domain") }
+      ).distinct()
+  }
 
   /** TrustTunnel starts as a full tunnel; direct CIDRs are applied after CONNECTED. */
   fun startupConfig(config: String): String =
-    TrustTunnelProfile.withDirectCidrs(config, emptyList())
+    TrustTunnelProfile.withDirectExclusions(config, emptyList())
 
   internal fun parseRuCidrs(payload: String): List<String> {
     val rules = JSONObject(payload).optJSONArray("rules")

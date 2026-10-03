@@ -1,0 +1,19 @@
+diff --git a/platform/android/lib/src/main/java/com/adguard/trusttunnel/VpnService.kt b/platform/android/lib/src/main/java/com/adguard/trusttunnel/VpnService.kt
+--- a/platform/android/lib/src/main/java/com/adguard/trusttunnel/VpnService.kt
++++ b/platform/android/lib/src/main/java/com/adguard/trusttunnel/VpnService.kt
+@@ -232,7 +232,6 @@ class VpnService : android.net.VpnService(), VpnClientListener {
+     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+         if (intent == null) {
+             LOG.info("Received a null intent, doing nothing")
+-            notifyDisconnectedOnce(currentSessionId)
+             stopSelf()
+             return START_NOT_STICKY
+         }
+@@ -310,7 +310,6 @@ class VpnService : android.net.VpnService(), VpnClientListener {
+                         singleThread.execute {
+                             service.closeIfLast(startId, sessionId)
+                         }
+-                        service.notifyDisconnectedOnce(sessionId)
+                     }
+                 } catch (e: Exception) {
+                     LOG.warn("Failed to process unknown VPN state $state: $e")

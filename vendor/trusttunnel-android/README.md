@@ -4,18 +4,19 @@ This directory contains the reproducibility inputs for Veilark's locally
 patched TrustTunnel Android library. The complete upstream repository is not
 vendored into Veilark.
 
-## Production baseline
+## Source canary baseline
 
 - Upstream repository: `https://github.com/TrustTunnel/TrustTunnelClient.git`
-- Tag: `v1.1.4`
-- Commit: `7da863b1b947d22a3131d94dcc7c80b0240b6e97`
-- Patches: `patches/0001-android-per-app-routing.patch` and
-  `patches/0002-android-lifecycle-hardening.patch`
+- Tag: `v1.1.7`
+- Commit: `170609c24ca865819fed68437b01c013049bc3fa`
+- Patches: `patches/0001-android-per-app-routing.patch`,
+  `patches/0002-android-lifecycle-hardening.patch`, and
+  `patches/0003-post-close-terminal-fence.patch`
 - Installed AAR: `app/libs/trusttunnel-client.aar`
 - Installed AAR SHA-256:
-  `3F442054AF06297C9E6103FACB34508B420C2E28F198CB6EE6958546679B2944`
+  `37B13174F6FD7193EB9343E82B88D5D5847B98973B79462A680214B84D9CA949`
 
-The patch preserves two Veilark Android lifecycle requirements:
+The patches preserve Veilark Android lifecycle requirements:
 
 - Android 14+ starts the service with `FOREGROUND_SERVICE_TYPE_SPECIAL_USE`,
   matching Veilark's host manifest;
@@ -47,24 +48,44 @@ so changing routing while connected requires a controlled tunnel restart.
 
 ## Rebuild
 
+The artifact is built from the complete upstream v1.1.7 source with all three
+local patches applied in order. The official v1.1.5-to-v1.1.7 comparison has no
+Android-source changes; the update advances the upstream client and pins its
+matching `dns-libs` 2.10.2 and `native_libs_common` 8.1.52 dependencies. This
+build recompiles both native Android ABIs; no native library is copied from the
+previous AAR.
+
 The tracked PowerShell recipe clones the exact upstream commit, exports the
-pinned public Conan recipes, applies the patch, builds both Android native ABIs,
-runs the upstream adapter unit tests, and verifies the final AAR and payload
-hashes:
+pinned public Conan recipes, checks and applies each patch sequentially,
+builds both Android native ABIs, runs the upstream adapter unit tests, and
+verifies the final AAR and payload hashes:
 
 ```powershell
 pwsh -File vendor/trusttunnel-android/scripts/build-adapter.ps1 `
-  -OutputAar app/libs/trusttunnel-client.aar `
-  -WorkDirectory C:\build\trusttunnel-1.1.4
+  -OutputAar trusttunnel-client-1.1.7.aar `
+  -WorkDirectory C:\build\trusttunnel-1.1.7
 ```
 
-The final artifact is a full source build. No native library from the previous
-1.0.49 AAR is retained. Exact toolchain, dependency commits, ABI hashes, and
-verification results are recorded in `UPSTREAM.json`.
+The final artifact is a full source build. Exact toolchain, dependency commits,
+patch hashes, per-ABI hashes, and verification results are recorded in
+`UPSTREAM.json`. Two exact-recipe builds from separate work directories
+produced byte-identical AARs and payload trees. All 23 upstream Android unit
+tests passed. The bytecode gate confirms Android 14+ foreground-service type,
+application routing, lifecycle/session fencing, and runtime exclusions. The
+class-file comparison against the installed v1.1.5 AAR found all 68 class files
+byte-identical; each native ABI retained the same 15 JNI exports. App-level
+integration tests, release lint, and physical-device acceptance remain
+separate checks and are not claimed here.
+
+Veilark intentionally retains its on-demand physical-network monitor instead of invoking upstream
+`VpnService.initialize()`: the upstream initializer starts the monitor for the
+whole process lifetime, while Veilark stops it after each terminal VPN session
+to avoid idle battery and network-callback cost.
 
 Absolute source/build roots are remapped for Clang and Rust. GNU SHA-1 BuildIds
 still drifted while all remaining ELF sections were byte-identical, so the
 recipe uses `-Wl,--build-id=none`. Android tombstones therefore require manual
 matching by Veilark version and the per-ABI SHA-256 values in `UPSTREAM.json`.
-The corresponding unstripped libraries are retained in
-`build/release/rc19/trusttunnel-client-1.1.4-native-symbols.zip`.
+The corresponding canary unstripped libraries are retained outside published
+OTA artifacts until physical Android start/stop, application split, and
+Wi-Fi/LTE transition acceptance is complete.

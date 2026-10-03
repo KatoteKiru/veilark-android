@@ -1,4 +1,5 @@
 <resources>
+    <string name="update_notice_body">Откройте Veilark, чтобы посмотреть изменения и установить обновление.</string>
     <string name="subscriptions_and_servers">Подписки и серверы</string>
     <string name="profiles_and_servers">Профили и серверы</string>
     <string name="subscriptions">Подписки</string>
@@ -10,6 +11,9 @@
     <string name="subscription_get_or_renew">Открыть Telegram-бот Veilark</string>
     <string name="subscription_bot_note">Получение и продление подписки — в боте Veilark. Оплата скоро появится.</string>
     <string name="subscription_bot_open_failed">Не удалось открыть Telegram-бот Veilark. Откройте @senyavpn_bot вручную.</string>
+    <string name="web_account_open">Открыть веб-кабинет</string>
+    <string name="web_account_note">Управляйте подпиской и устройствами в веб-кабинете Veilark.</string>
+    <string name="web_account_open_failed">Не удалось открыть веб-кабинет Veilark.</string>
     <string name="subscription_paste">Вставить ссылку подписки из буфера обмена</string>
     <string name="subscription_scan_qr">Добавить подписку по QR-коду</string>
     <string name="subscription_refresh">Обновить выбранную подписку</string>
@@ -99,7 +103,7 @@
     <string name="enabled_value">Включена</string>
     <string name="trust_full_tunnel">Полный туннель через TrustTunnel</string>
     <string name="trust_russia_direct_description">Российские сети IPv4/IPv6 идут напрямую, остальной трафик — через TrustTunnel</string>
-    <string name="trust_routing_mode_unsupported">TrustTunnel поддерживает только полный туннель или режим «Россия напрямую». Свои доменные правила доступны в sing-box.</string>
+    <string name="trust_routing_mode_unsupported">Выбранный режим не поддерживается установленным ядром TrustTunnel.</string>
     <string name="protection">Защита</string>
     <string name="close_routing">Закрыть настройки маршрутизации</string>
     <string name="custom_rules_description">Укажите, что направлять напрямую или через VPN</string>
@@ -107,7 +111,7 @@
     <string name="routes_input_hint">Домены и сети через пробел или с новой строки</string>
     <string name="always_vpn">Всегда через VPN</string>
     <string name="vpn_routes_priority">Эти правила имеют приоритет над прямыми</string>
-    <string name="trust_app_rules_note">Для TrustTunnel доступны правила по приложениям и обход российских IP-сетей. Android применяет изменения при создании VPN-интерфейса, поэтому после изменения настроек переподключитесь. Свои доменные правила доступны в sing-box.</string>
+    <string name="trust_app_rules_note">TrustTunnel поддерживает фильтры приложений, режим «Россия напрямую» и свои исключения по доменам/IP. Android применяет правила при создании VPN-интерфейса, поэтому после изменения настроек переподключитесь.</string>
     <string name="apps_only_vpn">Только выбранные через VPN</string>
     <string name="apps_bypass_vpn">Выбранные без VPN</string>
     <string name="nothing_selected">Ничего не выбрано</string>
@@ -143,7 +147,7 @@
     <string name="veilark_license_title">Veilark · GPL-3.0-or-later</string>
     <string name="trust_license_title">TrustTunnelClient · Apache-2.0</string>
     <string name="third_party_notices_title">Уведомления сторонних компонентов</string>
-    <string name="trust_attribution">Veilark включает изменённый Android-адаптер и нативное ядро TrustTunnelClient v1.1.4, Copyright 2020 Adguard Software Ltd, лицензия Apache License 2.0. В Android-адаптере сохранены исправления жизненного цикла и добавлена маршрутизация по приложениям.</string>
+    <string name="trust_attribution">Veilark включает изменённый Android-адаптер и нативное ядро TrustTunnelClient v1.1.5, Copyright 2020 Adguard Software Ltd, лицензия Apache License 2.0. В Android-адаптере сохранены исправления жизненного цикла и добавлена маршрутизация по приложениям.</string>
     <string name="independent_project_notice">Veilark — независимый проект сообщества. Он не связан с AdGuard, TrustTunnel, SagerNet или sing-box и не одобрен ими.</string>
     <string name="legal_document_back">Назад к лицензиям</string>
     <string name="qr_permission_required">Для сканирования QR разрешите доступ к камере</string>
@@ -186,7 +190,7 @@
     <string name="routing_save_failed">Не удалось сохранить маршрутизацию приложений</string>
     <string name="routing_saved">Маршрутизация сохранена</string>
     <string name="routing_saved_reconnect">Маршрутизация сохранена. Переподключитесь, чтобы применить её.</string>
-    <string name="update_geo_data">Обновить GEO-данные с GitHub</string>
+    <string name="update_geo_data">Обновить GEO-данные из управляемого источника</string>
     <string name="geo_update_success">GEO-данные обновлены. Они применятся при следующем подключении sing-box.</string>
     <string name="geo_update_failed">Не удалось обновить GEO-данные. Предыдущая проверенная версия сохранена.</string>
     <string name="routing_apply_failed">Не удалось применить маршрутизацию</string>
@@ -219,4 +223,13 @@
     <string name="network_cellular">мобильную сеть</string>
     <string name="network_physical">новую физическую сеть</string>
     <plurals name="server_count"><item quantity="one">%1$d сервер</item><item quantity="few">%1$d сервера</item><item quantity="many">%1$d серверов</item><item quantity="other">%1$d серверов</item></plurals>
+    <!-- Material 3 Expressive labelled actions -->
+    <string name="action_paste">Вставить ссылку</string>
+    <string name="action_scan_qr">Сканировать QR</string>
+    <string name="action_choose_file">Выбрать файл</string>
+    <string name="action_apply">Применить</string>
+    <string name="action_import">Импортировать</string>
+    <string name="action_enter_link">Ввести ссылку</string>
+    <string name="fab_menu_close">Закрыть меню добавления</string>
+    <string name="connection_picker_actions">Действия с подписками</string>
 </resources>

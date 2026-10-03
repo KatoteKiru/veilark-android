@@ -10,6 +10,7 @@ param(
     [string]$JavaHome = $env:JAVA_HOME,
     [string]$PythonLauncher = 'py',
     [string]$ConanExecutable = "$env:APPDATA\Python\Python312\Scripts\conan.exe",
+    [string]$GitBash = 'C:\Program Files\Git\bin\bash.exe',
     [string]$RustToolchain = '1.95-x86_64-pc-windows-gnu',
     [string]$HostManifest
 )
@@ -18,29 +19,29 @@ $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
 $UpstreamRepository = 'https://github.com/TrustTunnel/TrustTunnelClient.git'
-$UpstreamCommit = '7da863b1b947d22a3131d94dcc7c80b0240b6e97'
+$UpstreamCommit = '170609c24ca865819fed68437b01c013049bc3fa'
 $DnsLibsRepository = 'https://github.com/AdguardTeam/DnsLibs.git'
-$DnsLibsBootstrapTag = 'v2.8.52'
-$DnsLibsPackageVersion = '2.8.51'
+$DnsLibsCommit = '0c6e855b12eee2f696e7cc30719532fda4fdd512'
 $NativeLibsRepository = 'https://github.com/AdguardTeam/NativeLibsCommon.git'
-$NativeLibsTag = 'v8.1.28'
+$NativeLibsCommit = '58cef252031e2cc1f540ecaec2952f5f32afa3a1'
 $CMakeVersion = '3.31.6'
-$ExpectedAarHash = '3F442054AF06297C9E6103FACB34508B420C2E28F198CB6EE6958546679B2944'
-$ExpectedClassesHash = 'CA9AC0DD3428C40923035BEB46BD146FF3B34403CF0EA7DDC5D5E8C5CA1E4DE0'
-$ExpectedContentTreeHash = 'FC6B76F5BB4206B9484A4AC398CA1E1651D10D09C30AEF65A4641F22C939CD12'
+$ExpectedAarHash = '37B13174F6FD7193EB9343E82B88D5D5847B98973B79462A680214B84D9CA949'
+$ExpectedClassesHash = '9037A0F28CA9B1FC5D489909F4D125220F993417CBF8795060DE654878C1F9F6'
+$ExpectedContentTreeHash = '3130E0D22F41D005ACEA17552304829EC508B06600D9F14F8228B510FA653A26'
 $PatchPaths = @(
     (Resolve-Path (Join-Path $PSScriptRoot '..\patches\0001-android-per-app-routing.patch')).Path
     (Resolve-Path (Join-Path $PSScriptRoot '..\patches\0002-android-lifecycle-hardening.patch')).Path
+    (Resolve-Path (Join-Path $PSScriptRoot '..\patches\0003-post-close-terminal-fence.patch')).Path
 )
 
 $ExpectedPayloadHashes = [ordered]@{
     'AndroidManifest.xml' = 'E2B8620B22BF37D9860165BBA5DF9B1B4FFF41CBDFDD240D7038628A077941BA'
     'R.txt' = 'E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855'
-    'proguard.txt' = '59A5016DC2777C4A21B3C88D1D2BA7BDF36999EFF08CECB301E00E2EAD478510'
-    'assets/logback.xml' = '7AC50F5A58E5FB5DFA8648CB459E4FB8B45DF3D6C50AEEC4DC1AFA64321D77C4'
+    'proguard.txt' = '6F171F5DC85E4A7DDBF78238C12B17F8B8CB4EAC5B3243B2E1BD6EC726ECA7E1'
+    'assets/logback.xml' = '855E8C942F1D4198F0BECDD9E2FC9ADD6744710EB04607D188D61F3B512A5083'
     'META-INF/com/android/build/gradle/aar-metadata.properties' = '9CC8517BBDF06D879F57A2CFD6F8C6914E48800D443421CD850971945F98E7B2'
-    'jni/arm64-v8a/libtrusttunnel_android.so' = 'CA5EB273585EF11BEA42FBAB659874B51BA0C65F898E0F078869A368D6019040'
-    'jni/armeabi-v7a/libtrusttunnel_android.so' = '1D17677028E1E12D054E36CCFE846E52B095D6ACD4C885DB9554A7214AA041A5'
+    'jni/arm64-v8a/libtrusttunnel_android.so' = '8F30EFD7F14AC002354CF29E424490085255B9ACC954BAB381DEF2DE04547A4D'
+    'jni/armeabi-v7a/libtrusttunnel_android.so' = 'D7D5B62B3E8C0CA3C2394C87309E7C4FD82A6D8CE8BD904C6EC160FDAE526D8E'
 }
 
 function Get-Sha256([string]$Path) {
@@ -92,15 +93,19 @@ function Assert-TrustAdapterBytecode([string]$ClassesJar) {
     if ($service -notmatch 'stopping the foreground service') {
         throw 'Early-failure foreground-service cleanup is missing.'
     }
-    if ($service -notmatch 'updateExclusions' -or $service -notmatch 'DISCONNECTED') {
-        throw 'Runtime exclusions or early-failure state notification is missing.'
+    $client = (& javap -classpath $ClassesJar -c -p com.adguard.trusttunnel.VpnClient) -join "`n"
+    if ($LASTEXITCODE -ne 0 -or $client -notmatch 'updateExclusionsNative') {
+        throw 'Runtime exclusions are missing.'
     }
     $companion = (& javap -classpath $ClassesJar -c -p 'com.adguard.trusttunnel.VpnService$Companion') -join "`n"
     if ($LASTEXITCODE -ne 0 -or
         $companion -notmatch 'public final boolean start\(android\.content\.Context, java\.lang\.String, long\)' -or
         $companion -notmatch 'public final boolean stop\(android\.content\.Context, long\)' -or
-        $companion -notmatch 'public final void stopNetworkManager\(') {
-        throw 'Session-fenced service start/stop or network-manager cleanup API is missing.'
+        $companion -notmatch 'public final void stopNetworkManager\(' -or
+        $companion -notmatch 'public final void initialize\(android\.content\.Context\)' -or
+        $companion -notmatch 'public final java\.util\.List<java\.lang\.String> exportLogs\(android\.content\.Context\)' -or
+        $companion -notmatch 'public final void clearLogs\(\)') {
+        throw 'Session-fenced service start/stop, cleanup, or TrustTunnel logging API is missing.'
     }
     if ($service -notmatch 'notifyDisconnectedOnce' -or
         $service -notmatch 'AtomicLong.compareAndSet' -or
@@ -142,17 +147,30 @@ function Assert-HostManifest([string]$ManifestPath) {
     if ($null -eq $permission) {
         throw 'Host manifest is missing FOREGROUND_SERVICE_SPECIAL_USE.'
     }
+    foreach ($requiredPermission in @(
+        'android.permission.ACCESS_NETWORK_STATE',
+        'android.permission.FOREGROUND_SERVICE'
+    )) {
+        $node = $manifest.SelectSingleNode(
+            "/manifest/uses-permission[@android:name='$requiredPermission']",
+            $namespaces
+        )
+        if ($null -eq $node) {
+            throw "Host manifest is missing $requiredPermission."
+        }
+    }
 }
 
 $AndroidSdk = (Resolve-Path -LiteralPath $AndroidSdk).Path
 $JavaHome = (Resolve-Path -LiteralPath $JavaHome).Path
 $ConanExecutable = (Resolve-Path -LiteralPath $ConanExecutable).Path
+$GitBash = (Resolve-Path -LiteralPath $GitBash).Path
 $cmakeBin = Join-Path $AndroidSdk "cmake\$CMakeVersion\bin"
 if (-not (Test-Path -LiteralPath (Join-Path $cmakeBin 'cmake.exe') -PathType Leaf)) {
     throw "Android SDK CMake $CMakeVersion is required."
 }
-if (-not (Test-Path -LiteralPath (Join-Path $AndroidSdk 'ndk\28.1.13356709\source.properties') -PathType Leaf)) {
-    throw 'Android NDK 28.1.13356709 is required.'
+if (-not (Test-Path -LiteralPath (Join-Path $AndroidSdk 'ndk\29.0.14206865\source.properties') -PathType Leaf)) {
+    throw 'Android NDK 29.0.14206865 is required.'
 }
 
 if ([string]::IsNullOrWhiteSpace($HostManifest)) {
@@ -193,6 +211,7 @@ Invoke-Checked 'rustup' @('run', $RustToolchain, 'rustc', '--version') $work
 Invoke-Checked 'cargo' @('ndk', '--version') $work
 
 Invoke-Checked 'git' @('clone', '--filter=blob:none', '--no-checkout', $UpstreamRepository, $source) $work
+Invoke-Checked 'git' @('config', 'core.autocrlf', 'false') $source
 Invoke-Checked 'git' @('checkout', '--detach', $UpstreamCommit) $source
 $actualCommit = (& git -C $source rev-parse HEAD).Trim()
 if ($actualCommit -ne $UpstreamCommit) {
@@ -200,28 +219,30 @@ if ($actualCommit -ne $UpstreamCommit) {
 }
 
 Invoke-Checked 'git' @('clone', $DnsLibsRepository, $dnsLibs) $work
-Invoke-Checked 'git' @('checkout', $DnsLibsBootstrapTag) $dnsLibs
-Invoke-Checked $PythonLauncher @('scripts/export_conan.py', $DnsLibsPackageVersion) $dnsLibs
+Invoke-Checked 'git' @('checkout', '--detach', $DnsLibsCommit) $dnsLibs
 
 Invoke-Checked 'git' @('clone', $NativeLibsRepository, $nativeLibs) $work
-Invoke-Checked 'git' @('checkout', $NativeLibsTag) $nativeLibs
-Invoke-Checked $PythonLauncher @('scripts/export_conan.py', '8.1.28') $nativeLibs
+Invoke-Checked 'git' @('checkout', '--detach', $NativeLibsCommit) $nativeLibs
+Invoke-Checked $GitBash @('scripts/export_conan.sh') $nativeLibs
+Invoke-Checked $GitBash @('scripts/export_conan.sh') $dnsLibs
 
 foreach ($patchPath in $PatchPaths) {
-    Invoke-Checked 'git' @('apply', '--check', $patchPath) $source
-    Invoke-Checked 'git' @('apply', $patchPath) $source
+    # Git for Windows checks out LF blobs as CRLF even with core.autocrlf=false;
+    # ignore whitespace-only line-ending differences without permitting offsets/fuzz.
+    Invoke-Checked 'git' @('apply', '--check', '--ignore-space-change', $patchPath) $source
+    Invoke-Checked 'git' @('apply', '--ignore-space-change', $patchPath) $source
 }
 
 # Upstream uses __FILE__ in loadable strings, so an absolute checkout path
 # changes .rodata, code layout and the ELF build ID. Remap the entire isolated
-# work root at compile time for reproducible binaries without post-link edits.
-$workForward = $work.Replace('\', '/')
+# source checkout at compile time for reproducible binaries without post-link edits.
+$sourceForward = $source.Replace('\', '/')
 $stableWorkRoot = '/work/veilark-trusttunnel'
 $clangRemap = @(
-    "-ffile-prefix-map=$workForward=$stableWorkRoot"
-    "-fmacro-prefix-map=$workForward=$stableWorkRoot"
+    "-ffile-prefix-map=$sourceForward=$stableWorkRoot"
+    "-fmacro-prefix-map=$sourceForward=$stableWorkRoot"
 ) -join ' '
-$rustRemap = "--remap-path-prefix=$workForward=$stableWorkRoot"
+$rustRemap = "--remap-path-prefix=$sourceForward=$stableWorkRoot"
 $existingCFlags = [Environment]::GetEnvironmentVariable('CFLAGS', 'Process')
 $existingCxxFlags = [Environment]::GetEnvironmentVariable('CXXFLAGS', 'Process')
 $existingRustFlags = [Environment]::GetEnvironmentVariable('RUSTFLAGS', 'Process')
@@ -230,6 +251,7 @@ $env:CXXFLAGS = (@($existingCxxFlags, $clangRemap) | Where-Object { -not [string
 $env:VEILARK_REPRO_CFLAGS = $clangRemap
 $env:VEILARK_REPRO_LINKER_FLAGS = '-Wl,--build-id=none'
 $env:RUSTFLAGS = (@($existingRustFlags, $rustRemap) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }) -join ' '
+$env:TT_CLIENT_VERSION = '1.1.7'
 Write-Host "Clang reproducibility flags: $clangRemap"
 Write-Host "Rust reproducibility flags: $rustRemap"
 Write-Host "Linker reproducibility flags: $env:VEILARK_REPRO_LINKER_FLAGS"
@@ -261,5 +283,5 @@ if ($contentTreeHash -ne $ExpectedContentTreeHash) {
 Assert-TrustAdapterBytecode (Join-Path $inspect 'classes.jar')
 Assert-Hash $resolvedOutput $ExpectedAarHash
 
-Write-Host "Built and verified TrustTunnel 1.1.4 Android AAR: $resolvedOutput"
+Write-Host "Built and verified TrustTunnel 1.1.7 Android AAR: $resolvedOutput"
 Write-Host "SHA-256: $ExpectedAarHash"

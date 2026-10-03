@@ -1,8 +1,8 @@
 diff --git a/platform/android/lib/build.gradle.kts b/platform/android/lib/build.gradle.kts
-index 0a975a39713c28ad3b8771f02d7fbb2f6aa26c56..de771a62d4c9f03c9f9e981e9079debaae74dc90 100644
+index 80f1b86f5745f2ebdd3ea79613a5ba3c8ae998ba..a1a69edc71d0f3fa27b3315a2044ba6c15f88acc 100644
 --- a/platform/android/lib/build.gradle.kts
 +++ b/platform/android/lib/build.gradle.kts
-@@ -15,6 +15,10 @@ android {
+@@ -41,6 +41,10 @@ android {
      defaultConfig {
          minSdk = 26
  
@@ -13,7 +13,7 @@ index 0a975a39713c28ad3b8771f02d7fbb2f6aa26c56..de771a62d4c9f03c9f9e981e9079deba
          testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
          consumerProguardFiles("proguard-rules.pro")
          externalNativeBuild {
-@@ -45,6 +49,7 @@ android {
+@@ -72,6 +76,7 @@ android {
      externalNativeBuild {
          cmake {
              path = file("src/main/cpp/CMakeLists.txt")
@@ -137,10 +137,10 @@ index 0000000000000000000000000000000000000000..433702485a5c039988d6e58c12243c88
 +    return appliedRules
 +}
 diff --git a/platform/android/lib/src/main/java/com/adguard/trusttunnel/VpnClient.kt b/platform/android/lib/src/main/java/com/adguard/trusttunnel/VpnClient.kt
-index a23379d2626a76441a918251e3d6c83d1609ea05..1201289da1cc0dc056076900efd54f59eec09274 100644
+index 3ed238d71db28bf14031042b55338461085431d2..537cbd9b61b257b1e54d618441aa4e9fbdad96a1 100644
 --- a/platform/android/lib/src/main/java/com/adguard/trusttunnel/VpnClient.kt
 +++ b/platform/android/lib/src/main/java/com/adguard/trusttunnel/VpnClient.kt
-@@ -6,6 +6,9 @@ import com.adguard.trusttunnel.log.NativeLogger
+@@ -5,6 +5,9 @@ import com.adguard.trusttunnel.log.NativeLogger
  import com.adguard.trusttunnel.log.NativeLoggerLevel
  import java.io.Closeable
  
@@ -150,7 +150,7 @@ index a23379d2626a76441a918251e3d6c83d1609ea05..1201289da1cc0dc056076900efd54f59
  class VpnClient (
      private val config: String,
      private val callbacks: VpnClientListener?
-@@ -60,6 +63,14 @@ class VpnClient (
+@@ -59,6 +62,14 @@ class VpnClient (
          notifyNetworkChangeNative(nativePtr, available);
      }
  
@@ -165,7 +165,7 @@ index a23379d2626a76441a918251e3d6c83d1609ea05..1201289da1cc0dc056076900efd54f59
      override fun close() = synchronized(sync) {
          if (nativePtr.toInt() != 0) {
              destroyNative(nativePtr);
-@@ -87,5 +98,6 @@ class VpnClient (
+@@ -86,5 +97,6 @@ class VpnClient (
      private external fun startNative(nativePtr: Long, tunFd: Int): Boolean;
      private external fun stopNative(nativePtr: Long);
      private external fun notifyNetworkChangeNative(nativePtr: Long, available: Boolean);
@@ -175,7 +175,7 @@ index a23379d2626a76441a918251e3d6c83d1609ea05..1201289da1cc0dc056076900efd54f59
 \ No newline at end of file
 +}
 diff --git a/platform/android/lib/src/main/java/com/adguard/trusttunnel/VpnService.kt b/platform/android/lib/src/main/java/com/adguard/trusttunnel/VpnService.kt
-index ed3373ba6b440e9a839c58ccc0507e2c4f0791ea..d09f1855a12aaf1c880d553e87bea020cdd32f7e 100644
+index b12c4b24513b6cc28395358e6b9acdd35a97e276..42737d612bb6a0551b1fc099486df10814fd70e2 100644
 --- a/platform/android/lib/src/main/java/com/adguard/trusttunnel/VpnService.kt
 +++ b/platform/android/lib/src/main/java/com/adguard/trusttunnel/VpnService.kt
 @@ -5,6 +5,7 @@ import android.app.NotificationChannel
@@ -186,7 +186,7 @@ index ed3373ba6b440e9a839c58ccc0507e2c4f0791ea..d09f1855a12aaf1c880d553e87bea020
  import android.content.pm.ServiceInfo
  import android.net.ConnectivityManager
  import android.net.NetworkCapabilities
-@@ -70,6 +71,9 @@ class VpnService : android.net.VpnService(), VpnClientListener {
+@@ -77,6 +78,9 @@ class VpnService : android.net.VpnService(), VpnClientListener {
          fun start(context: Context, config: String?) = start(context, ACTION_START, config)
          private fun start(context: Context, action: String, config: String?) = start(context, getIntent(context, action), config)
  
@@ -196,7 +196,7 @@ index ed3373ba6b440e9a839c58ccc0507e2c4f0791ea..d09f1855a12aaf1c880d553e87bea020
          fun startNetworkManager(context: Context) = synchronized(NETWORK_MANAGER_SYNC) {
              if (::networkCallback.isInitialized) {
                  // Avoid double initialization
-@@ -146,8 +150,8 @@ class VpnService : android.net.VpnService(), VpnClientListener {
+@@ -203,8 +207,8 @@ class VpnService : android.net.VpnService(), VpnClientListener {
  
          // Foreground service must spawn its notification in the first 5 seconds of the service lifetime
          val notification = createNotification(this.applicationContext)
@@ -207,7 +207,7 @@ index ed3373ba6b440e9a839c58ccc0507e2c4f0791ea..d09f1855a12aaf1c880d553e87bea020
          } else {
              startForeground(NOTIFICATION_ID, notification)
          }
-@@ -186,27 +190,23 @@ class VpnService : android.net.VpnService(), VpnClientListener {
+@@ -243,27 +247,23 @@ class VpnService : android.net.VpnService(), VpnClientListener {
          }
          if (configStr == null) {
              LOG.error("Failed to get the Vpn Interface config settings")
@@ -239,7 +239,7 @@ index ed3373ba6b440e9a839c58ccc0507e2c4f0791ea..d09f1855a12aaf1c880d553e87bea020
          // This is required to save startId and pass it to `closeIfLast` in case of DISCONNECTED state event
          val service = this
          val proxyClientListener = object : VpnClientListener by service {
-@@ -230,12 +230,24 @@ class VpnService : android.net.VpnService(), VpnClientListener {
+@@ -287,12 +287,24 @@ class VpnService : android.net.VpnService(), VpnClientListener {
          startNetworkNotifications(vpnClient)
          if (vpnClient?.start(vpnTunInterface) != true) {
              LOG.error("Failed to start Vpn client");
@@ -265,7 +265,7 @@ index ed3373ba6b440e9a839c58ccc0507e2c4f0791ea..d09f1855a12aaf1c880d553e87bea020
      override fun onRevoke() = singleThread.execute {
          LOG.info("Revoking the VPN service")
          close()
-@@ -249,7 +261,7 @@ class VpnService : android.net.VpnService(), VpnClientListener {
+@@ -306,7 +318,7 @@ class VpnService : android.net.VpnService(), VpnClientListener {
                  .setMtu(tunConfig.mtuSize.toInt())
                  .addAddress("172.20.2.13", 32)
                  .addAddress("fdfd:29::2", 64)
@@ -274,7 +274,7 @@ index ed3373ba6b440e9a839c58ccc0507e2c4f0791ea..d09f1855a12aaf1c880d553e87bea020
              val dnsServers = if (config.endpoint.dnsUpstreams.isEmpty()) {
                  ADGUARD_DNS_SERVERS
              } else {
-@@ -278,6 +290,45 @@ class VpnService : android.net.VpnService(), VpnClientListener {
+@@ -335,6 +347,45 @@ class VpnService : android.net.VpnService(), VpnClientListener {
          }
      }
  
@@ -320,7 +320,7 @@ index ed3373ba6b440e9a839c58ccc0507e2c4f0791ea..d09f1855a12aaf1c880d553e87bea020
      /**
       * Closes the VPN TUN interface and stops itself only if the called is the only one who
       * tries to stop the service.
-@@ -300,7 +351,15 @@ class VpnService : android.net.VpnService(), VpnClientListener {
+@@ -357,7 +408,15 @@ class VpnService : android.net.VpnService(), VpnClientListener {
       *         false if something is wrong with closing or the service has already been closed
       */
      private fun close(startId: Int? = null): Boolean {
@@ -337,7 +337,7 @@ index ed3373ba6b440e9a839c58ccc0507e2c4f0791ea..d09f1855a12aaf1c880d553e87bea020
  
          LOG.info("Closing VPN service")
  
-@@ -381,4 +440,4 @@ class VpnService : android.net.VpnService(), VpnClientListener {
+@@ -438,4 +497,4 @@ class VpnService : android.net.VpnService(), VpnClientListener {
              // This is a key characteristic of foreground service notifications.
              .build()
      }
@@ -500,10 +500,10 @@ index 9306dd6bc93f184d0527bdb9a6864f88fece9b52..d5eae73d85de69584e8d152392c9cd14
  
      void notify_sleep();
 diff --git a/trusttunnel/src/client.cpp b/trusttunnel/src/client.cpp
-index 46f59a52df3197b06a30393593a9708a3e67a066..e707f4312fd545a18fde7a009396482433b2514a 100644
+index f540a21d913bfdc414199a884ee69c110cafce79..7215afdc416708fd59ef339ec98cbfbbbbac19fb 100644
 --- a/trusttunnel/src/client.cpp
 +++ b/trusttunnel/src/client.cpp
-@@ -56,6 +56,14 @@ int TrustTunnelClient::disconnect() {
+@@ -61,6 +61,14 @@ int TrustTunnelClient::disconnect() {
      return 0;
  }
  

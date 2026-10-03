@@ -14,8 +14,8 @@ fail() {
 
 [ "$(uname -s)" = "Darwin" ] || fail "must run on macOS"
 case "$(uname -m)" in
-  arm64) SING_SHA="5b75c1dec19488675f725adc7a6e3a7301a553117af835dc47669b1fa918976b" ;;
-  x86_64) SING_SHA="078164e43464f2282ae526151411320582c3e60a0294cec24a627edf205305a6" ;;
+  arm64) SING_SHA="c71877673f3f444a11b3197b5f4c8e3954afb1341ddcf7ea8068f3bf6b187e12" ;;
+  x86_64) SING_SHA="a14b86ae891ce92a740cc1f0647a3c2c5a6b951bf60a47294d0311099626cf5c" ;;
   *) fail "unsupported architecture: $(uname -m)" ;;
 esac
 
@@ -62,5 +62,5 @@ for architecture in arm64 x86_64; do
   lipo -archs "$COMMON/trusttunnel_client" | tr ' ' '\n' | grep -qx "$architecture" || fail "trusttunnel_client is not universal ($architecture absent)"
 done
 
-"$COMMON/sing-box" version | grep -q '^sing-box version 1\.13\.19' || fail "unexpected sing-box version"
+"$COMMON/sing-box" version | grep -q '^sing-box version 1\.13\.21' || fail "unexpected sing-box version"
 echo "Verified macOS package assets for $(uname -m)."

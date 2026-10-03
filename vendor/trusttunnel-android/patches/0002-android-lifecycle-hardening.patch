@@ -1,12 +1,10 @@
-warning: in the working copy of 'platform/android/lib/src/main/java/com/adguard/trusttunnel/AppNotifier.kt', LF will be replaced by CRLF the next time Git touches it
-warning: in the working copy of 'platform/android/lib/src/main/java/com/adguard/trusttunnel/VpnService.kt', LF will be replaced by CRLF the next time Git touches it
 diff --git a/platform/android/lib/build.gradle.kts b/platform/android/lib/build.gradle.kts
-index de771a6..3aeb729 100644
+index a1a69edc71d0f3fa27b3315a2044ba6c15f88acc..489b0f90888459dfc2de3e940ec80f93277fac41 100644
 --- a/platform/android/lib/build.gradle.kts
 +++ b/platform/android/lib/build.gradle.kts
-@@ -7,6 +7,9 @@ plugins {
- 
- version = "1.1.4"
+@@ -33,6 +33,9 @@ fun resolveTtClientVersion(project: Project): String {
+ val ttClientVersion = resolveTtClientVersion(project)
+ version = ttClientVersion
  
 +val veilarkReproCFlags = providers.environmentVariable("VEILARK_REPRO_CFLAGS").orNull
 +val veilarkReproLinkerFlags = providers.environmentVariable("VEILARK_REPRO_LINKER_FLAGS").orNull
@@ -14,10 +12,10 @@ index de771a6..3aeb729 100644
  android {
      namespace = "com.adguard.trusttunnel"
      compileSdk = 35
-@@ -26,6 +29,13 @@ android {
-                 targets += "trusttunnel_android"
+@@ -53,6 +56,13 @@ android {
                  arguments += "-DANDROID_STL=c++_static"
                  arguments += "-DCMAKE_BUILD_TYPE=RelWithDebInfo"
+                 arguments += "-DTT_CLIENT_VERSION=$ttClientVersion"
 +                veilarkReproCFlags?.takeIf(String::isNotBlank)?.let { flags ->
 +                    arguments += "-DCMAKE_C_FLAGS=$flags"
 +                    arguments += "-DCMAKE_CXX_FLAGS=$flags"
@@ -29,7 +27,7 @@ index de771a6..3aeb729 100644
          }
      }
 diff --git a/platform/android/lib/src/main/java/com/adguard/trusttunnel/AppNotifier.kt b/platform/android/lib/src/main/java/com/adguard/trusttunnel/AppNotifier.kt
-index 78f02bf..c98ce80 100644
+index 78f02bfdfead11c021cee7e5dc75f1a5a4b9ecd5..c98ce80a347ef7bb8e57268ebc1b8dffcfd093ac 100644
 --- a/platform/android/lib/src/main/java/com/adguard/trusttunnel/AppNotifier.kt
 +++ b/platform/android/lib/src/main/java/com/adguard/trusttunnel/AppNotifier.kt
 @@ -1,6 +1,6 @@
@@ -43,18 +41,18 @@ index 78f02bf..c98ce80 100644
 \ No newline at end of file
 +}
 diff --git a/platform/android/lib/src/main/java/com/adguard/trusttunnel/VpnService.kt b/platform/android/lib/src/main/java/com/adguard/trusttunnel/VpnService.kt
-index d09f185..7d583bf 100644
+index 42737d612bb6a0551b1fc099486df10814fd70e2..f56a26cd396147badb0cfd524ac6ed31a1f4f227 100644
 --- a/platform/android/lib/src/main/java/com/adguard/trusttunnel/VpnService.kt
 +++ b/platform/android/lib/src/main/java/com/adguard/trusttunnel/VpnService.kt
-@@ -17,6 +17,7 @@ import com.adguard.trusttunnel.log.LoggerManager
- import com.adguard.trusttunnel.utils.NetworkUtils
- import com.adguard.trusttunnel.utils.concurrent.thread.ThreadManager
- import java.io.File
+@@ -21,6 +21,7 @@ import java.text.SimpleDateFormat
+ import java.util.Date
+ import java.util.Locale
+ import java.util.TimeZone
 +import java.util.concurrent.atomic.AtomicLong
  
  class VpnService : android.net.VpnService(), VpnClientListener {
  
-@@ -28,6 +29,8 @@ class VpnService : android.net.VpnService(), VpnClientListener {
+@@ -32,6 +33,8 @@ class VpnService : android.net.VpnService(), VpnClientListener {
          private lateinit var connectivityManager: ConnectivityManager
          private lateinit var networkRequest: NetworkRequest
          private lateinit var networkCallback: NetworkUtils.Companion.NetworkCollector
@@ -63,7 +61,7 @@ index d09f185..7d583bf 100644
          private var connectionInfoFile: PersistentRingBuffer? = null
          private var currentStartId: Int = -1
  
-@@ -36,9 +39,11 @@ class VpnService : android.net.VpnService(), VpnClientListener {
+@@ -43,9 +46,11 @@ class VpnService : android.net.VpnService(), VpnClientListener {
          private var configStorage: VpnConfigStorage? = null
          // The last VpnState observed by `onStateChanged`
          private var lastState: Int = 0
@@ -75,7 +73,7 @@ index d09f185..7d583bf 100644
          private const val NOTIFICATION_ID = 1
          private val IPV4_NON_ROUTABLE = listOf("0.0.0.0/8", "224.0.0.0/3")
          private val ADGUARD_DNS_SERVERS = listOf("46.243.231.30", "46.243.231.31", "2a10:50c0::2:ff", "2a10:50c0::1:ff")
-@@ -48,34 +53,39 @@ class VpnService : android.net.VpnService(), VpnClientListener {
+@@ -55,34 +60,39 @@ class VpnService : android.net.VpnService(), VpnClientListener {
              return configStorage ?: VpnConfigStorage(context).also { configStorage = it }
          }
  
@@ -128,7 +126,7 @@ index d09f185..7d583bf 100644
                  // Avoid double initialization
                  return
              }
-@@ -92,14 +102,32 @@ class VpnService : android.net.VpnService(), VpnClientListener {
+@@ -99,14 +109,32 @@ class VpnService : android.net.VpnService(), VpnClientListener {
  
              networkCallback = NetworkUtils.Companion.NetworkCollector()
              connectivityManager.registerNetworkCallback(networkRequest, networkCallback)
@@ -162,7 +160,7 @@ index d09f185..7d583bf 100644
          }
  
          fun isPrepared(context: Context): Boolean {
-@@ -120,7 +148,7 @@ class VpnService : android.net.VpnService(), VpnClientListener {
+@@ -127,7 +155,7 @@ class VpnService : android.net.VpnService(), VpnClientListener {
              connectionInfoFile = PersistentRingBuffer(file)
              appNotifier = notifier
              // Notify current state
@@ -171,7 +169,7 @@ index d09f185..7d583bf 100644
              // Notify all query logs
              connectionInfoFile?.apply {
                  val records = readAll()
-@@ -137,6 +165,9 @@ class VpnService : android.net.VpnService(), VpnClientListener {
+@@ -194,6 +222,9 @@ class VpnService : android.net.VpnService(), VpnClientListener {
  
      private var state = State.Stopped
      private val singleThread = ThreadManager.create("vpn-service", 1)
@@ -181,7 +179,7 @@ index d09f185..7d583bf 100644
      @Volatile
      private var certificateVerificator: CertificateVerificator? = null
  
-@@ -144,6 +175,7 @@ class VpnService : android.net.VpnService(), VpnClientListener {
+@@ -201,6 +232,7 @@ class VpnService : android.net.VpnService(), VpnClientListener {
      override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
          if (intent == null) {
              LOG.info("Received a null intent, doing nothing")
@@ -189,7 +187,7 @@ index d09f185..7d583bf 100644
              stopSelf()
              return START_NOT_STICKY
          }
-@@ -160,69 +192,78 @@ class VpnService : android.net.VpnService(), VpnClientListener {
+@@ -217,69 +249,78 @@ class VpnService : android.net.VpnService(), VpnClientListener {
          singleThread.execute {
              try {
                  currentStartId = startId
@@ -278,7 +276,7 @@ index d09f185..7d583bf 100644
              }
          }
          vpnClient = VpnClient(configStr, proxyClientListener)
-@@ -230,13 +271,13 @@ class VpnService : android.net.VpnService(), VpnClientListener {
+@@ -287,13 +328,13 @@ class VpnService : android.net.VpnService(), VpnClientListener {
          startNetworkNotifications(vpnClient)
          if (vpnClient?.start(vpnTunInterface) != true) {
              LOG.error("Failed to start Vpn client");
@@ -294,7 +292,7 @@ index d09f185..7d583bf 100644
          if (vpnClient != null) {
              stopNetworkNotifications()
              vpnClient?.stop()
-@@ -244,13 +285,13 @@ class VpnService : android.net.VpnService(), VpnClientListener {
+@@ -301,13 +342,13 @@ class VpnService : android.net.VpnService(), VpnClientListener {
              vpnClient = null
          }
          state = State.Stopped
@@ -310,7 +308,7 @@ index d09f185..7d583bf 100644
      }
  
      private fun createTunInterface(config: VpnServiceConfig): ParcelFileDescriptor? {
-@@ -336,12 +377,12 @@ class VpnService : android.net.VpnService(), VpnClientListener {
+@@ -393,12 +434,12 @@ class VpnService : android.net.VpnService(), VpnClientListener {
       * @return true if the service has been closed successfully
       *         false if the service hasn't been stopped because startId is too old
       */
@@ -325,7 +323,7 @@ index d09f185..7d583bf 100644
      }
  
      /**
-@@ -350,9 +391,10 @@ class VpnService : android.net.VpnService(), VpnClientListener {
+@@ -407,9 +448,10 @@ class VpnService : android.net.VpnService(), VpnClientListener {
       * @return true if the service has been closed successfully
       *         false if something is wrong with closing or the service has already been closed
       */
@@ -337,7 +335,7 @@ index d09f185..7d583bf 100644
              if (startId != null) {
                  stopSelf(startId)
              } else {
-@@ -367,17 +409,44 @@ class VpnService : android.net.VpnService(), VpnClientListener {
+@@ -424,17 +466,44 @@ class VpnService : android.net.VpnService(), VpnClientListener {
          vpnClient?.stop()
          vpnClient?.close()
          vpnClient = null
@@ -384,7 +382,7 @@ index d09f185..7d583bf 100644
      /** An enum to represent the VPN service states */
      enum class State {
          Started, Stopped
-@@ -402,9 +471,12 @@ class VpnService : android.net.VpnService(), VpnClientListener {
+@@ -459,9 +528,12 @@ class VpnService : android.net.VpnService(), VpnClientListener {
          return verificator.verifyCertificate(certificate, rawChain)
      }
  
@@ -400,7 +398,7 @@ index d09f185..7d583bf 100644
  
      override fun onConnectionInfo(info: String) = eventsSync.execute {
 diff --git a/platform/android/lib/src/main/java/com/adguard/trusttunnel/utils/NetworkUtils.kt b/platform/android/lib/src/main/java/com/adguard/trusttunnel/utils/NetworkUtils.kt
-index ff68265..02801f8 100644
+index 0136e4bb2be9cf5b2f35b68d71bc8a2856f3c5e6..768859eaa5c8b7c51db832c796f0e642843ea818 100644
 --- a/platform/android/lib/src/main/java/com/adguard/trusttunnel/utils/NetworkUtils.kt
 +++ b/platform/android/lib/src/main/java/com/adguard/trusttunnel/utils/NetworkUtils.kt
 @@ -27,6 +27,11 @@ class NetworkUtils {

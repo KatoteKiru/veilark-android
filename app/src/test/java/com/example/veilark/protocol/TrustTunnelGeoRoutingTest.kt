@@ -74,7 +74,7 @@ class TrustTunnelGeoRoutingTest {
   }
 
   @Test
-  fun onlyRussiaDirectModeRequestsTheTemporarilyDisabledGeoBypass() {
+  fun onlyRussiaDirectModeRequestsTheGeoBypass() {
     assertEquals(
       true,
       TrustTunnelGeoRouting.isRussiaDirectMode(ProfileSelection.ROUTING_RU_DIRECT),
@@ -87,6 +87,24 @@ class TrustTunnelGeoRoutingTest {
       false,
       TrustTunnelGeoRouting.isRussiaDirectMode(ProfileSelection.ROUTING_MANUAL),
     )
+  }
+
+  @Test
+  fun manualRoutingUsesDirectDomainsAndNetworksWithVpnPriority() {
+    assertEquals(
+      listOf("10.0.0.0/8", "example.ru", "*.example.ru"),
+      TrustTunnelGeoRouting.manualExclusions(
+        directEntries = "example.ru 10.0.0.0/8 youtube.com",
+        vpnEntries = "youtube.com",
+      ),
+    )
+  }
+
+  @Test
+  fun manualRoutingRequiresAtLeastOneRule() {
+    assertThrows(IllegalArgumentException::class.java) {
+      TrustTunnelGeoRouting.manualExclusions("", "")
+    }
   }
 
   @Test

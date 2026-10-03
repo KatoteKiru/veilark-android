@@ -1,19 +1,19 @@
-# sing-box/libbox 1.13.19 production core
+# sing-box/libbox 1.13.21 production core
 
 This directory records the isolated validation that preceded promotion of
-sing-box 1.13.19 to `app/libs/libbox.aar`. The large intermediate AAR is
+sing-box 1.13.21 to `app/libs/libbox.aar`. The large intermediate AAR is
 intentionally ignored by Git; the tracked production build recipe writes the
 same core directly to the application library directory.
 
 ## Artifact
 
-- `artifacts/libbox-1.13.19-android-arm-arm64.aar`
-- SHA-256: `703729EB73C1CB41A84F11D4603C8C4471487035061D676B058AB76C3D1328BB`
+- `artifacts/libbox-1.13.21-android-arm-arm64.aar`
+- SHA-256: `B82148CCE2853BFC3C0796F0C32D057229F4C6B45103BF86B53A59B66BA71EF4`
 - Size: 44,757,399 bytes
 - Android ABIs: `arm64-v8a`, `armeabi-v7a`
 - Minimum Android API: 23
-- Upstream tag: `v1.13.19`
-- Upstream commit: `b5ebaa1fc0f2b94256180b95468e73ef53caa27d`
+- Upstream tag: `v1.13.21`
+- Upstream commit: `628cb31ffa79cffffd34c2f9cde6cae044e4fc12`
 
 `UPSTREAM.json` records the complete source, toolchain, artifact and native
 library provenance. The build recipe is `scripts/build-canary.ps1`.
@@ -30,7 +30,7 @@ Compared with the previous production 1.13.14 AAR:
   and `libc`;
 - arm64 `PT_LOAD` segments are 16 KiB aligned (`0x4000`); armv7 uses its
   expected 4 KiB alignment (`0x1000`);
-- the embedded core version is `1.13.19` for both ABIs.
+- the embedded core version is `1.13.21` for both ABIs.
 
 An isolated Veilark copy successfully completed `compileReleaseKotlin` and
 `mergeReleaseNativeLibs` with this AAR. The merged native library hashes were

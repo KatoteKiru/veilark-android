@@ -30,6 +30,7 @@ object TechnicalLogStore {
   private val writes = Channel<WriteCommand>(capacity = 256)
   private val droppedWrites = AtomicInteger()
   private val lock = Any()
+  private val persistence = LogPersistenceGuard()
   @Volatile
   private var logFile: File? = null
   @Volatile
@@ -40,12 +41,14 @@ object TechnicalLogStore {
     synchronized(lock) {
       if (logFile != null) return
       logFile = File(context.filesDir, "technical-events.log")
-      mutableEntries.value = logFile
-        ?.takeIf(File::isFile)
-        ?.readLines(Charsets.UTF_8)
-        ?.takeLast(MAX_ENTRIES)
-        ?.mapNotNull(::decode)
-        .orEmpty()
+      persistence.write(::storageUnavailable) {
+        mutableEntries.value = logFile
+          ?.takeIf(File::isFile)
+          ?.readLines(Charsets.UTF_8)
+          ?.takeLast(MAX_ENTRIES)
+          ?.mapNotNull(::decode)
+          .orEmpty()
+      }
       startWriter()
     }
     info("APP", "Veilark started")
@@ -88,7 +91,7 @@ object TechnicalLogStore {
       val batch = mutableListOf<TechnicalLogEntry>()
       while (isActive) {
         when (val first = writes.receive()) {
-          WriteCommand.Clear -> logFile?.delete()
+          WriteCommand.Clear -> persistence.write(::storageUnavailable) { logFile?.delete() }
           is WriteCommand.Append -> {
             appendOverflowMarker(batch)
             batch += first.entry
@@ -99,13 +102,13 @@ object TechnicalLogStore {
                 null -> break
                 WriteCommand.Clear -> {
                   batch.clear()
-                  logFile?.delete()
+                  persistence.write(::storageUnavailable) { logFile?.delete() }
                 }
                 is WriteCommand.Append -> batch += next.entry
               }
             }
             appendOverflowMarker(batch)
-            flush(batch)
+            persistence.write(::storageUnavailable) { flush(batch) }
             batch.clear()
           }
         }
@@ -126,6 +129,17 @@ object TechnicalLogStore {
       mutableEntries.value = (mutableEntries.value + marker).takeLast(MAX_ENTRIES)
     }
     batch += marker
+  }
+
+  private fun storageUnavailable() {
+    // Memory-only: attempting to persist this marker would recurse on a full disk.
+    val marker = TechnicalLogEntry(
+      Instant.now().toEpochMilli(), "WARN", "LOG",
+      "Log storage unavailable; keeping recent events in memory and backing off disk writes",
+    )
+    synchronized(lock) {
+      mutableEntries.value = (mutableEntries.value + marker).takeLast(MAX_ENTRIES)
+    }
   }
 
   private fun flush(batch: List<TechnicalLogEntry>) {

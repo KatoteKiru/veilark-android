@@ -7,8 +7,8 @@ authoritative inventory for ordinary Android libraries.
 ## sing-box / libbox
 
 - project: <https://github.com/SagerNet/sing-box>
-- production tag: `v1.13.19`
-- exact commit: `b5ebaa1fc0f2b94256180b95468e73ef53caa27d`
+- production tag: `v1.13.21`
+- exact commit: `628cb31ffa79cffffd34c2f9cde6cae044e4fc12`
 - license: GPL-3.0-or-later
 - installed artifact: `app/libs/libbox.aar`
 - build recipe and hashes: `scripts/build-libbox-multiabi.ps1` and
@@ -21,7 +21,7 @@ uses its own name and does not claim such an association.
 ## TrustTunnelClient
 
 - project: <https://github.com/TrustTunnel/TrustTunnelClient>
-- production tag: `v1.1.4`
+- upstream tag: `v1.1.5`
 - exact commit: `7da863b1b947d22a3131d94dcc7c80b0240b6e97`
 - license: Apache License 2.0
 - installed artifact: `app/libs/trusttunnel-client.aar`

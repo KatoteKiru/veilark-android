@@ -53,6 +53,7 @@ import com.example.veilark.vpn.EndpointLatencyProbe
 import com.example.veilark.io.readAtMost
 import com.example.veilark.protocol.ProfileEngine
 import com.example.veilark.protocol.TrustTunnelManager
+import com.example.veilark.protocol.TrustTunnelGeoRouting
 import com.example.veilark.protocol.TrustTunnelProfile
 import com.example.veilark.protocol.TrustTunnelCatalog
 import io.nekohasekai.libbox.Libbox
@@ -68,10 +69,12 @@ class MainActivity : ComponentActivity() {
   private var pendingUpdateApk: File? = null
   private val tileConnectRequests = MutableStateFlow(0)
   private val externalImportRequests = MutableStateFlow<String?>(null)
+  private val updateNoticeRequests = MutableStateFlow(0L)
 
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
     consumeTileConnectIntent(intent)
+    consumeUpdateNoticeIntent(intent)
     externalImportRequests.value = ImportDeepLink.parse(intent)
     SecureProfileStore.migrateLegacy(this)
     val initialProfilePreferences = getSharedPreferences("profile_meta", MODE_PRIVATE)
@@ -111,6 +114,7 @@ class MainActivity : ComponentActivity() {
         mutableStateOf(TrustTunnelCatalog.load(this))
       }
       val externalImportUrl by externalImportRequests.collectAsStateWithLifecycle()
+      val updateNoticeRequest by updateNoticeRequests.collectAsStateWithLifecycle()
       var singBoxProfiles by remember {
         mutableStateOf(SingBoxCatalog.load(this))
       }
@@ -214,16 +218,25 @@ class MainActivity : ComponentActivity() {
               ProfileSelection.ROUTING_ALL,
               ProfileSelection.ROUTING_MANUAL,
               ProfileSelection.ROUTING_RU_DIRECT,
-            ) && !(profileEngine == ProfileEngine.TRUST_TUNNEL &&
-              it == ProfileSelection.ROUTING_MANUAL)
+            )
           } ?: ProfileSelection.ROUTING_ALL,
         )
       }
       var directRoutes by remember {
-        mutableStateOf(profilePreferences.getString("direct_routes", "").orEmpty())
+        val key = if (profileEngine == ProfileEngine.TRUST_TUNNEL) {
+          "trust_direct_routes"
+        } else {
+          "direct_routes"
+        }
+        mutableStateOf(profilePreferences.getString(key, "").orEmpty())
       }
       var vpnRoutes by remember {
-        mutableStateOf(profilePreferences.getString("vpn_routes", "").orEmpty())
+        val key = if (profileEngine == ProfileEngine.TRUST_TUNNEL) {
+          "trust_vpn_routes"
+        } else {
+          "vpn_routes"
+        }
+        mutableStateOf(profilePreferences.getString(key, "").orEmpty())
       }
       var applicationMode by remember {
         mutableStateOf(
@@ -256,8 +269,7 @@ class MainActivity : ComponentActivity() {
             ProfileSelection.ROUTING_ALL,
             ProfileSelection.ROUTING_MANUAL,
             ProfileSelection.ROUTING_RU_DIRECT,
-          ) && !(engine == ProfileEngine.TRUST_TUNNEL &&
-            it == ProfileSelection.ROUTING_MANUAL)
+          )
         } ?: ProfileSelection.ROUTING_ALL
       }
       val singBoxConnectionState by VeilarkVpnService.state.collectAsStateWithLifecycle()
@@ -631,11 +643,11 @@ class MainActivity : ComponentActivity() {
             SecureProfileStore.exists(this, SecureProfileStore.TRUST_TUNNEL),
           engineDescription = if (profileEngine == ProfileEngine.TRUST_TUNNEL) {
             buildString {
-              append("TrustTunnel 1.1.4")
+              append("TrustTunnel 1.1.5")
               trustTunnelTransport?.let { append(" · $it") }
             }
           } else {
-            "sing-box 1.13.19"
+            "sing-box 1.13.21"
           },
           subscriptionRefreshAvailable = subscriptionRefreshAvailable,
           refreshingSubscription = refreshingSubscription,
@@ -643,6 +655,7 @@ class MainActivity : ComponentActivity() {
           updateStatus = updateStatus,
           updateNotes = availableUpdate?.notes.orEmpty(),
           updateAvailable = availableUpdate != null,
+          updateNoticeRequest = updateNoticeRequest,
           updating = updating,
           updateProgress = updateProgress,
           importing = importing,
@@ -1043,15 +1056,15 @@ class MainActivity : ComponentActivity() {
               VeilarkVpnService.stop(this)
             }
             profileEngine = target
-            val targetRoutingFallback = if (
-              target == ProfileEngine.TRUST_TUNNEL &&
-              routingMode == ProfileSelection.ROUTING_MANUAL
-            ) {
-              ProfileSelection.ROUTING_ALL
-            } else {
-              routingMode
-            }
-            routingMode = storedRoutingModeFor(target, targetRoutingFallback)
+            routingMode = storedRoutingModeFor(target, routingMode)
+            directRoutes = profilePreferences.getString(
+              if (target == ProfileEngine.TRUST_TUNNEL) "trust_direct_routes" else "direct_routes",
+              "",
+            ).orEmpty()
+            vpnRoutes = profilePreferences.getString(
+              if (target == ProfileEngine.TRUST_TUNNEL) "trust_vpn_routes" else "vpn_routes",
+              "",
+            ).orEmpty()
             TechnicalLogStore.info(
               "APP",
               "Selected engine=${if (target == ProfileEngine.TRUST_TUNNEL) "TrustTunnel" else "sing-box"}",
@@ -1320,6 +1333,19 @@ class MainActivity : ComponentActivity() {
               }.isSuccess
             }
           },
+          onOpenWebAccount = {
+            val uri = VeilarkWebAccountLink.validate(BuildConfig.WEB_ACCOUNT_URL)
+            if (uri == null) {
+              false
+            } else {
+              runCatching {
+                startActivity(
+                  Intent(Intent.ACTION_VIEW, Uri.parse(uri.toASCIIString()))
+                    .addCategory(Intent.CATEGORY_BROWSABLE),
+                )
+              }.isSuccess
+            }
+          },
           onCheckUpdate = {
             updating = true
             updateStatus = getString(R.string.update_checking)
@@ -1388,7 +1414,7 @@ class MainActivity : ComponentActivity() {
               coroutineScope.launch {
                 runCatching {
                   withContext(Dispatchers.IO) {
-                    GeoRoutingAssets.refreshFromGitHub(this@MainActivity) { candidate ->
+                    GeoRoutingAssets.refreshFromNetwork(this@MainActivity) { candidate ->
                       val base = SecureProfileStore.load(
                         this@MainActivity,
                         SecureProfileStore.SING_BOX,
@@ -1403,7 +1429,7 @@ class MainActivity : ComponentActivity() {
                   }
                 }.onSuccess {
                   geoUpdateMessage = getString(R.string.geo_update_success)
-                  TechnicalLogStore.info("GEO", "GitHub geo rule sets updated")
+                  TechnicalLogStore.info("GEO", "Manifest-verified geo rule sets updated")
                 }.onFailure {
                   geoUpdateMessage = getString(R.string.geo_update_failed)
                   TechnicalLogStore.warning("GEO", "Geo update rejected; last-known-good retained")
@@ -1464,8 +1490,12 @@ class MainActivity : ComponentActivity() {
               } else {
                 require(
                   newRoutingMode == ProfileSelection.ROUTING_ALL ||
-                    newRoutingMode == ProfileSelection.ROUTING_RU_DIRECT,
+                    newRoutingMode == ProfileSelection.ROUTING_RU_DIRECT ||
+                    newRoutingMode == ProfileSelection.ROUTING_MANUAL,
                 ) { getString(R.string.trust_routing_mode_unsupported) }
+                if (newRoutingMode == ProfileSelection.ROUTING_MANUAL) {
+                  TrustTunnelGeoRouting.manualExclusions(newDirectRoutes, newVpnRoutes)
+                }
                 if (connectionState != ConnectionState.Disconnected &&
                   connectionState != ConnectionState.Failed
                 ) {
@@ -1475,6 +1505,8 @@ class MainActivity : ComponentActivity() {
                   getString(R.string.trust_profile_not_found)
                 }
                 routingMode = newRoutingMode
+                directRoutes = newDirectRoutes.trim()
+                vpnRoutes = newVpnRoutes.trim()
               }
               applicationMode = newApplicationMode
               selectedApplications = packages
@@ -1492,6 +1524,8 @@ class MainActivity : ComponentActivity() {
                 routingEditor
                   .putString("routing_mode", routingMode)
                   .putString("trust_routing_mode", routingMode)
+                  .putString("trust_direct_routes", directRoutes)
+                  .putString("trust_vpn_routes", vpnRoutes)
               }
               check(routingEditor.commit()) { getString(R.string.routing_save_failed) }
               importError = null
@@ -1601,6 +1635,7 @@ class MainActivity : ComponentActivity() {
     super.onNewIntent(intent)
     setIntent(intent)
     consumeTileConnectIntent(intent)
+    consumeUpdateNoticeIntent(intent)
     ImportDeepLink.parse(intent)?.let { externalImportRequests.value = it }
   }
 
@@ -1608,6 +1643,12 @@ class MainActivity : ComponentActivity() {
     if (intent?.action != ACTION_CONNECT_FROM_TILE) return
     intent.action = null
     tileConnectRequests.value += 1
+  }
+
+  private fun consumeUpdateNoticeIntent(intent: Intent?) {
+    if (intent?.action != com.example.veilark.update.UpdateNoticeJob.OPEN_UPDATES) return
+    intent.action = null
+    if (BuildConfig.SELF_UPDATE_ENABLED) updateNoticeRequests.value += 1
   }
 
   private fun shouldRequestNotificationPermission(): Boolean =

@@ -31,6 +31,8 @@ object LatencyMonitor {
   private var checkingTimeout: Job? = null
   private var reconnectAttempts = 0
   private var clientGeneration = 0L
+  private var clientConnected = false
+  private var connectTimedOut = false
   private var refreshGeneration = 0L
   private var shouldRun = false
   private var initialRefreshPending = false
@@ -57,6 +59,8 @@ object LatencyMonitor {
       shouldRun = false
       initialRefreshPending = false
       clientGeneration += 1L
+      clientConnected = false
+      connectTimedOut = false
       refreshGeneration += 1L
       connectJob?.cancel()
       connectJob = null
@@ -111,6 +115,8 @@ object LatencyMonitor {
   private fun requestConnect() {
     val generation = synchronized(this) {
       if (!shouldRun || client != null || connectJob?.isActive == true) return
+      clientConnected = false
+      connectTimedOut = false
       ++clientGeneration
     }
     val job = scope.launch(start = CoroutineStart.LAZY) {
@@ -148,8 +154,13 @@ object LatencyMonitor {
     val timeout = scope.launch {
       delay(CONNECT_TIMEOUT_MS)
       val stillConnecting = synchronized(this@LatencyMonitor) {
-        latencyCallbackAccepted(generation, clientGeneration, shouldRun) &&
-          client === newClient && connectJob?.isActive == true
+        commandChannelConnectTimedOut(
+          generation = generation,
+          activeGeneration = clientGeneration,
+          shouldRun = shouldRun,
+          clientIsCurrent = client === newClient,
+          connected = clientConnected,
+        ).also { if (it) connectTimedOut = true }
       }
       if (stillConnecting) {
         runCatching { newClient.disconnect() }
@@ -157,7 +168,7 @@ object LatencyMonitor {
       }
     }
     synchronized(this) {
-      if (latencyCallbackAccepted(generation, clientGeneration, shouldRun)) {
+      if (latencyCallbackAccepted(generation, clientGeneration, shouldRun) && !clientConnected) {
         connectTimeoutJob = timeout
       } else {
         timeout.cancel()
@@ -169,10 +180,8 @@ object LatencyMonitor {
       handleDisconnected(generation, failure.message)
       closeClientsAsync(listOf(newClient))
     } finally {
-      timeout.cancel()
       synchronized(this) {
         if (latencyCallbackAccepted(generation, clientGeneration, shouldRun)) {
-          connectTimeoutJob = null
           connectJob = null
         }
       }
@@ -237,8 +246,13 @@ object LatencyMonitor {
 
   private fun handleConnected(generation: Long) {
     val shouldRefresh = synchronized(this) {
-      if (!latencyCallbackAccepted(generation, clientGeneration, shouldRun)) return
+      if (!commandChannelCallbackAccepted(
+          generation, clientGeneration, shouldRun, clientPresent = client != null,
+        ) || connectTimedOut) return
       reconnectAttempts = 0
+      clientConnected = true
+      connectTimeoutJob?.cancel()
+      connectTimeoutJob = null
       reconnectJob?.cancel()
       reconnectJob = null
       initialRefreshPending.also { initialRefreshPending = false }
@@ -251,8 +265,11 @@ object LatencyMonitor {
 
   private fun handleDisconnected(generation: Long, message: String?) {
     val reconnectDelay = synchronized(this) {
-      if (!latencyCallbackAccepted(generation, clientGeneration, shouldRun)) return
+      if (!commandChannelCallbackAccepted(
+          generation, clientGeneration, shouldRun, clientPresent = client != null,
+        )) return
       client = null
+      clientConnected = false
       connectJob = null
       connectTimeoutJob?.cancel()
       connectTimeoutJob = null
@@ -356,3 +373,20 @@ internal fun latencyCallbackAccepted(
   activeGeneration: Long,
   shouldRun: Boolean,
 ): Boolean = shouldRun && callbackGeneration == activeGeneration
+
+internal fun commandChannelCallbackAccepted(
+  generation: Long,
+  activeGeneration: Long,
+  shouldRun: Boolean,
+  clientPresent: Boolean,
+): Boolean = latencyCallbackAccepted(generation, activeGeneration, shouldRun) && clientPresent
+
+internal fun commandChannelConnectTimedOut(
+  generation: Long,
+  activeGeneration: Long,
+  shouldRun: Boolean,
+  clientIsCurrent: Boolean,
+  connected: Boolean,
+): Boolean =
+  latencyCallbackAccepted(generation, activeGeneration, shouldRun) &&
+    clientIsCurrent && !connected

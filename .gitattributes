@@ -7,6 +7,8 @@
 *.xml text eol=lf
 *.md text eol=lf
 *.aar binary
+vendor/trusttunnel-android/patches/*.patch text eol=lf
 *.png binary
 *.webp binary
 app/src/main/assets/rules/geoip-ru.json text eol=lf
+vendor/trusttunnel-android/patches/0003-post-close-terminal-fence.patch text eol=lf

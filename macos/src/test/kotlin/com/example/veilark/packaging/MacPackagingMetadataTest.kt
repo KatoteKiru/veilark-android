@@ -16,7 +16,7 @@ class MacPackagingMetadataTest {
     val singBox = root.getJSONObject("sing-box")
     val trust = root.getJSONObject("trusttunnel_client")
 
-    assertEquals("1.13.19", singBox.getString("version"))
+    assertEquals("1.13.21", singBox.getString("version"))
     assertEquals("1.0.49", trust.getString("version"))
     assertTrue(singBox.getJSONObject("binarySha256").getString("arm64").matches(HEX_SHA256))
     assertTrue(singBox.getJSONObject("binarySha256").getString("amd64").matches(HEX_SHA256))
@@ -29,6 +29,22 @@ class MacPackagingMetadataTest {
     assertFalse(script.contains("TRUST_TUNNEL_VERSION"))
     assertTrue(script.contains("verify_sha256 \"${'$'}SING_BOX_BINARY_SHA256\" \"${'$'}COMMON/sing-box\""))
     assertTrue(script.contains("verify_sha256 \"${'$'}TRUST_BINARY_SHA256\" \"${'$'}COMMON/trusttunnel_client\""))
+  }
+
+  @Test
+  fun fetchAndPackageUseTheSamePinnedSingBoxDigests() {
+    val pins = JSONObject(File("vendor/UPSTREAM.json").readText())
+      .getJSONObject("sing-box").getJSONObject("binarySha256")
+    val fetch = File("scripts/fetch-engines.sh").readText()
+    val verify = File("scripts/verify-bundled-assets.sh").readText()
+    for ((metadataArch, suffix, hostArch) in listOf(
+      Triple("arm64", "ARM64", "arm64"),
+      Triple("amd64", "AMD64", "x86_64"),
+    )) {
+      val digest = pins.getString(metadataArch)
+      assertTrue(fetch.contains("SING_BOX_BINARY_SHA256_$suffix=\"$digest\""))
+      assertTrue(verify.contains("$hostArch) SING_SHA=\"$digest\""))
+    }
   }
 
   @Test

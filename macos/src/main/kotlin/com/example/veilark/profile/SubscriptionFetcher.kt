@@ -33,7 +33,7 @@ object SubscriptionFetcher {
         connection.readTimeout = 20_000
         connection.setRequestProperty(
           "User-Agent",
-          "SFA/1.13.19 Veilark/${MacUpdateClient.CURRENT_VERSION}-macos",
+          "SFA/1.13.21 Veilark/${MacUpdateClient.CURRENT_VERSION}-macos",
         )
         connection.setRequestProperty("X-Client", "Veilark")
         headers.forEach(connection::setRequestProperty)

@@ -30,6 +30,7 @@ jobs:
         env:
           RELEASE_TAG: ${{ inputs.tag }}
         run: |
+          set -euo pipefail
           if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-rc[0-9]+)?-oss$ ]]; then
             echo "Tag must match vX.Y.Z-oss or vX.Y.Z-rcN-oss"
             exit 1
@@ -37,6 +38,16 @@ jobs:
           if git rev-parse --verify --quiet "refs/tags/$RELEASE_TAG"; then
             echo "Refusing to overwrite existing tag: $RELEASE_TAG"
             exit 1
+          fi
+          if git ls-remote --exit-code --tags origin "refs/tags/$RELEASE_TAG"; then
+            echo "Refusing to reuse existing remote tag: $RELEASE_TAG"
+            exit 1
+          else
+            STATUS=$?
+            if [[ "$STATUS" -ne 2 ]]; then
+              echo "Unable to verify remote tag uniqueness"
+              exit "$STATUS"
+            fi
           fi
       - name: Restore release key
         env:
@@ -49,7 +60,10 @@ jobs:
       - name: Test and build signed OSS release
         env:
           VEILARK_OSS_KEYSTORE: ${{ runner.temp }}/veilark-oss-release.jks
-        run: ./gradlew testOssDebugUnitTest lintOssRelease assembleOssRelease --no-daemon --no-configuration-cache
+        run: |
+          python3 -I -m unittest discover -s scripts -p 'test_*.py' -q
+          python3 scripts/verify_trusttunnel_vendor.py
+          ./gradlew testOssDebugUnitTest lintOssRelease assembleOssRelease --no-daemon --no-configuration-cache
       - name: Verify identity, signer and access-material policy
         shell: bash
         env:
@@ -80,7 +94,17 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ inputs.tag }}
         run: |
-          gh release create "$RELEASE_TAG" \
-            app/build/outputs/apk/oss/release/app-oss-release.apk \
-            app/build/outputs/apk/oss/release/app-oss-release.apk.sha256 \
-            --target "$GITHUB_SHA" --generate-notes --title "Veilark $RELEASE_TAG"
+          set -euo pipefail
+          VERSION_NAME="${RELEASE_TAG#v}"
+          RELEASE_APK="Veilark-Android-$VERSION_NAME.apk"
+          cp app/build/outputs/apk/oss/release/app-oss-release.apk "$RELEASE_APK"
+          sha256sum "$RELEASE_APK" > "$RELEASE_APK.sha256"
+          NOTES="docs/releases/$RELEASE_TAG.md"
+          if [[ -f "$NOTES" ]]; then
+            NOTE_ARGS=(--notes-file "$NOTES")
+          else
+            NOTE_ARGS=(--generate-notes)
+          fi
+          gh release create "$RELEASE_TAG" "$RELEASE_APK" "$RELEASE_APK.sha256" \
+            --target "$GITHUB_SHA" --title "Veilark Android $VERSION_NAME" \
+            --latest "${NOTE_ARGS[@]}"

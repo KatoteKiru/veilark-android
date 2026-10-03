@@ -1,4 +1,5 @@
 <resources>
+    <string name="update_notice_body">Open Veilark to review and install the update.</string>
     <string name="app_name" translatable="false">Veilark</string>
     <string name="subscriptions_and_servers">Subscriptions and servers</string>
     <string name="profiles_and_servers">Profiles and servers</string>
@@ -11,6 +12,9 @@
     <string name="subscription_get_or_renew">Open the Veilark Telegram bot</string>
     <string name="subscription_bot_note">Get or renew your subscription in the Veilark bot. Payments are coming soon.</string>
     <string name="subscription_bot_open_failed">Could not open the Veilark Telegram bot. Open @senyavpn_bot manually.</string>
+    <string name="web_account_open">Open web account</string>
+    <string name="web_account_note">Manage your subscription and devices in the Veilark web account.</string>
+    <string name="web_account_open_failed">Could not open the Veilark web account.</string>
     <string name="subscription_paste">Paste a subscription link from the clipboard</string>
     <string name="subscription_scan_qr">Add a subscription from a QR code</string>
     <string name="subscription_refresh">Refresh the selected subscription</string>
@@ -100,7 +104,7 @@
     <string name="enabled_value">Enabled</string>
     <string name="trust_full_tunnel">Full tunnel through TrustTunnel</string>
     <string name="trust_russia_direct_description">Russian IPv4/IPv6 networks go directly; all other traffic uses TrustTunnel</string>
-    <string name="trust_routing_mode_unsupported">TrustTunnel supports only full tunnel or Russia direct. Custom domain rules are available in sing-box.</string>
+    <string name="trust_routing_mode_unsupported">This routing mode is not supported by the installed TrustTunnel core.</string>
     <string name="protection">Protection</string>
     <string name="close_routing">Close routing settings</string>
     <string name="custom_rules_description">Choose what should go directly or through the VPN</string>
@@ -108,7 +112,7 @@
     <string name="routes_input_hint">Domains and networks separated by spaces or new lines</string>
     <string name="always_vpn">Always through VPN</string>
     <string name="vpn_routes_priority">These rules take priority over direct routes</string>
-    <string name="trust_app_rules_note">TrustTunnel supports application rules and Russian IP-network bypass. Android applies changes when creating the VPN interface, so reconnect after changing settings. Custom domain rules are available in sing-box.</string>
+    <string name="trust_app_rules_note">TrustTunnel supports application filters, Russia direct, and custom domain/IP exclusions. Android applies these rules when creating the VPN interface, so reconnect after changing settings.</string>
     <string name="apps_only_vpn">Only selected applications through VPN</string>
     <string name="apps_bypass_vpn">Selected applications without VPN</string>
     <string name="nothing_selected">Nothing selected</string>
@@ -144,7 +148,7 @@
     <string name="veilark_license_title">Veilark · GPL-3.0-or-later</string>
     <string name="trust_license_title">TrustTunnelClient · Apache-2.0</string>
     <string name="third_party_notices_title">Third-party notices</string>
-    <string name="trust_attribution">Veilark includes a modified Android adapter and native core from TrustTunnelClient v1.1.4, Copyright 2020 Adguard Software Ltd, licensed under Apache License 2.0. The Android adapter changes preserve lifecycle fixes and add per-application routing.</string>
+    <string name="trust_attribution">Veilark includes a modified Android adapter and native core from TrustTunnelClient v1.1.5, Copyright 2020 Adguard Software Ltd, licensed under Apache License 2.0. The Android adapter changes preserve lifecycle fixes and add per-application routing.</string>
     <string name="independent_project_notice">Veilark is an independent community project. It is not affiliated with or endorsed by AdGuard, TrustTunnel, SagerNet, or sing-box.</string>
     <string name="legal_document_back">Back to licenses</string>
     <string name="qr_permission_required">Allow camera access to scan QR codes</string>
@@ -187,7 +191,7 @@
     <string name="routing_save_failed">Could not save application routing</string>
     <string name="routing_saved">Routing saved</string>
     <string name="routing_saved_reconnect">Routing saved. Reconnect to apply it.</string>
-    <string name="update_geo_data">Update GEO data from GitHub</string>
+    <string name="update_geo_data">Update GEO data from managed source</string>
     <string name="geo_update_success">GEO data updated. It will be used on the next sing-box connection.</string>
     <string name="geo_update_failed">Could not update GEO data. The previous verified version is still active.</string>
     <string name="routing_apply_failed">Could not apply routing</string>
@@ -220,4 +224,13 @@
     <string name="network_cellular">cellular network</string>
     <string name="network_physical">new physical network</string>
     <plurals name="server_count"><item quantity="one">%1$d server</item><item quantity="other">%1$d servers</item></plurals>
+    <!-- Material 3 Expressive labelled actions -->
+    <string name="action_paste">Paste link</string>
+    <string name="action_scan_qr">Scan QR code</string>
+    <string name="action_choose_file">Choose file</string>
+    <string name="action_apply">Apply</string>
+    <string name="action_import">Import</string>
+    <string name="action_enter_link">Enter link</string>
+    <string name="fab_menu_close">Close add menu</string>
+    <string name="connection_picker_actions">Subscription actions</string>
 </resources>

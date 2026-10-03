@@ -20,7 +20,9 @@ import androidx.camera.core.ImageProxy
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -28,12 +30,13 @@ import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconButtonDefaults
+import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -43,6 +46,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.ViewCompositionStrategy
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.core.app.ActivityCompat
@@ -205,6 +211,7 @@ class QrScannerActivity : ComponentActivity() {
     }
   }
 
+  @OptIn(ExperimentalMaterial3ExpressiveApi::class)
   @Composable
   private fun QrScannerChrome(onClose: () -> Unit) {
     Box(
@@ -213,36 +220,50 @@ class QrScannerActivity : ComponentActivity() {
         .windowInsetsPadding(WindowInsets.safeDrawing)
         .padding(horizontal = 16.dp, vertical = 12.dp),
     ) {
-      Surface(
+      // Expressive filled tonal icon button (round at rest, squircle on press).
+      FilledTonalIconButton(
+        onClick = onClose,
+        shapes = IconButtonDefaults.shapes(),
         modifier = Modifier
           .align(Alignment.TopEnd)
-          .size(48.dp),
-        shape = CircleShape,
-        color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.94f),
-        tonalElevation = 3.dp,
+          .size(56.dp),
+        colors = IconButtonDefaults.filledTonalIconButtonColors(
+          containerColor = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.94f),
+          contentColor = MaterialTheme.colorScheme.onSurface,
+        ),
       ) {
-        IconButton(onClick = onClose) {
-          Icon(
-            imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
-            contentDescription = stringResource(R.string.qr_scanner_close),
-          )
-        }
+        Icon(
+          imageVector = Icons.Rounded.Close,
+          contentDescription = stringResource(R.string.qr_scanner_close),
+        )
       }
       Surface(
         modifier = Modifier
           .align(Alignment.BottomCenter)
           .widthIn(max = 560.dp),
-        shape = RoundedCornerShape(20.dp),
+        shape = MaterialTheme.shapes.extraLarge,
         color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.96f),
         tonalElevation = 3.dp,
       ) {
-        Text(
-          text = stringResource(R.string.qr_scanner_hint),
+        Row(
           modifier = Modifier.padding(horizontal = 20.dp, vertical = 14.dp),
-          style = MaterialTheme.typography.bodyLarge,
-          color = MaterialTheme.colorScheme.onSurface,
-          textAlign = TextAlign.Center,
-        )
+          verticalAlignment = Alignment.CenterVertically,
+          horizontalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+          // Scanning is ongoing work: the expressive loading indicator replaces
+          // a static hint and signals that the camera is analysing frames.
+          LoadingIndicator(
+            modifier = Modifier.size(32.dp),
+            color = MaterialTheme.colorScheme.primary,
+          )
+          Text(
+            text = stringResource(R.string.qr_scanner_hint),
+            modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
+            style = MaterialTheme.typography.bodyLargeEmphasized,
+            color = MaterialTheme.colorScheme.onSurface,
+            textAlign = TextAlign.Start,
+          )
+        }
       }
     }
   }

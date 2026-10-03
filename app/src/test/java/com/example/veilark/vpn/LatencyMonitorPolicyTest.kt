@@ -11,4 +11,55 @@ class LatencyMonitorPolicyTest {
     assertFalse(latencyCallbackAccepted(3L, 4L, shouldRun = true))
     assertFalse(latencyCallbackAccepted(4L, 4L, shouldRun = false))
   }
+
+  @Test
+  fun commandChannelTimeoutDependsOnHandshakeNotCoroutineLifetime() {
+    assertTrue(
+      commandChannelConnectTimedOut(
+        generation = 4L,
+        activeGeneration = 4L,
+        shouldRun = true,
+        clientIsCurrent = true,
+        connected = false,
+      ),
+    )
+    assertFalse(
+      commandChannelConnectTimedOut(
+        generation = 4L,
+        activeGeneration = 4L,
+        shouldRun = true,
+        clientIsCurrent = true,
+        connected = true,
+      ),
+    )
+    assertFalse(
+      commandChannelConnectTimedOut(
+        generation = 3L,
+        activeGeneration = 4L,
+        shouldRun = true,
+        clientIsCurrent = true,
+        connected = false,
+      ),
+    )
+  }
+
+  @Test
+  fun lateNativeCallbackCannotResurrectDisconnectedChannel() {
+    assertFalse(
+      commandChannelCallbackAccepted(
+        generation = 4L,
+        activeGeneration = 4L,
+        shouldRun = true,
+        clientPresent = false,
+      ),
+    )
+    assertTrue(
+      commandChannelCallbackAccepted(
+        generation = 4L,
+        activeGeneration = 4L,
+        shouldRun = true,
+        clientPresent = true,
+      ),
+    )
+  }
 }

@@ -9,6 +9,7 @@ import com.example.veilark.diagnostics.TechnicalLogStore
 import com.example.veilark.lifecycle.AndroidTunnelLifecycleOwner
 import com.example.veilark.lifecycle.LifecycleAttempt
 import com.example.veilark.NativeRuntimeState
+import com.example.veilark.profile.ProfileSelection
 import com.example.veilark.vpn.ConnectionState
 import com.example.veilark.vpn.EndpointLatencyProbe
 import com.example.veilark.vpn.ManualLatencyPolicy
@@ -92,16 +93,20 @@ object TrustTunnelManager : AppNotifier {
   internal fun startEngine(context: Context, config: String, attempt: LifecycleAttempt) {
     NativeRuntimeState.requireTrustTunnel()
     val startupConfig = TrustTunnelGeoRouting.startupConfig(config)
-    val geoBypassRequested = TrustTunnelGeoRouting.isRussiaDirect(context)
+    val routingPreferences = context.getSharedPreferences("profile_meta", Context.MODE_PRIVATE)
+    val routingMode = TrustTunnelGeoRouting.currentMode(
+      routingPreferences.getString("trust_routing_mode", null),
+      routingPreferences.getString("routing_mode", ProfileSelection.ROUTING_ALL),
+    )
     // Start a small, full-tunnel profile first. The native adapter applies the
     // large, verified CIDR set only after CONNECTED, so TUN admission and the
     // first handshake are not blocked by route compilation.
-    val directCidrs = if (geoBypassRequested) {
-      runCatching { TrustTunnelGeoRouting.currentDirectCidrs(context) }
+    val directCidrs = if (routingMode != ProfileSelection.ROUTING_ALL) {
+      runCatching { TrustTunnelGeoRouting.currentDirectExclusions(context) }
         .onFailure {
           TechnicalLogStore.warning(
             "TRUST",
-            "Russia-direct geo data is unavailable; retaining full tunnel",
+            "Direct routing exclusions are unavailable; retaining full tunnel",
           )
         }
         .getOrDefault(emptyList())
@@ -112,14 +117,16 @@ object TrustTunnelManager : AppNotifier {
       context.getString(R.string.trust_invalid_configuration)
     }
     val generation = synchronized(this) {
+      sessionFence.begin(attempt.attemptId)
       connectionRequested = true
       activeLifecycleAttempt = attempt
-      sessionFence.begin(attempt.attemptId)
       pendingDirectCidrs = directCidrs
       mutableStopped.value = false
       hasConnected = false
       mutableFailureMessage.value = null
-      mutableRoutingNotice.value = if (geoBypassRequested && directCidrs.isEmpty()) {
+      mutableRoutingNotice.value = if (
+        routingMode == ProfileSelection.ROUTING_RU_DIRECT && directCidrs.isEmpty()
+      ) {
         context.getString(R.string.trust_geo_bypass_disabled)
       } else {
         null
@@ -149,6 +156,7 @@ object TrustTunnelManager : AppNotifier {
         sessionId = attempt.attemptId,
         message = failure.message ?: context.getString(R.string.vpn_start_failed),
         logMessage = "Android rejected the TrustTunnel service start",
+        serviceStartRejected = true,
       )
       throw failure
     }
@@ -195,12 +203,12 @@ object TrustTunnelManager : AppNotifier {
       probeGeneration += 1
       mutableTransport.value = null
       cancelLatencyRefresh()
-      if (mutableState.value == ConnectionState.Disconnected || active == null) {
-        active?.let { sessionFence.terminalize(it.attemptId) }
+      if (active == null) {
         activeLifecycleAttempt = null
         mutableStopped.value = true
         true
       } else {
+        sessionFence.requestStop(active.attemptId)
         stopSessionId = active.attemptId
         false
       }
@@ -211,9 +219,9 @@ object TrustTunnelManager : AppNotifier {
     }
     val sessionId = stopSessionId ?: return
     if (!VpnService.stop(context, sessionId)) {
-      terminalizeDisconnected(sessionId)
+      TechnicalLogStore.error("TRUST", "Stop request rejected; waiting for confirmed resource teardown")
     }
-    TechnicalLogStore.info("TRUST", "Tunnel stopped by user")
+    TechnicalLogStore.info("TRUST", "Tunnel stop requested by user")
   }
 
   @Synchronized
@@ -375,6 +383,10 @@ object TrustTunnelManager : AppNotifier {
 
   private fun terminalizeDisconnected(sessionId: Long) {
     val terminalState = synchronized(this) {
+      if (!sessionFence.accepts(sessionId)) return
+      // Finish this session's monitor cleanup before stopped releases admission.
+      // Otherwise a newly admitted session can inherit and then lose that monitor.
+      runCatching { stopNetworkManager() }
       if (!sessionFence.terminalize(sessionId)) return
       val requested = connectionRequested
       connectionRequested = false
@@ -393,7 +405,6 @@ object TrustTunnelManager : AppNotifier {
         else -> ConnectionState.Disconnected
       }.also { mutableState.value = it }
     }
-    runCatching { stopNetworkManager() }
     if (terminalState == ConnectionState.Failed) {
       TechnicalLogStore.error("TRUST", "Core ended the connection with an error")
     }
@@ -404,25 +415,31 @@ object TrustTunnelManager : AppNotifier {
     sessionId: Long,
     message: String,
     logMessage: String,
+    serviceStartRejected: Boolean = false,
   ): Boolean {
-    val terminalized = synchronized(this) {
-      if (!sessionFence.terminalize(sessionId)) return false
+    val stopping = synchronized(this) {
+      if (!sessionFence.requestStop(sessionId)) return false
       connectionRequested = false
       hasConnected = false
-      activeLifecycleAttempt = null
       pendingDirectCidrs = emptyList()
       mutableRoutingNotice.value = null
       probeGeneration += 1
       mutableTransport.value = null
       mutableFailureMessage.value = message
       mutableState.value = ConnectionState.Failed
-      mutableStopped.value = true
       cancelLatencyRefresh()
       true
     }
-    if (!terminalized) return false
-    runCatching { VpnService.stop(context, sessionId) }
-    runCatching { stopNetworkManager() }
+    if (!stopping) return false
+    if (serviceStartRejected) {
+      // No service start was admitted. There is no native owner to await.
+      runCatching { stopNetworkManager() }
+      terminalizeDisconnected(sessionId)
+    } else {
+      // A stop intent is asynchronous. Only the adapter's post-close callback
+      // may release the session fence and permit another engine to start.
+      runCatching { VpnService.stop(context, sessionId) }
+    }
     TechnicalLogStore.error("TRUST", logMessage)
     return true
   }

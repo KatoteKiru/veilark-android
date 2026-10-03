@@ -1,101 +1,96 @@
-"""Render Veilark legacy launcher icons from the canonical foreground artwork.
-
-The geometry and alpha mask are preserved. Only the palette is mapped to the
-understated launcher palette used by the adaptive icon resources.
-"""
-
+"""Rasterize compatibility launcher icons from the shared monochrome SVG mark."""
 from pathlib import Path
+import re
+import xml.etree.ElementTree as ET
 
-from PIL import Image, ImageDraw
-
+from PIL import Image, ImageChops, ImageDraw
 
 ROOT = Path(__file__).resolve().parents[1]
 RES = ROOT / "app" / "src" / "main" / "res"
-FOREGROUND_SOURCE = ROOT / "design" / "veilark_logo_foreground_source.png"
+FOREGROUND_SOURCE = ROOT / "design" / "veilark-mark.svg"
 FOREGROUND = RES / "drawable-xxxhdpi" / "veilark_logo_foreground_v2.png"
-
-CANVAS = (0x11, 0x15, 0x1A, 0xFF)
-INNER = (0x1D, 0x24, 0x2C, 0xFF)
-UPPER = (0xD4, 0xDB, 0xE2)
-LOWER = (0x7C, 0x8E, 0xA1)
-CENTER = (0xB6, 0xC2, 0xCD)
-
+CANVAS = (0x15, 0x16, 0x1B, 0xFF)
 DENSITIES = {
-    "mipmap-mdpi": 48,
-    "mipmap-hdpi": 72,
-    "mipmap-xhdpi": 96,
-    "mipmap-xxhdpi": 144,
-    "mipmap-xxxhdpi": 192,
+    "mipmap-mdpi": 48, "mipmap-hdpi": 72, "mipmap-xhdpi": 96,
+    "mipmap-xxhdpi": 144, "mipmap-xxxhdpi": 192,
 }
 
+def svg_contours(data: str) -> list[list[tuple[float, float]]]:
+    tokens = re.findall(r"[MLHVZ]|-?\d+(?:\.\d+)?", data)
+    contours = []
+    current = []
+    x = y = 0.0
+    command = ""
+    i = 0
+    while i < len(tokens):
+        if tokens[i] in "MLHVZ":
+            command = tokens[i]
+            i += 1
+        if command == "Z":
+            contours.append(current)
+            current = []
+            command = ""
+            continue
+        if command in ("M", "L"):
+            x, y = float(tokens[i]), float(tokens[i + 1])
+            i += 2
+            if command == "M":
+                command = "L"
+        elif command == "H":
+            x = float(tokens[i])
+            i += 1
+        elif command == "V":
+            y = float(tokens[i])
+            i += 1
+        else:
+            raise ValueError("Unsupported SVG path command")
+        current.append((x, y))
+    return contours
 
-def recolor_foreground(image: Image.Image) -> Image.Image:
-    source = image.convert("RGBA")
-    output = Image.new("RGBA", source.size)
-    source_pixels = source.load()
-    output_pixels = output.load()
-    for y in range(source.height):
-        for x in range(source.width):
-            red, green, blue, alpha = source_pixels[x, y]
-            if alpha == 0:
-                continue
-            if green > 150 and blue > 150 and red < 100:
-                target = CENTER
-            elif blue > red * 1.35 and blue > green * 1.08:
-                target = LOWER
-            else:
-                target = UPPER
-            # Retain the original artwork's subtle lighting without retaining hue.
-            luminance = (red * 299 + green * 587 + blue * 114) / 255_000
-            adjustment = 0.88 + 0.18 * luminance
-            output_pixels[x, y] = (
-                min(255, round(target[0] * adjustment)),
-                min(255, round(target[1] * adjustment)),
-                min(255, round(target[2] * adjustment)),
-                alpha,
+def render_foreground() -> Image.Image:
+    extent = 864
+    combined = Image.new("1", (extent, extent))
+    for element in ET.parse(FOREGROUND_SOURCE).getroot():
+        path_mask = Image.new("1", combined.size)
+        for contour in svg_contours(element.attrib["d"]):
+            contour_mask = Image.new("1", combined.size)
+            ImageDraw.Draw(contour_mask).polygon(
+                [(x * 2, y * 2) for x, y in contour], fill=1,
             )
-    return output
-
+            path_mask = ImageChops.logical_xor(path_mask, contour_mask)
+        combined = ImageChops.logical_or(combined, path_mask)
+    image = Image.new("RGBA", combined.size, (255, 255, 255, 0))
+    image.putalpha(combined.convert("L"))
+    return image
 
 def render_legacy(foreground: Image.Image, size: int, round_icon: bool) -> Image.Image:
-    scale = 4
-    extent = size * scale
+    extent = size * 4
     canvas = Image.new("RGBA", (extent, extent), (0, 0, 0, 0))
     draw = ImageDraw.Draw(canvas)
     if round_icon:
         draw.ellipse((0, 0, extent - 1, extent - 1), fill=CANVAS)
     else:
-        radius = round(extent * 0.22)
-        draw.rounded_rectangle((0, 0, extent - 1, extent - 1), radius=radius, fill=CANVAS)
-    inset = round(extent * 0.074)
-    draw.ellipse((inset, inset, extent - inset, extent - inset), fill=INNER)
-
+        draw.rounded_rectangle(
+            (0, 0, extent - 1, extent - 1),
+            radius=round(extent * 0.22), fill=CANVAS,
+        )
     art_extent = round(extent * (76 / 108))
     art = foreground.resize((art_extent, art_extent), Image.Resampling.LANCZOS)
     origin = (extent - art_extent) // 2
     canvas.alpha_composite(art, (origin, origin))
     return canvas.resize((size, size), Image.Resampling.LANCZOS)
 
-
 def main() -> None:
-    foreground = recolor_foreground(Image.open(FOREGROUND_SOURCE))
+    foreground = render_foreground()
     foreground.save(FOREGROUND, format="PNG", optimize=True)
     for directory_name, size in DENSITIES.items():
         directory = RES / directory_name
         directory.mkdir(parents=True, exist_ok=True)
-        render_legacy(foreground, size, round_icon=False).save(
-            directory / "ic_launcher.webp",
-            format="WEBP",
-            lossless=True,
-            method=6,
-        )
-        render_legacy(foreground, size, round_icon=True).save(
-            directory / "ic_launcher_round.webp",
-            format="WEBP",
-            lossless=True,
-            method=6,
-        )
-
+        for round_icon in (False, True):
+            name = "ic_launcher_round.webp" if round_icon else "ic_launcher.webp"
+            render_legacy(foreground, size, round_icon).save(
+                directory / name, format="WEBP", lossless=True, method=6,
+            )
 
 if __name__ == "__main__":
     main()

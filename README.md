@@ -10,13 +10,16 @@ access, accounts, or subscriptions.
 
 ## TrustTunnel VPN client for Android
 
+[Download the latest Android APK](https://github.com/KatoteKiru/veilark-android/releases/latest)
+— Android 10 or later. Import your own subscription; no VPN credentials are bundled.
+
 Looking for a **TrustTunnel (Trust Tunnel) Android client**? Veilark supports `tt://` profiles and subscription lists, alongside a separate sing-box mode. Import your own provider configuration and choose which applications use the VPN with per-app split tunneling. Veilark is independent and is not an official AdGuard app.
 
 ## Features
 
 - Android 10+ (`minSdk 29`), `arm64-v8a` and `armeabi-v7a`;
 - English and Russian UI selected from the Android system or per-app language;
-- separate sing-box 1.13.19 and TrustTunnel 1.1.4 modes;
+- separate sing-box 1.13.21 and TrustTunnel 1.1.7 modes;
 - multiple subscriptions and profiles with refresh, selection, and deletion;
 - import from a link, clipboard, file, or QR code;
 - VLESS, Trojan, Hysteria 2, VMess, Shadowsocks, TUIC, and AnyTLS links;

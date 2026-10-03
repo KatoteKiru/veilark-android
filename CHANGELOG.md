@@ -2,6 +2,72 @@
 
 All notable changes to the public distribution are documented here.
 
+## Unreleased
+
+- rebuilt TrustTunnel 1.1.7 for arm64-v8a and armeabi-v7a from pinned upstream
+  sources, preserving per-app routing and lifecycle patches; two independent
+  build directories produced identical AARs. Release CI verifies vendor hashes,
+  native architectures and the existing OSS signing certificate before publishing.
+
+- adopted Material 3 Expressive on Android: `MaterialExpressiveTheme` with the
+  expressive motion scheme, the expressive shape ladder and emphasized type
+  roles; a morphing Material-shape connection emblem, a shape-morphing medium
+  Connect button, `LoadingIndicator`, wavy update-download progress, a
+  connected toggle-button group for the engine selector, large flexible app
+  bars on secondary screens, a FAB menu for adding profiles, a floating toolbar
+  for subscription actions and labelled dialog buttons. This depends on the
+  pre-release `material3` 1.5.0-alpha18 (see
+  `docs/ANDROID_EXPRESSIVE_POLISH_2026-09-30.md` for the trade-off);
+- system and predictive back now close About, licence and log screens instead
+  of leaving the app; screen state survives rotation; duplicate technical-log
+  entries no longer crash the log; lists respect navigation-bar and cutout
+  insets; the routing dialog keeps unsaved edits; full-screen dialogs close on
+  a scrim tap; connection-state changes are announced by TalkBack; dark mode
+  no longer flashes a white window on cold start; "checking profile" shows a
+  progress indicator instead of an action icon; WARN log entries use a
+  distinct amber accent. VPN runtimes, routing and saved settings are
+  unchanged.
+- bound manual GEO refreshes to the managed generation manifest, verified both
+  downloaded rule sets by declared size and SHA-256 before activation, rejected
+  manifest rollbacks, and added recovery from a previously completed local
+  generation if the active pointer is interrupted or damaged;
+- kept startup offline-first and retained the packaged rule sets as the final
+  fallback without changing saved routing preferences.
+- routed Russia-direct domain lookups through local bootstrap DNS while keeping
+  foreign lookups on secure DNS through the tunnel, and removed the GEO DNS
+  rule when switching back to another routing mode.
+
+## 0.8.0-rc33
+
+- Replaced decorative shields with the shared monochrome Veilark vector mark.
+- Added a consistent neutral Material palette for both system themes.
+- Smoothed connection-state color changes without animating the whole card size.
+- Allowed the main connection action to grow with enlarged system text.
+- Added text contrast and neutral-palette regression tests. VPN runtimes and saved settings are unchanged.
+
+## 0.8.0-rc32
+
+- rebased the locally patched TrustTunnel Android adapter and native core from
+  stable 1.1.4 to stable 1.1.5, retaining lifecycle fencing, per-application
+  routing and runtime exclusions;
+- kept subscriptions, selected profiles and routing settings unchanged across
+  the application update.
+
+## 0.8.0-rc31
+
+- updated the embedded stable sing-box core from 1.13.19 to 1.13.21 without
+  changing routing or subscription formats;
+
+## 0.8.0-rc30
+
+- exposed custom domain and CIDR routing in the Android client while preserving
+  independent sing-box and TrustTunnel settings and per-application split;
+- moved explicit GEO refresh to the managed Veilark mirror with the upstream
+  SagerNet rule sets retained as a fallback, while connection startup remains
+  offline-first from the last verified generation;
+- added strictly validated links to the Veilark Telegram bot and web account;
+- retained subscriptions, selected nodes and routing preferences during OTA.
+
 ## 0.8.0-rc29
 
 - fixed QR imports that reached the camera successfully but failed on Veilark
