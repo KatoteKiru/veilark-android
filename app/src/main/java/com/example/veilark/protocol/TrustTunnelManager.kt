@@ -270,7 +270,7 @@ object TrustTunnelManager : AppNotifier {
       VpnState.DISCONNECTED -> terminalizeDisconnected(sessionId)
       VpnState.CONNECTED -> handleConnected(sessionId)
       VpnState.CONNECTING -> synchronized(this) {
-        if (connectionRequested && sessionFence.accepts(sessionId)) {
+        if (connectionRequested && sessionFence.acceptConnecting(sessionId)) {
           mutableState.value = ConnectionState.Connecting
         }
       }
