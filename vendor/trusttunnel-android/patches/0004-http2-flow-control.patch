@@ -1,0 +1,224 @@
+diff --git a/core/src/http2_upstream.cpp b/core/src/http2_upstream.cpp
+index 7ce9721..99de5af 100644
+--- a/core/src/http2_upstream.cpp
++++ b/core/src/http2_upstream.cpp
+@@ -2,6 +2,7 @@
+ 
+ #include <cassert>
+ #include <string_view>
++#include <utility>
+ #include <vector>
+ 
+ #include <event2/util.h>
+@@ -288,6 +289,11 @@ void Http2Upstream::http_handler(void *arg, HttpEventId what, void *data) {
+     case HTTP_EVENT_DATA_SENT: {
+         const HttpDataSentEvent *http_event = (HttpDataSentEvent *) data;
+ 
++        if (http_event->length == 0) {
++            upstream->report_write_credit((uint32_t) http_event->stream_id);
++            break;
++        }
++
+         // for udp it will be reported in socket write buffer flushed event
+         if ((uint32_t) http_event->stream_id != upstream->m_udp_mux.get_stream_id()) {
+             auto found = upstream->get_conn_by_stream_id(http_event->stream_id);
+@@ -323,6 +329,7 @@ void Http2Upstream::http_handler(void *arg, HttpEventId what, void *data) {
+         const HttpOutputEvent *http_event = (HttpOutputEvent *) data;
+         log_upstream(upstream, trace, "Sending {} bytes to server", http_event->length);
+ 
++        upstream->m_socket_write_flushed = false;
+         VpnError error = tcp_socket_write(upstream->m_socket.get(), http_event->data, http_event->length);
+         if (error.code != 0) {
+             upstream->close_session_inner(VpnError{VPN_EC_ERROR, error.text});
+@@ -441,17 +448,8 @@ void Http2Upstream::net_handler(void *arg, TcpSocketEvent what, void *data) {
+     }
+     case TCP_SOCKET_EVENT_WRITE_FLUSH: {
+         log_upstream(upstream, trace, "Write buffer flushed");
+-
+-        for (auto &[id, _] : upstream->m_tcp_connections) {
+-            ServerDataSentEvent serv_event = {id, 0};
+-            upstream->handler.func(upstream->handler.arg, SERVER_EVENT_DATA_SENT, &serv_event);
+-        }
+-
+-        if (std::optional stream_id = upstream->m_udp_mux.get_stream_id(); stream_id.has_value()
+-                && 0 < http_session_available_to_write(
+-                           upstream->m_session.get(), static_cast<int32_t>(stream_id.value()))) {
+-            upstream->m_udp_mux.report_sent_bytes();
+-        }
++        upstream->m_socket_write_flushed = true;
++        upstream->report_write_credit(0);
+ 
+         break;
+     }
+@@ -474,6 +472,7 @@ bool Http2Upstream::open_session(std::optional<Millis> timeout) {
+ 
+     // Reset state
+     m_cert_verify_failed = false;
++    m_socket_write_flushed = true;
+ 
+     const vpn_client::EndpointConnectionConfig *config = &this->vpn->upstream_config;
+ 
+@@ -784,6 +783,44 @@ void Http2Upstream::clean_tcp_connection_data(uint64_t id) {
+     }
+ }
+ 
++void Http2Upstream::report_write_credit(uint32_t stream_id) {
++    if (m_closed || m_closing || !m_session || !m_socket) {
++        return;
++    }
++
++    // The callback can close connections or request a new session. Never retain
++    // an unordered_map iterator/reference across a downstream callback.
++    std::vector<std::pair<uint64_t, uint32_t>> connections;
++    connections.reserve(m_tcp_connections.size());
++    for (const auto &[id, conn] : m_tcp_connections) {
++        if (stream_id == 0 || conn.stream_id == stream_id) {
++            connections.emplace_back(id, conn.stream_id);
++        }
++    }
++    for (const auto &[id, expected_stream] : connections) {
++        if (m_closed || m_closing || !m_session || !m_socket) {
++            return;
++        }
++        auto i = m_tcp_connections.find(id);
++        if (i == m_tcp_connections.end() || i->second.stream_id != expected_stream
++                || i->second.flags.test(TcpConnection::TCF_STREAM_CLOSED)
++                || i->second.flags.test(TcpConnection::TCF_CLIENT_CLOSED) || available_to_send(id) == 0) {
++            continue;
++        }
++        ServerDataSentEvent event = {id, 0};
++        handler.func(handler.arg, SERVER_EVENT_DATA_SENT, &event);
++    }
++
++    if (!m_closed && !m_closing && m_session && m_socket && m_socket_write_flushed) {
++        auto udp_stream = m_udp_mux.get_stream_id();
++        if (udp_stream.has_value() && (stream_id == 0 || stream_id == udp_stream.value())
++                && tcp_socket_available_to_write(m_socket.get()) > 0
++                && http_session_available_to_write(m_session.get(), (int32_t) udp_stream.value()) > 0) {
++            m_udp_mux.report_sent_bytes(true);
++        }
++    }
++}
++
+ size_t Http2Upstream::available_to_send(uint64_t id) {
+     std::optional<uint32_t> stream_id = get_stream_id(id);
+     if (!stream_id.has_value()) {
+diff --git a/core/src/http2_upstream.h b/core/src/http2_upstream.h
+index cf77cfc..6e8d1e1 100644
+--- a/core/src/http2_upstream.h
++++ b/core/src/http2_upstream.h
+@@ -56,6 +56,8 @@ private:
+     bool m_closed = false;
+     bool m_closing = false;
+     bool m_cert_verify_failed = false;
++    // Credit notifications must not acknowledge UDP bytes before socket flush.
++    bool m_socket_write_flushed = true;
+     std::optional<VpnError> m_pending_session_error;
+     std::unordered_map<uint64_t, TcpConnection> m_tcp_connections;
+     std::unordered_map<uint32_t, uint64_t> m_conn_id_by_stream_id;
+@@ -118,6 +120,7 @@ private:
+     static int send_data_callback(ServerUpstream *upstream, uint64_t stream_id, U8View data);
+     static void consume_callback(ServerUpstream *upstream, uint64_t stream_id, size_t size);
+     void report_health_check_error(bool need_result, VpnError error);
++    void report_write_credit(uint32_t stream_id);
+ };
+ 
+ } // namespace ag
+diff --git a/core/src/http_udp_multiplexer.cpp b/core/src/http_udp_multiplexer.cpp
+index 080ffc0..4fb061d 100644
+--- a/core/src/http_udp_multiplexer.cpp
++++ b/core/src/http_udp_multiplexer.cpp
+@@ -4,6 +4,8 @@
+ #include <atomic>
+ #include <cassert>
+ #include <string_view>
++#include <utility>
++#include <vector>
+ 
+ #include "common/net_utils.h"
+ #include "common/socket_address.h"
+@@ -426,12 +428,22 @@ std::optional<uint64_t> HttpUdpMultiplexer::get_stream_id() const {
+     return out;
+ }
+ 
+-void HttpUdpMultiplexer::report_sent_bytes() {
++void HttpUdpMultiplexer::report_sent_bytes(bool notify_writable) {
++    const auto stream = get_stream_id();
++    std::vector<std::pair<uint64_t, size_t>> pending;
++    pending.reserve(m_connections.size());
+     for (auto &[id, conn] : m_connections) {
+-        if (conn.sent_bytes_since_flush > 0) {
+-            ServerDataSentEvent serv_event = {id, conn.sent_bytes_since_flush};
+-            m_params.parent->handler.func(m_params.parent->handler.arg, SERVER_EVENT_DATA_SENT, &serv_event);
+-            conn.sent_bytes_since_flush = 0;
++        if (conn.sent_bytes_since_flush > 0 || notify_writable) {
++            pending.emplace_back(id, std::exchange(conn.sent_bytes_since_flush, 0));
++        }
++    }
++    for (const auto &[id, length] : pending) {
++        if (get_stream_id() != stream) {
++            return;
++        }
++        if (m_connections.find(id) != m_connections.end()) {
++            ServerDataSentEvent event = {id, length};
++            m_params.parent->handler.func(m_params.parent->handler.arg, SERVER_EVENT_DATA_SENT, &event);
+         }
+     }
+ }
+diff --git a/core/src/http_udp_multiplexer.h b/core/src/http_udp_multiplexer.h
+index 25b814a..2a2169c 100644
+--- a/core/src/http_udp_multiplexer.h
++++ b/core/src/http_udp_multiplexer.h
+@@ -112,9 +112,10 @@ public:
+     void handle_response(const HttpHeaders *response);
+ 
+     /**
+-     * Raise `SERVER_EVENT_DATA_SENT` for each connection that have non-zero sent bytes counter
++     * Raise `SERVER_EVENT_DATA_SENT` for flushed bytes. Optional writable
++     * notifications carry zero length and do not acknowledge additional bytes.
+      */
+-    void report_sent_bytes();
++    void report_sent_bytes(bool notify_writable = false);
+ 
+     /**
+      * Turn on/off read events for connection.
+diff --git a/net/src/http2.cpp b/net/src/http2.cpp
+index d1d93ee..b41fb74 100644
+--- a/net/src/http2.cpp
++++ b/net/src/http2.cpp
+@@ -229,12 +229,19 @@ static int on_frame_recv_callback(nghttp2_session *ngsession, const nghttp2_fram
+         log_frsid(session, frame, trace, "received window update: increment={}",
+                 frame->window_update.window_size_increment);
+ 
+-        if (stream_id != 0 && frame->window_update.window_size_increment > 0) {
++        if (frame->window_update.window_size_increment > 0) {
+             HttpSessionHandler *callbacks = &session->params.handler;
+             HttpDataSentEvent event = {stream_id, 0};
+             callbacks->handler(callbacks->arg, HTTP_EVENT_DATA_SENT, &event);
+         }
+ 
++        break;
++    case NGHTTP2_SETTINGS:
++        if (!(frame->hd.flags & NGHTTP2_FLAG_ACK)) {
++            // INITIAL_WINDOW_SIZE can reopen streams without a WINDOW_UPDATE.
++            HttpDataSentEvent event = {0, 0};
++            callbacks->handler(callbacks->arg, HTTP_EVENT_DATA_SENT, &event);
++        }
+         break;
+     default:
+         // do nothing
+@@ -875,12 +882,9 @@ static void stream_destroy(HttpStream *stream) {
+ }
+ 
+ size_t http_session_available_to_write(HttpSession *session, int32_t stream_id) {
+-    int32_t r;
+-
++    int32_t r = nghttp2_session_get_remote_window_size(session->h2->ngsession);
+     if (stream_id != 0) {
+-        r = nghttp2_session_get_stream_remote_window_size(session->h2->ngsession, stream_id);
+-    } else {
+-        r = nghttp2_session_get_remote_window_size(session->h2->ngsession);
++        r = std::min(r, nghttp2_session_get_stream_remote_window_size(session->h2->ngsession, stream_id));
+     }
+ 
+     return (r > 0) ? r : 0;

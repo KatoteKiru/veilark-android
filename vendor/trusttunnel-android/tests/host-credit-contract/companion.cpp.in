@@ -1,0 +1,149 @@
+// Exact source excerpts, minimal used-field scaffolding, real nghttp2 memory only.
+#include <nghttp2/nghttp2.h>
+#include <algorithm>
+#include <array>
+#include <bitset>
+#include <cassert>
+#include <cstdint>
+#include <cstring>
+#include <functional>
+#include <iostream>
+#include <memory>
+#include <optional>
+#include <unordered_map>
+#include <utility>
+#include <vector>
+#define log_frsid(...) ((void)0)
+#define log_conn(...) ((void)0)
+enum { HTTP_EVENT_DATA_SENT=1, SERVER_EVENT_DATA_SENT=2 };
+struct HttpDataSentEvent { int32_t stream_id; size_t length; };
+struct ServerDataSentEvent { uint64_t id; size_t length; };
+struct HttpSessionHandler { void (*handler)(void*,int,void*); void *arg; };
+struct MinimalH2 { nghttp2_session *ngsession; };
+struct HttpSession { MinimalH2 *h2; struct { HttpSessionHandler handler; } params; };
+struct FakeSocket { size_t capacity=4096; };
+static size_t tcp_socket_available_to_write(FakeSocket *s) { return s->capacity; }
+// EXCERPT_AVAILABLE
+static int on_credit_frame(nghttp2_session *, const nghttp2_frame *frame, void *user_data) {
+    auto *session=static_cast<HttpSession *>(user_data);
+    int32_t stream_id=frame->hd.stream_id;
+    HttpSessionHandler *callbacks=&session->params.handler;
+    switch(frame->hd.type) {
+// EXCERPT_FRAME_CASES
+    default: break;
+    }
+    return 0;
+}
+struct ServerHandler { void (*func)(void*,int,void*); void *arg; };
+struct Http2Upstream;
+struct HttpUdpMultiplexer {
+    enum { MS_IDLE, MS_ESTABLISHED };
+    struct Conn { size_t sent_bytes_since_flush=0; };
+    int m_state=MS_ESTABLISHED; uint32_t m_stream_id=5;
+    std::unordered_map<uint64_t,Conn> m_connections;
+    struct { Http2Upstream *parent; } m_params;
+    std::optional<uint64_t> get_stream_id() const;
+    bool check_connection(uint64_t id) const { return m_connections.find(id)!=m_connections.end(); }
+    void report_sent_bytes(bool notify_writable=false);
+};
+struct Http2Upstream {
+    struct TcpConnection {
+        enum { TCF_READ_ENABLED, TCF_STREAM_CLOSED, TCF_CLIENT_CLOSED };
+        uint32_t stream_id; std::bitset<3> flags;
+    };
+    bool m_closed=false,m_closing=false,m_socket_write_flushed=true;
+    std::shared_ptr<HttpSession> m_session;
+    std::unique_ptr<FakeSocket> m_socket=std::make_unique<FakeSocket>();
+    std::unordered_map<uint64_t,TcpConnection> m_tcp_connections;
+    HttpUdpMultiplexer m_udp_mux;
+    ServerHandler handler;
+    void report_write_credit(uint32_t stream_id);
+    size_t available_to_send(uint64_t id);
+    std::optional<uint32_t> get_stream_id(uint64_t id) const;
+};
+// EXCERPT_UDP_STREAM
+// EXCERPT_UDP_SENT
+// EXCERPT_CORE_STREAM
+// EXCERPT_CORE_AVAILABLE
+// EXCERPT_CORE_CREDIT
+struct Env {
+    nghttp2_session *native=nullptr;
+    MinimalH2 h2{};
+    Http2Upstream core;
+    std::vector<HttpDataSentEvent> credits;
+    std::vector<ServerDataSentEvent> sent;
+    std::function<void(ServerDataSentEvent)> downstream;
+    std::array<size_t,3> remaining{65535,0,0};
+    static ssize_t discard(nghttp2_session*,const uint8_t*,size_t n,int,void*) { return n; }
+    static ssize_t bounded(nghttp2_session*,int32_t,uint8_t *buf,size_t n,uint32_t*,nghttp2_data_source *s,void*) {
+        auto *remaining=static_cast<size_t*>(s->ptr);
+        if(!*remaining) return NGHTTP2_ERR_DEFERRED;
+        n=std::min(n,*remaining);std::memset(buf,0,n);*remaining-=n;return n;
+    }
+    static void credit(void *p,int,void *data) {
+        auto *e=static_cast<Env*>(p);auto v=*static_cast<HttpDataSentEvent*>(data);
+        e->credits.push_back(v);e->core.report_write_credit(static_cast<uint32_t>(v.stream_id));
+    }
+    static void sink(void *p,int,void *data) {
+        auto *e=static_cast<Env*>(p);auto v=*static_cast<ServerDataSentEvent*>(data);
+        e->sent.push_back(v);if(e->downstream)e->downstream(v);
+    }
+    Env() {
+        core.m_session=std::make_shared<HttpSession>();core.m_session->h2=&h2;
+        core.m_session->params.handler={credit,this};core.handler={sink,this};core.m_udp_mux.m_params.parent=&core;
+        nghttp2_session_callbacks *cb=nullptr;assert(nghttp2_session_callbacks_new(&cb)==0);
+        nghttp2_session_callbacks_set_send_callback(cb,discard);nghttp2_session_callbacks_set_on_frame_recv_callback(cb,on_credit_frame);
+        assert(nghttp2_session_client_new(&native,cb,core.m_session.get())==0);nghttp2_session_callbacks_del(cb);h2.ngsession=native;
+        assert(nghttp2_submit_settings(native,0,nullptr,0)==0);assert(nghttp2_session_send(native)==0);
+        settings(1048576);credits.clear();sent.clear();
+        for(int i=0;i<3;++i) {
+            uint8_t method[] = ":method",connect[]="CONNECT",authority[]=":authority",target[]="unit.example.test:443";
+            nghttp2_nv hdr[]={{method,connect,sizeof(method)-1,sizeof(connect)-1,0},{authority,target,sizeof(authority)-1,sizeof(target)-1,0}};
+            nghttp2_data_provider provider{};provider.source.ptr=&remaining[i];provider.read_callback=bounded;
+            assert(nghttp2_submit_request(native,nullptr,hdr,2,&provider,nullptr)==2*i+1);
+        }
+        assert(nghttp2_session_send(native)==0);assert(remaining[0]==0);
+        assert(nghttp2_session_get_remote_window_size(native)==0);
+        core.m_tcp_connections.emplace(101,Http2Upstream::TcpConnection{1,{}});
+        core.m_tcp_connections.emplace(102,Http2Upstream::TcpConnection{3,{}});
+    }
+    ~Env(){nghttp2_session_del(native);}
+    void recv(const uint8_t *p,size_t n){assert(nghttp2_session_mem_recv(native,p,n)==static_cast<ssize_t>(n));}
+    void settings(uint32_t n) {
+        std::array<uint8_t,15> f{0,0,6,NGHTTP2_SETTINGS,0,0,0,0,0,0,4,uint8_t(n>>24),uint8_t(n>>16),uint8_t(n>>8),uint8_t(n)};recv(f.data(),f.size());
+    }
+    void ack(){std::array<uint8_t,9> f{0,0,0,NGHTTP2_SETTINGS,NGHTTP2_FLAG_ACK,0,0,0,0};recv(f.data(),f.size());}
+    void window(uint32_t stream,uint32_t n) {
+        std::array<uint8_t,13> f{0,0,4,NGHTTP2_WINDOW_UPDATE,0,uint8_t(stream>>24),uint8_t(stream>>16),uint8_t(stream>>8),uint8_t(stream),uint8_t(n>>24),uint8_t(n>>16),uint8_t(n>>8),uint8_t(n)};recv(f.data(),f.size());
+    }
+    void credit_ready(){window(0,4096);credits.clear();sent.clear();}
+};
+int main() {
+    { Env e;e.window(0,4096);assert(e.credits.size()==1&&e.credits[0].stream_id==0&&e.credits[0].length==0);assert(e.sent.size()==2);assert(http_session_available_to_write(e.core.m_session.get(),1)==4096);
+      e.sent.clear();e.credits.clear();e.ack();assert(e.credits.empty()&&e.sent.empty());
+      e.settings(65535);assert(e.credits.size()==1&&e.credits[0].length==0);assert(http_session_available_to_write(e.core.m_session.get(),1)==0);
+      e.sent.clear();e.credits.clear();e.window(1,1);assert(e.credits.size()==1&&e.credits[0].stream_id==1);assert(e.sent.size()==1&&e.sent[0].id==101);
+      e.sent.clear();e.credits.clear();e.settings(1048576);assert(e.credits.size()==1&&e.sent.size()==2); }
+    { Env e;e.credit_ready();e.core.m_udp_mux.m_connections={{201,{0}}};e.settings(0);e.sent.clear();e.credits.clear();e.ack();assert(e.sent.empty()&&e.credits.empty());e.settings(65535);
+      bool udp_woke=false;for(auto v:e.sent){assert(v.length==0);if(v.id==201)udp_woke=true;}assert(e.credits.size()==1&&udp_woke); }
+    { Env e;e.credit_ready();e.core.m_udp_mux.m_connections={{201,{7}},{202,{8}}};e.core.m_socket_write_flushed=false;e.core.report_write_credit(0);
+      assert(e.sent.size()==2);assert(e.core.m_udp_mux.m_connections.at(201).sent_bytes_since_flush==7);assert(e.core.m_udp_mux.m_connections.at(202).sent_bytes_since_flush==8);
+      e.sent.clear();e.core.m_socket_write_flushed=true;e.downstream=[&](ServerDataSentEvent v){if(v.id<200)e.core.m_socket_write_flushed=false;};e.core.report_write_credit(0);
+      assert(e.sent.size()==2&&e.core.m_udp_mux.m_connections.at(201).sent_bytes_since_flush==7);
+      e.core.m_tcp_connections.clear();e.downstream={};e.sent.clear();e.core.m_socket_write_flushed=true;e.core.report_write_credit(0);
+      size_t bytes=0;for(auto v:e.sent)bytes+=v.length;assert(e.sent.size()==2&&bytes==15);
+      e.sent.clear();e.core.report_write_credit(0);for(auto v:e.sent)assert(v.length==0);assert(e.sent.size()==2); }
+    { Env e;e.credit_ready();bool first=true;e.downstream=[&](ServerDataSentEvent v){if(first){first=false;for(auto i=e.core.m_tcp_connections.begin();i!=e.core.m_tcp_connections.end();)if(i->first!=v.id)i=e.core.m_tcp_connections.erase(i);else ++i;e.core.m_tcp_connections.emplace(999,Http2Upstream::TcpConnection{1,{}});}};e.core.report_write_credit(0);assert(e.sent.size()==1); }
+    { Env e;e.credit_ready();bool first=true;e.downstream=[&](ServerDataSentEvent v){if(first){first=false;for(auto &[id,c]:e.core.m_tcp_connections)if(id!=v.id)c.stream_id=5;}};e.core.report_write_credit(0);assert(e.sent.size()==1); }
+    { Env e;e.credit_ready();e.downstream=[&](ServerDataSentEvent){e.core.m_closed=true;};e.core.report_write_credit(0);assert(e.sent.size()==1); }
+    { Env e;e.credit_ready();e.core.m_tcp_connections.at(101).flags.set(Http2Upstream::TcpConnection::TCF_STREAM_CLOSED);e.core.report_write_credit(0);assert(e.sent.size()==1&&e.sent[0].id==102); }
+    bool client_closed_blocked;
+    { Env e;e.credit_ready();e.core.m_tcp_connections.clear();e.core.m_tcp_connections.emplace(101,Http2Upstream::TcpConnection{1,{}});e.core.m_tcp_connections.at(101).flags.set(Http2Upstream::TcpConnection::TCF_CLIENT_CLOSED);e.core.report_write_credit(0);client_closed_blocked=e.sent.empty(); }
+    { Env e;e.credit_ready();e.core.m_tcp_connections.clear();e.core.m_udp_mux.m_connections={{201,{7}},{202,{8}}};bool first=true;uint64_t other=0;
+      e.downstream=[&](ServerDataSentEvent v){if(first){first=false;other=v.id==201?202:201;e.core.m_udp_mux.m_connections.at(other).sent_bytes_since_flush+=3;e.core.m_socket_write_flushed=false;e.core.report_write_credit(0);}};
+      e.core.report_write_credit(0);size_t bytes=0;for(auto v:e.sent)bytes+=v.length;assert(e.sent.size()==2&&bytes==15);assert(e.core.m_udp_mux.m_connections.at(other).sent_bytes_since_flush==3);
+      e.downstream={};e.sent.clear();e.core.m_socket_write_flushed=true;e.core.report_write_credit(0);bytes=0;for(auto v:e.sent)bytes+=v.length;assert(bytes==3); }
+    { Env e;e.credit_ready();e.core.m_tcp_connections.clear();e.core.m_udp_mux.m_connections={{201,{7}},{202,{8}}};e.downstream=[&](ServerDataSentEvent){e.core.m_udp_mux.m_state=HttpUdpMultiplexer::MS_IDLE;};e.core.report_write_credit(0);assert(e.sent.size()==1); }
+    { Env e;e.credit_ready();e.core.m_tcp_connections.clear();e.core.m_udp_mux.m_connections={{201,{7}},{202,{8}}};bool first=true;e.downstream=[&](ServerDataSentEvent v){if(first){first=false;e.core.m_udp_mux.m_connections.erase(v.id==201?202:201);e.core.m_udp_mux.m_connections.emplace(999,HttpUdpMultiplexer::Conn{4});}};e.core.report_write_credit(0);assert(e.sent.size()==1&&e.core.m_udp_mux.m_connections.at(999).sent_bytes_since_flush==4); }
+    std::cout<<"{\"mode\":\"EXACT_SOURCE_EXCERPTS_REAL_NGHTTP2_MINIMAL_FIELD_SCAFFOLD\",\"network_traffic\":false,\"budget_bytes\":65535,\"frame_credit_settings_ack_tests\":true,\"udp_flush_and_reentry_tests\":true,\"tcp_erase_add_rebind_close_tests\":true,\"tcp_client_closed_blocked\":"<<(client_closed_blocked?"true":"false")<<"}"<<std::endl;
+}

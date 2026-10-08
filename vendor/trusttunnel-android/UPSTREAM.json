@@ -20,12 +20,19 @@
     {
       "path": "patches/0003-post-close-terminal-fence.patch",
       "sha256_lf_normalized": "DAD7B05753521D188D9BC9F001B792E0CA833C2E27D1AEBADE8EB7A4D5A9A860"
+    },
+    {
+      "path": "patches/0004-http2-flow-control.patch",
+      "sha256_lf_normalized": "C0C7E2F4149A2901346462E1FDB0255B06BCEDA44EABB0FF5D6B3A9C7E3D59F7"
     }
   ],
   "packaging": {
     "method": "full-upstream-android-aar-build",
     "native_rebuilt": true,
-    "abis": ["arm64-v8a", "armeabi-v7a"],
+    "abis": [
+      "arm64-v8a",
+      "armeabi-v7a"
+    ],
     "preserved_veilark_adapter_fixes": [
       "android-34-special-use-foreground-service",
       "stop-foreground-service-after-early-start-failure",
@@ -38,6 +45,13 @@
       "runtime-native-exclusions",
       "per-application-routing",
       "post-close-terminal-event-fence"
+    ],
+    "native_flow_control_fixes": [
+      "minimum-connection-and-stream-send-credit",
+      "connection-stream-window-update-and-settings-wakeup",
+      "socket-flush-gated-udp-credit-notification",
+      "callback-safe-tcp-and-udp-snapshots",
+      "closed-client-stream-credit-suppression"
     ]
   },
   "dependency_bootstrap": {
@@ -65,18 +79,25 @@
     "rust": "1.95-x86_64-pc-windows-gnu"
   },
   "reproducibility": {
-    "clang_flags": ["-ffile-prefix-map=<work>=/work/veilark-trusttunnel", "-fmacro-prefix-map=<work>=/work/veilark-trusttunnel"],
-    "rust_flags": ["--remap-path-prefix=<work>=/work/veilark-trusttunnel"],
-    "linker_flags": ["-Wl,--build-id=none"],
+    "clang_flags": [
+      "-ffile-prefix-map=<work>=/work/veilark-trusttunnel",
+      "-fmacro-prefix-map=<work>=/work/veilark-trusttunnel"
+    ],
+    "rust_flags": [
+      "--remap-path-prefix=<work>=/work/veilark-trusttunnel"
+    ],
+    "linker_flags": [
+      "-Wl,--build-id=none"
+    ],
     "two_workdir_aar_comparison": "byte-identical",
     "note": "Exact recipe builds in two separate work directories produced identical AAR and payload hashes. SHA-1 build IDs are disabled; tombstones require manual correlation by version and per-ABI artifact hash."
   },
   "sha256": {
-    "aar": "37B13174F6FD7193EB9343E82B88D5D5847B98973B79462A680214B84D9CA949",
+    "aar": "D4B53999C3898A10A48FF065396094EDECD1E3D675D1BFB35C908CF59345F8AC",
     "classes_jar": "9037A0F28CA9B1FC5D489909F4D125220F993417CBF8795060DE654878C1F9F6",
-    "content_tree": "3130E0D22F41D005ACEA17552304829EC508B06600D9F14F8228B510FA653A26",
-    "jni_arm64_v8a": "8F30EFD7F14AC002354CF29E424490085255B9ACC954BAB381DEF2DE04547A4D",
-    "jni_armeabi_v7a": "D7D5B62B3E8C0CA3C2394C87309E7C4FD82A6D8CE8BD904C6EC160FDAE526D8E",
+    "content_tree": "E8FF2A7265D825C9D9034074591A85FDCC5223CD56C0A8D91037F608BEC22F73",
+    "jni_arm64_v8a": "BF9DB6CC9300B921C5B7BB5007D6E5AD27B0B44BC5E2075F4C4BDA214B42C94A",
+    "jni_armeabi_v7a": "EE5E193CB8F1C12315A77999F589E6347DA82CB6E9346DACE6060D9FA04959E7",
     "android_manifest_xml": "E2B8620B22BF37D9860165BBA5DF9B1B4FFF41CBDFDD240D7038628A077941BA",
     "r_txt": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855",
     "proguard_txt": "6F171F5DC85E4A7DDBF78238C12B17F8B8CB4EAC5B3243B2E1BD6EC726ECA7E1",
@@ -92,8 +113,13 @@
     "jni_export_diff_against_installed_1_1_5": "15-exports-per-abi-no-additions-or-removals",
     "two_workdir_payload_and_aar_comparison": "passed-byte-identical",
     "host_manifest_permissions": "passed",
-    "app_integration_tests": "not-run-in-this-update",
-    "release_lint": "not-run-in-this-update",
-    "physical_arm_device": "not-run"
+    "app_integration_tests": "passed-201-tests-per-private-and-oss-variant-0-failures-0-errors-3-skipped-each",
+    "release_lint": "passed-private-and-oss-0-errors-87-warnings-each-before-email-ui-followup",
+    "physical_arm_device": "in-progress-pixel8pro-android17",
+    "native_http2_source_excerpt_contract": "passed-real-host-nghttp2-memory-only-65535-byte-budget-no-network",
+    "host_contract_nghttp2_runtime": "1.68.0; SDK headers1.56.0; not Android runtime acceptance",
+    "jni_export_diff_against_previous_1_1_7": "15-exports-per-abi-no-additions-or-removals",
+    "classes_diff_against_previous_1_1_7": "classes.jar-byte-identical",
+    "non_native_payload_diff_against_previous_1_1_7": "all-byte-identical"
   }
 }

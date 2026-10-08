@@ -10,11 +10,12 @@ vendored into Veilark.
 - Tag: `v1.1.7`
 - Commit: `170609c24ca865819fed68437b01c013049bc3fa`
 - Patches: `patches/0001-android-per-app-routing.patch`,
-  `patches/0002-android-lifecycle-hardening.patch`, and
-  `patches/0003-post-close-terminal-fence.patch`
+  `patches/0002-android-lifecycle-hardening.patch`,
+  `patches/0003-post-close-terminal-fence.patch`, and
+  `patches/0004-http2-flow-control.patch`
 - Installed AAR: `app/libs/trusttunnel-client.aar`
 - Installed AAR SHA-256:
-  `37B13174F6FD7193EB9343E82B88D5D5847B98973B79462A680214B84D9CA949`
+  `D4B53999C3898A10A48FF065396094EDECD1E3D675D1BFB35C908CF59345F8AC`
 
 The patches preserve Veilark Android lifecycle requirements:
 
@@ -48,7 +49,7 @@ so changing routing while connected requires a controlled tunnel restart.
 
 ## Rebuild
 
-The artifact is built from the complete upstream v1.1.7 source with all three
+The artifact is built from the complete upstream v1.1.7 source with all four
 local patches applied in order. The official v1.1.5-to-v1.1.7 comparison has no
 Android-source changes; the update advances the upstream client and pins its
 matching `dns-libs` 2.10.2 and `native_libs_common` 8.1.52 dependencies. This
@@ -76,6 +77,16 @@ class-file comparison against the installed v1.1.5 AAR found all 68 class files
 byte-identical; each native ABI retained the same 15 JNI exports. App-level
 integration tests, release lint, and physical-device acceptance remain
 separate checks and are not claimed here.
+
+The HTTP/2 patch limits available send credit by both connection and stream
+windows, and resumes blocked readers after connection/stream WINDOW_UPDATE or
+non-ACK SETTINGS. UDP acknowledgements remain gated by socket flush; callbacks
+use snapshots and reset counters before calling downstream code. Closed TCP
+clients and streams receive no writable notification. The Java payload and all
+non-native AAR members are byte-identical to the previous 1.1.7 artifact; both
+ABIs preserve its 15 JNI exports. Two independent patched builds produced the
+same AAR hash above. Local real-nghttp2 source-excerpt regressions live in
+`tests/host-credit-contract`; they do not establish Android Telegram throughput.
 
 Veilark intentionally retains its on-demand physical-network monitor instead of invoking upstream
 `VpnService.initialize()`: the upstream initializer starts the monitor for the

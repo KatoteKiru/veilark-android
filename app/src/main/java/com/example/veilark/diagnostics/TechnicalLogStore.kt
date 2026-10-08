@@ -165,12 +165,16 @@ object TechnicalLogStore {
   private fun safe(value: String, limit: Int): String = value
     .replace(Regex("""\u001B\[[;?\d]*[ -/]*[@-~]"""), "")
     .replace(
-      Regex("""(?i)\b(tt|vless|trojan|hysteria2?)://\S+"""),
+      Regex("""(?i)\b(tt|vless|trojan|hysteria2?|hy2|vmess|ss|shadowsocks|tuic|anytls)://\S+"""),
       "<profile-link-redacted>",
     )
     .replace(
-      Regex("""(?i)(https?://)[^/\s:@]+:[^@\s/]+@"""),
+      Regex("""(?i)(https?://)[^/\s@]+@"""),
       "$1<credentials-redacted>@",
+    )
+    .replace(
+      Regex("""(?i)\b(Bearer)\s+[^\s"',;]+"""),
+      "$1 <redacted>",
     )
     .replace(
       Regex("""(?i)(password|passwd|token|secret|private_key|uuid)\s*[=:]\s*["']?[^,\s"']+"""),
@@ -198,9 +202,9 @@ object TechnicalLogStore {
     if (fields.size != 4) return null
     return TechnicalLogEntry(
       timestamp = fields[0].toLongOrNull() ?: return null,
-      level = fields[1],
-      component = fields[2],
-      message = fields[3],
+      level = safe(fields[1], 16),
+      component = safe(fields[2], 32),
+      message = safe(fields[3], 800),
     )
   }
 
