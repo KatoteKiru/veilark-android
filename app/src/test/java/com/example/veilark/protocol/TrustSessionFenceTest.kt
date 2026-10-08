@@ -6,6 +6,35 @@ import org.junit.Test
 
 class TrustSessionFenceTest {
   @Test
+  fun reconnectCanBecomeConnectedAgainWithoutReleasingSessionOwnership() {
+    val fence = TrustSessionFence()
+    fence.begin(11L)
+    assertTrue(fence.acceptConnected(11L))
+    assertFalse(fence.acceptConnected(11L))
+
+    assertTrue(fence.acceptConnecting(11L))
+    assertFalse(fence.isConnected(11L))
+    assertTrue(fence.accepts(11L))
+    assertTrue(fence.acceptConnected(11L))
+    assertTrue(fence.isConnected(11L))
+    assertFalse(fence.acceptConnected(11L))
+  }
+
+  @Test
+  fun staleOrStoppingConnectingCannotReopenTheConnectedGate() {
+    val fence = TrustSessionFence()
+    fence.begin(12L)
+    assertTrue(fence.acceptConnected(12L))
+    assertFalse(fence.acceptConnecting(11L))
+    assertTrue(fence.isConnected(12L))
+    assertTrue(fence.requestStop(12L))
+    assertFalse(fence.acceptConnecting(12L))
+    assertFalse(fence.acceptConnected(12L))
+    assertTrue(fence.terminalize(12L))
+    assertFalse(fence.acceptConnecting(12L))
+  }
+
+  @Test
   fun lateEventsCannotMutateANewerSession() {
     val fence = TrustSessionFence()
     fence.begin(1L)

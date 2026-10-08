@@ -18,6 +18,14 @@ internal class TrustSessionFence {
   @Synchronized
   fun accepts(sessionId: Long): Boolean = activeSessionId == sessionId
 
+  /** A reconnect belongs to the same admitted session, not a new owner. */
+  @Synchronized
+  fun acceptConnecting(sessionId: Long): Boolean {
+    if (activeSessionId != sessionId || stopping) return false
+    connected = false
+    return true
+  }
+
   @Synchronized
   fun acceptConnected(sessionId: Long): Boolean {
     if (activeSessionId != sessionId || connected || stopping) return false
