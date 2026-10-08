@@ -25,14 +25,15 @@ $DnsLibsCommit = '0c6e855b12eee2f696e7cc30719532fda4fdd512'
 $NativeLibsRepository = 'https://github.com/AdguardTeam/NativeLibsCommon.git'
 $NativeLibsCommit = '58cef252031e2cc1f540ecaec2952f5f32afa3a1'
 $CMakeVersion = '3.31.6'
-$ExpectedAarHash = 'D4B53999C3898A10A48FF065396094EDECD1E3D675D1BFB35C908CF59345F8AC'
-$ExpectedClassesHash = '9037A0F28CA9B1FC5D489909F4D125220F993417CBF8795060DE654878C1F9F6'
-$ExpectedContentTreeHash = 'E8FF2A7265D825C9D9034074591A85FDCC5223CD56C0A8D91037F608BEC22F73'
+$ExpectedAarHash = 'FCB2B2E8980E500E461CA973CA22630415380D84163BB2DDCAC113D603BAC52F'
+$ExpectedClassesHash = 'B0871E397287DE7CEF1904645492950D9807361ABBA1E36418BCFCF5B2A7F034'
+$ExpectedContentTreeHash = 'D4C18D68B86785BE099AFD39205CD73B46EB552E171398B3CFC1EFCEC821FE31'
 $PatchPaths = @(
     (Resolve-Path (Join-Path $PSScriptRoot '..\patches\0001-android-per-app-routing.patch')).Path
     (Resolve-Path (Join-Path $PSScriptRoot '..\patches\0002-android-lifecycle-hardening.patch')).Path
     (Resolve-Path (Join-Path $PSScriptRoot '..\patches\0003-post-close-terminal-fence.patch')).Path
     (Resolve-Path (Join-Path $PSScriptRoot '..\patches\0004-http2-flow-control.patch')).Path
+    (Resolve-Path (Join-Path $PSScriptRoot '..\patches\0005-android-metering-inheritance.patch')).Path
 )
 
 $ExpectedPayloadHashes = [ordered]@{
@@ -81,6 +82,7 @@ function Invoke-Checked([string]$Executable, [string[]]$Arguments, [string]$Work
 }
 
 function Assert-TrustAdapterBytecode([string]$ClassesJar) {
+    & (Join-Path $PSScriptRoot '..\tests\check-metering-bytecode.ps1') -ClassesJar $ClassesJar
     $service = (& javap -classpath $ClassesJar -c -p com.adguard.trusttunnel.VpnService) -join "`n"
     if ($LASTEXITCODE -ne 0) {
         throw 'javap failed while verifying VpnService.'
