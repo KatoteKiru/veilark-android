@@ -68,6 +68,66 @@ class VendorVerificationTest(unittest.TestCase):
         self.write_receipt()
         verify(self.root)
 
+    def use_schema_five(self):
+        self.receipt["schema"] = 5
+        self.receipt["patches"] = []
+        for name in (
+            "0001-android-per-app-routing.patch",
+            "0002-android-lifecycle-hardening.patch",
+            "0003-post-close-terminal-fence.patch",
+            "0004-http2-flow-control.patch",
+            "0005-android-metering-inheritance.patch",
+        ):
+            content = f"patch {name}\n".encode()
+            (self.vendor / "patches" / name).write_bytes(content.replace(b"\n", b"\r\n"))
+            self.receipt["patches"].append({
+                "path": f"patches/{name}",
+                "sha256_lf_normalized": hashlib.sha256(content).hexdigest(),
+            })
+        self.write_receipt()
+
+    def test_schema_five_verifies_all_five_canonical_patches(self):
+        self.use_schema_five()
+        verify(self.root)
+
+    def test_schema_five_metering_patch_tampering(self):
+        self.use_schema_five()
+        (self.vendor / "patches/0005-android-metering-inheritance.patch").write_bytes(b"tampered\n")
+        with self.assertRaisesRegex(ValueError, "0005-android-metering"):
+            verify(self.root)
+
+    def test_schema_five_cannot_omit_metering_patch(self):
+        self.use_schema_five()
+        self.receipt["patches"].pop()
+        self.write_receipt()
+        with self.assertRaisesRegex(ValueError, "inventory/order"):
+            verify(self.root)
+
+    def test_schema_five_requires_patch_order(self):
+        self.use_schema_five()
+        self.receipt["patches"][3], self.receipt["patches"][4] = self.receipt["patches"][4], self.receipt["patches"][3]
+        self.write_receipt()
+        with self.assertRaisesRegex(ValueError, "inventory/order"):
+            verify(self.root)
+
+    def test_schema_five_classes_tampering_still_rejected(self):
+        self.use_schema_five()
+        self.payloads["classes.jar"] = b"changed Java adapter"
+        aar = self.root / "app/libs/trusttunnel-client.aar"
+        with zipfile.ZipFile(aar, "w") as archive:
+            for name, data in self.payloads.items():
+                archive.writestr(name, data)
+        self.receipt["sha256"]["aar"] = hashlib.sha256(aar.read_bytes()).hexdigest()
+        self.write_receipt()
+        with self.assertRaisesRegex(ValueError, "classes.jar"):
+            verify(self.root)
+
+    def test_unknown_schema_remains_rejected(self):
+        self.receipt["schema"] = 6
+        self.write_receipt()
+        with self.assertRaisesRegex(ValueError, "Unsupported"):
+            verify(self.root)
+
     def test_aar_tampering(self):
         self.receipt["sha256"]["aar"] = "0" * 64
         self.write_receipt()

@@ -1,0 +1,34 @@
+{
+  "mode": "EXACT_SOURCE_EXCERPTS_REAL_NGHTTP2_MINIMAL_FIELD_SCAFFOLD",
+  "network_traffic": false,
+  "budget_bytes": 65535,
+  "frame_credit_settings_ack_tests": true,
+  "udp_flush_and_reentry_tests": true,
+  "tcp_erase_add_rebind_close_tests": true,
+  "tcp_client_closed_blocked": true,
+  "execution": "LOCAL_WINDOWS_ONLY",
+  "source_paths": {
+    "net": "net/src/http2.cpp",
+    "core": "core/src/http2_upstream.cpp",
+    "udp": "core/src/http_udp_multiplexer.cpp"
+  },
+  "excerpt_sha256": {
+    "AVAILABLE": "e40435a55b698b711f84077807dbab0511c4b4e996406473f7c7e44e50766b90",
+    "FRAME_CASES": "4296156c606b23591652bc595fff356479c7631129e51289a42906628572a58b",
+    "UDP_STREAM": "1505e438633e693379ecf4e6386ebfd08f61219a539a356c870ea88e74ae7849",
+    "UDP_SENT": "fa7d45e8344970528e095e62c600484619467d1c2e529c56bf946531735db2ee",
+    "CORE_STREAM": "fd0a336c14c88dee07cfb3637150700675dee640644695fd89f147c6ea7a7ccc",
+    "CORE_AVAILABLE": "4fa6460ff658d43463e92c39a689a0b064704e40a19e6ed2a079cbda93d8431f",
+    "CORE_CREDIT": "2ffa0d8170e1ee57c8929e9ebae520c78e9562a201751caf7fdf127d1091c0d4"
+  },
+  "source_sha256": "b93eeb157c4d638c79f55fa257345dfeca7a757f859bee03a69697118307d8fd",
+  "nghttp2_runtime": "1.68.0",
+  "nghttp2_runtime_sha256": "de07491c946e10a16d23d1e1f9aad872f6db8d58934cc658ca17f69e441b79fd",
+  "nghttp2_header_version": "1.56.0",
+  "nghttp2_header_sha256": "8cba37f2e3d5d551f71c8e7355fedfbecc888c7aaccb86e30cbd91f77d059ac4",
+  "nghttp2_version_header_sha256": "7dfe2c70b06965b7b1fa931fcd5ee3bbc82d77730c653a1468b411bb3324286a",
+  "platform_ssize_t_alias": "signed64",
+  "remote_transfer": false,
+  "production_access": false,
+  "global_package_install": false
+}

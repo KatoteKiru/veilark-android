@@ -9,10 +9,10 @@
     <string name="automatic_node_description">Самый быстрый доступный узел</string>
     <string name="subscription_add">Добавить подписку по ссылке или из файла</string>
     <string name="subscription_get_or_renew">Открыть Telegram-бот Veilark</string>
-    <string name="subscription_bot_note">Получение и продление подписки — в боте Veilark. Оплата скоро появится.</string>
+    <string name="subscription_bot_note">Войдите по почте в веб-кабинет, чтобы управлять подпиской и установить Veilark. Telegram-бот можно подключить позже.</string>
     <string name="subscription_bot_open_failed">Не удалось открыть Telegram-бот Veilark. Откройте @senyavpn_bot вручную.</string>
     <string name="web_account_open">Открыть веб-кабинет</string>
-    <string name="web_account_note">Управляйте подпиской и устройствами в веб-кабинете Veilark.</string>
+    <string name="web_account_note">Войдите по почте, управляйте подпиской и устройствами. Telegram можно подключить позже.</string>
     <string name="web_account_open_failed">Не удалось открыть веб-кабинет Veilark.</string>
     <string name="subscription_paste">Вставить ссылку подписки из буфера обмена</string>
     <string name="subscription_scan_qr">Добавить подписку по QR-коду</string>

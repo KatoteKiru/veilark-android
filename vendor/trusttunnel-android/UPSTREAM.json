@@ -1,5 +1,5 @@
 {
-  "schema": 4,
+  "schema": 5,
   "upstream": {
     "repository": "https://github.com/TrustTunnel/TrustTunnelClient.git",
     "tag": "v1.1.7",
@@ -20,12 +20,23 @@
     {
       "path": "patches/0003-post-close-terminal-fence.patch",
       "sha256_lf_normalized": "DAD7B05753521D188D9BC9F001B792E0CA833C2E27D1AEBADE8EB7A4D5A9A860"
+    },
+    {
+      "path": "patches/0004-http2-flow-control.patch",
+      "sha256_lf_normalized": "C0C7E2F4149A2901346462E1FDB0255B06BCEDA44EABB0FF5D6B3A9C7E3D59F7"
+    },
+    {
+      "path": "patches/0005-android-metering-inheritance.patch",
+      "sha256_lf_normalized": "6947CA9B280B01F25BB9402F332C4FACD3DD262F2162D93FEE6D5B69F142A679"
     }
   ],
   "packaging": {
     "method": "full-upstream-android-aar-build",
-    "native_rebuilt": true,
-    "abis": ["arm64-v8a", "armeabi-v7a"],
+    "native_rebuilt": false,
+    "abis": [
+      "arm64-v8a",
+      "armeabi-v7a"
+    ],
     "preserved_veilark_adapter_fixes": [
       "android-34-special-use-foreground-service",
       "stop-foreground-service-after-early-start-failure",
@@ -37,8 +48,20 @@
       "per-service-executor-shutdown",
       "runtime-native-exclusions",
       "per-application-routing",
-      "post-close-terminal-event-fence"
-    ]
+      "post-close-terminal-event-fence",
+      "api29-underlying-metering-inheritance"
+    ],
+    "native_flow_control_fixes": [
+      "minimum-connection-and-stream-send-credit",
+      "connection-stream-window-update-and-settings-wakeup",
+      "socket-flush-gated-udp-credit-notification",
+      "callback-safe-tcp-and-udp-snapshots",
+      "closed-client-stream-credit-suppression"
+    ],
+    "native_full_source_baseline_rebuilt": true,
+    "current_update_build_mode": "incremental-full-sdk-assemble-and-tests-in-two-existing-pinned-full-source-trees",
+    "current_update_native_payload_changed": false,
+    "current_update_java_payload_changed": true
   },
   "dependency_bootstrap": {
     "dns_libs": {
@@ -65,18 +88,25 @@
     "rust": "1.95-x86_64-pc-windows-gnu"
   },
   "reproducibility": {
-    "clang_flags": ["-ffile-prefix-map=<work>=/work/veilark-trusttunnel", "-fmacro-prefix-map=<work>=/work/veilark-trusttunnel"],
-    "rust_flags": ["--remap-path-prefix=<work>=/work/veilark-trusttunnel"],
-    "linker_flags": ["-Wl,--build-id=none"],
+    "clang_flags": [
+      "-ffile-prefix-map=<work>=/work/veilark-trusttunnel",
+      "-fmacro-prefix-map=<work>=/work/veilark-trusttunnel"
+    ],
+    "rust_flags": [
+      "--remap-path-prefix=<work>=/work/veilark-trusttunnel"
+    ],
+    "linker_flags": [
+      "-Wl,--build-id=none"
+    ],
     "two_workdir_aar_comparison": "byte-identical",
     "note": "Exact recipe builds in two separate work directories produced identical AAR and payload hashes. SHA-1 build IDs are disabled; tombstones require manual correlation by version and per-ABI artifact hash."
   },
   "sha256": {
-    "aar": "37B13174F6FD7193EB9343E82B88D5D5847B98973B79462A680214B84D9CA949",
-    "classes_jar": "9037A0F28CA9B1FC5D489909F4D125220F993417CBF8795060DE654878C1F9F6",
-    "content_tree": "3130E0D22F41D005ACEA17552304829EC508B06600D9F14F8228B510FA653A26",
-    "jni_arm64_v8a": "8F30EFD7F14AC002354CF29E424490085255B9ACC954BAB381DEF2DE04547A4D",
-    "jni_armeabi_v7a": "D7D5B62B3E8C0CA3C2394C87309E7C4FD82A6D8CE8BD904C6EC160FDAE526D8E",
+    "aar": "FCB2B2E8980E500E461CA973CA22630415380D84163BB2DDCAC113D603BAC52F",
+    "classes_jar": "B0871E397287DE7CEF1904645492950D9807361ABBA1E36418BCFCF5B2A7F034",
+    "content_tree": "D4C18D68B86785BE099AFD39205CD73B46EB552E171398B3CFC1EFCEC821FE31",
+    "jni_arm64_v8a": "BF9DB6CC9300B921C5B7BB5007D6E5AD27B0B44BC5E2075F4C4BDA214B42C94A",
+    "jni_armeabi_v7a": "EE5E193CB8F1C12315A77999F589E6347DA82CB6E9346DACE6060D9FA04959E7",
     "android_manifest_xml": "E2B8620B22BF37D9860165BBA5DF9B1B4FFF41CBDFDD240D7038628A077941BA",
     "r_txt": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855",
     "proguard_txt": "6F171F5DC85E4A7DDBF78238C12B17F8B8CB4EAC5B3243B2E1BD6EC726ECA7E1",
@@ -84,16 +114,39 @@
     "aar_metadata_properties": "9CC8517BBDF06D879F57A2CFD6F8C6914E48800D443421CD850971945F98E7B2"
   },
   "verification": {
-    "android_unit_tests": "passed-23-tests-0-failures-0-errors-0-skipped",
+    "android_unit_tests": "passed-23-tests-in-each-workdir-0-failures-errors-skips",
     "release_kotlin_compilation": "passed",
-    "full_native_build": "passed-arm64-v8a-and-armeabi-v7a-in-two-workdirs",
     "patched_bytecode": "passed-special-use-routing-lifecycle-exclusions",
-    "class_file_diff_against_installed_1_1_5": "68-of-68-class-files-byte-identical",
     "jni_export_diff_against_installed_1_1_5": "15-exports-per-abi-no-additions-or-removals",
-    "two_workdir_payload_and_aar_comparison": "passed-byte-identical",
+    "two_workdir_payload_and_aar_comparison": "passed-byte-identical-incremental-full-sdk-update",
     "host_manifest_permissions": "passed",
-    "app_integration_tests": "not-run-in-this-update",
-    "release_lint": "not-run-in-this-update",
-    "physical_arm_device": "not-run"
+    "physical_arm_device": "before-fix-metering-mismatch-proved-Pixel8Pro-API37; after-fix-pending",
+    "native_http2_source_excerpt_contract": "passed-real-host-nghttp2-memory-only-65535-byte-budget-no-network",
+    "host_contract_nghttp2_runtime": "1.68.0; SDK headers1.56.0; not Android runtime acceptance",
+    "jni_export_diff_against_previous_1_1_7": "15-exports-per-abi-no-additions-or-removals",
+    "classes_diff_against_previous_1_1_7": "classes.jar-changed-four-VpnService-class-files-declarations-unchanged",
+    "non_native_payload_diff_against_previous_1_1_7": "only-classes.jar-changed-all-other-members-byte-identical",
+    "historical_before_metering_class_file_diff_against_installed_1_1_5": "68-of-68-class-files-byte-identical",
+    "historical_before_metering_full_native_build": "passed-arm64-v8a-and-armeabi-v7a-in-two-workdirs",
+    "historical_before_metering_app_integration_tests": "passed-201-tests-per-private-and-oss-variant-0-failures-0-errors-3-skipped-each",
+    "historical_before_metering_release_lint": "passed-private-and-oss-0-errors-87-warnings-each-before-email-ui-followup",
+    "native_payload_diff_against_paired_h2": "both-ABIs-byte-identical-sha256-and-15-JNI-exports-preserved",
+    "metering_bytecode": "passed-API29-guard-false-before-establish-no-underlying-override",
+    "app_integration_tests": "pending-after-metering-adoption",
+    "release_lint": "pending-after-metering-adoption"
+  },
+  "current_update": {
+    "date": "2026-10-08",
+    "scope": "Kotlin adapter only; complete SDK incremental assembleRelease/testDebugUnitTest A/B",
+    "baseline_aar_sha256": "D4B53999C3898A10A48FF065396094EDECD1E3D675D1BFB35C908CF59345F8AC",
+    "changed_java_members": [
+      "com/adguard/trusttunnel/VpnService$BuilderApplicationRuleSink.class",
+      "com/adguard/trusttunnel/VpnService$Companion.class",
+      "com/adguard/trusttunnel/VpnService$State.class",
+      "com/adguard/trusttunnel/VpnService.class"
+    ],
+    "official_contract": "https://developer.android.com/reference/android/net/VpnService.Builder#setMetered(boolean)",
+    "metering_policy": "false inherits underlying metering; preserves metered cellular/Wi-Fi and default-network handover",
+    "native_build_note": "Existing native outputs originate from the prior reproducible paired-H2 full source builds. Native configure/build Gradle tasks participated in the incremental assembly; both delivered native libraries remain byte-identical. No fresh clean native rebuild is claimed for the metering update."
   }
 }

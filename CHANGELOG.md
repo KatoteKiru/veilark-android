@@ -2,6 +2,17 @@
 
 All notable changes to the public distribution are documented here.
 
+## 0.8.0-rc42
+
+- respect both HTTP/2 send windows and resume TrustTunnel TCP/UDP transmission
+  when credit reopens; rebuild both ARM native libraries from pinned sources.
+- stop cancelled diagnostic checks and disconnect their active HTTP request.
+- mask supported profile links, Bearer tokens and HTTP credentials in new and
+  loaded diagnostic entries; show email web account before optional Telegram.
+- keep TrustTunnel reconnect callbacks associated with the current VPN session,
+  so a native reconnect cannot be discarded as a stale connection attempt.
+  Physical Android reconnect/upgrade acceptance remains pending for the release candidate.
+
 ## Unreleased
 
 - rebuilt TrustTunnel 1.1.7 for arm64-v8a and armeabi-v7a from pinned upstream

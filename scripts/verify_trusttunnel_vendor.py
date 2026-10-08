@@ -20,8 +20,18 @@ def check_hash(data: bytes, expected: str, label: str) -> None:
 def verify(root: Path = ROOT) -> None:
     vendor = root / "vendor" / "trusttunnel-android"
     receipt = json.loads((vendor / "UPSTREAM.json").read_text(encoding="utf-8"))
-    if receipt.get("schema") not in (3, 4):
+    if receipt.get("schema") not in (3, 4, 5):
         raise ValueError("Unsupported vendor receipt schema")
+    if receipt["schema"] == 5:
+        expected_patches = [
+            "patches/0001-android-per-app-routing.patch",
+            "patches/0002-android-lifecycle-hardening.patch",
+            "patches/0003-post-close-terminal-fence.patch",
+            "patches/0004-http2-flow-control.patch",
+            "patches/0005-android-metering-inheritance.patch",
+        ]
+        if [patch["path"] for patch in receipt["patches"]] != expected_patches:
+            raise ValueError("Unexpected schema 5 patch inventory/order")
     hashes = receipt["sha256"]
     aar = root / "app" / "libs" / "trusttunnel-client.aar"
     check_hash(aar.read_bytes(), hashes["aar"], "AAR")

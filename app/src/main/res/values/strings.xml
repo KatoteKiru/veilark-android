@@ -10,10 +10,10 @@
     <string name="automatic_node_description">Fastest available server</string>
     <string name="subscription_add">Add a subscription from a link or file</string>
     <string name="subscription_get_or_renew">Open the Veilark Telegram bot</string>
-    <string name="subscription_bot_note">Get or renew your subscription in the Veilark bot. Payments are coming soon.</string>
+    <string name="subscription_bot_note">Sign in by email in the web account to manage your subscription and install Veilark. You can link the Telegram bot later.</string>
     <string name="subscription_bot_open_failed">Could not open the Veilark Telegram bot. Open @senyavpn_bot manually.</string>
     <string name="web_account_open">Open web account</string>
-    <string name="web_account_note">Manage your subscription and devices in the Veilark web account.</string>
+    <string name="web_account_note">Sign in by email and manage your subscription and devices. You can link Telegram later.</string>
     <string name="web_account_open_failed">Could not open the Veilark web account.</string>
     <string name="subscription_paste">Paste a subscription link from the clipboard</string>
     <string name="subscription_scan_qr">Add a subscription from a QR code</string>

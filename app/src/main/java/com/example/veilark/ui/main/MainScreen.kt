@@ -1314,17 +1314,17 @@ private fun AboutScreen(
       }
       item {
         AboutLinkCard(
-          title = stringResource(R.string.subscription_get_or_renew),
-          description = stringResource(R.string.subscription_bot_note),
-          onClick = onOpenSubscriptionAccount,
+          title = stringResource(R.string.web_account_open),
+          description = stringResource(R.string.web_account_note),
+          onClick = onOpenWebAccount,
           prominent = true,
         )
       }
       item {
         AboutLinkCard(
-          title = stringResource(R.string.web_account_open),
-          description = stringResource(R.string.web_account_note),
-          onClick = onOpenWebAccount,
+          title = stringResource(R.string.subscription_get_or_renew),
+          description = stringResource(R.string.subscription_bot_note),
+          onClick = onOpenSubscriptionAccount,
         )
       }
       item {
@@ -1857,16 +1857,16 @@ private fun ConnectionPickerSheet(
         horizontalAlignment = Alignment.CenterHorizontally,
       ) {
         TextButton(
-          onClick = onOpenSubscriptionAccount,
-          modifier = Modifier.fillMaxWidth(),
-        ) {
-          Text(stringResource(R.string.subscription_get_or_renew))
-        }
-        TextButton(
           onClick = onOpenWebAccount,
           modifier = Modifier.fillMaxWidth(),
         ) {
           Text(stringResource(R.string.web_account_open))
+        }
+        TextButton(
+          onClick = onOpenSubscriptionAccount,
+          modifier = Modifier.fillMaxWidth(),
+        ) {
+          Text(stringResource(R.string.subscription_get_or_renew))
         }
       }
       Text(
