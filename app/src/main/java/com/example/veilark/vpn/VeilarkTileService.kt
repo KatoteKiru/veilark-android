@@ -10,6 +10,8 @@ import com.example.veilark.MainActivity
 import com.example.veilark.R
 import com.example.veilark.lifecycle.AndroidTunnelLifecycleOwner
 import com.example.veilark.profile.SecureProfileStore
+import com.example.veilark.profile.CoreBetaProfileStore
+import com.example.veilark.core.runtime.CoreBetaManager
 import com.example.veilark.protocol.ProfileEngine
 import com.example.veilark.protocol.TrustTunnelManager
 import kotlinx.coroutines.CoroutineScope
@@ -29,8 +31,8 @@ class VeilarkTileService : TileService() {
     updateTile()
     stateJob?.cancel()
     stateJob = scope.launch {
-      combine(VeilarkVpnService.state, TrustTunnelManager.state) { singBox, trust ->
-        singBox to trust
+      combine(VeilarkVpnService.state, TrustTunnelManager.state, CoreBetaManager.state) { singBox, trust, core ->
+        Triple(singBox, trust, core)
       }.collect {
         updateTile()
       }
@@ -62,7 +64,7 @@ class VeilarkTileService : TileService() {
   private fun toggleConnection() {
     val singBoxState = VeilarkVpnService.state.value
     val trustState = TrustTunnelManager.state.value
-    if (singBoxState.isRunning() || trustState.isRunning()) {
+    if (singBoxState.isRunning() || trustState.isRunning() || CoreBetaManager.state.value.isRunning()) {
       AndroidTunnelLifecycleOwner.stop(this)
       updateTile(Tile.STATE_INACTIVE, getString(R.string.tile_disconnected))
       return
@@ -71,6 +73,17 @@ class VeilarkTileService : TileService() {
     val preferences = getSharedPreferences("profile_meta", MODE_PRIVATE)
     val engine = preferences.getString("profile_engine", ProfileEngine.SING_BOX)
       ?: ProfileEngine.SING_BOX
+    if (engine == ProfileEngine.CORE_BETA) {
+      if (!CoreBetaManager.isAvailable() || !CoreBetaProfileStore.exists(this)) {
+        openApp(connect = false)
+      } else if (android.net.VpnService.prepare(this) != null) {
+        openApp(connect = true)
+      } else {
+        updateTile(Tile.STATE_ACTIVE, getString(R.string.notification_connecting))
+        CoreBetaManager.start(this)
+      }
+      return
+    }
     val profileId = if (engine == ProfileEngine.TRUST_TUNNEL) {
       SecureProfileStore.TRUST_TUNNEL
     } else {
@@ -95,7 +108,7 @@ class VeilarkTileService : TileService() {
   }
 
   private fun updateTile() {
-    val states = listOf(VeilarkVpnService.state.value, TrustTunnelManager.state.value)
+    val states = listOf(VeilarkVpnService.state.value, TrustTunnelManager.state.value, CoreBetaManager.state.value)
     when {
       states.any { it == ConnectionState.Connected } ->
       updateTile(Tile.STATE_ACTIVE, getString(R.string.notification_protected))

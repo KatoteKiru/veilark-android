@@ -79,6 +79,18 @@
                 android:value="Maintains a user-requested encrypted VPN tunnel" />
         </service>
         <service
+            android:name="com.example.veilark.core.runtime.CoreBetaVpnService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse"
+            android:permission="android.permission.BIND_VPN_SERVICE">
+            <intent-filter>
+                <action android:name="android.net.VpnService" />
+            </intent-filter>
+            <meta-data android:name="android.net.VpnService.SUPPORTS_ALWAYS_ON" android:value="false" />
+            <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Maintains a user-requested Veilark Core beta VPN tunnel" />
+        </service>
+        <service
             android:name="com.example.veilark.vpn.VeilarkTileService"
             android:exported="true"
             android:icon="@drawable/ic_vpn_status"

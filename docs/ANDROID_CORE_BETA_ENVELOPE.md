@@ -1,16 +1,19 @@
-# Android Core beta delivery contract — proposal, 2026-10-12
+# Android Core beta delivery contract — 2026-10-12
 
-Status: strict parser, encrypted-store seam, lifecycle/JNI declarations implemented.
-46 targeted JVM tests and a local private debug candidate build pass. Runtime
-ARM64 artifact supplied and pinned; network/device acceptance remains open.
+Status: strict parser/encrypted storage, real Android service, three-engine UI,
+quick-settings tile and lifecycle/JNI wiring implemented. Full private JVM suite
+240 tests: 0 failures/errors, 3 existing skipped; release/debug builds and private
+release lint pass (0 errors, 91 warnings). Runtime ARM64 artifact supplied/pinned;
+server/network readiness and first physical user test remain open.
 No production OTA has been published from this branch.
 
 Android owner checkout: `veilark-android-audit-20261007`, branch
 `codex/android-core-beta-geo-20261011`. Existing engines remain sing-box and
-TrustTunnel. A disabled Veilark Core beta entry describes readiness honestly.
+TrustTunnel. Core beta selection requires supported ARM64 runtime and an imported
+secret profile; import never automatically selects or starts the engine.
 Existing inert debug canary is not the beta VPN implementation.
 
-## Proposed data-only subscription envelope
+## Agreed data-only subscription envelope
 
 One UTF-8 JSON document, bounded to 16 KiB, exactly these fields:
 
@@ -28,7 +31,9 @@ One UTF-8 JSON document, bounded to 16 KiB, exactly these fields:
 Core owner approved this envelope. CoreBetaProfile validates it independently,
 rejecting unknown/duplicate decoded keys at every level and malformed UTF-8/JSON.
 CoreBetaProfileStore provides encrypted atomic import without engine activation.
-It is not yet wired into the customer subscription UI. The Core chat owns the
+It is wired before existing subscription compilation for file, pasted JSON and
+HTTPS import. Secret input is ephemeral, not SavedState; active Core replacement
+requires complete stop. The Core chat owns the
 portable enrollment importer and supplies source review/ABI/artifacts. Unknown
 schema/engine/fields and malformed data must fail without replacing existing
 profiles. Credentials use the existing encrypted private storage, never ordinary
@@ -47,9 +52,10 @@ before starting another session. Session TTL reconnect uses fresh protected
 sockets and bounded backoff; no silent fallback to another engine.
 
 CoreBetaLifecycle provides bounded off-UI stop/terminal/release0 gating, including
-terminal-but-BUSY retry and cancellation during start. This is not a registered
-Android VPN service; full TUN/socket builder and automatic TTL reconnect remain
-integration work. JNI descriptor verified by javap: `(II[B[B[B[BII)J`, controls `(J)I`.
+terminal-but-BUSY retry and cancellation during start. Registered CoreBetaVpnService
+retains masterTUN across fresh protected NONBLOCK carrier/session duplicates and
+bounded TTL/error reconnect. Manager reports stopped only after native release and
+service destruction. JNI descriptor: `(II[B[B[B[BII)J`, controls `(J)I`.
 
 Canonical artifact: Core source11b9733, ARM64 native SHA256
 `4ddbd704d4af2ce18f72cfbdd567f2fad7157b580709fcb0f9ee1761970dc017`,
@@ -58,9 +64,11 @@ Optional private build property `bundleVeilarkCoreBetaRuntime=true` enforces
 exact size/hash and no extra staging files. Default/OSS builds do not include
 this native library. No private native binary belongs in public Git history.
 
-Required Android builder policy: MTU1280, assigned client /32, IPv4 default route,
+Implemented Android builder policy: MTU1280, assigned client /32, IPv4 default route,
 explicit tunnel DNS, IPv6 contained (never silently allowed to bypass). Runtime
-must actually deliver arbitrary allowed IPv4 TCP and UDP traffic. OS server
+must actually deliver arbitrary allowed IPv4 TCP and UDP traffic. Core beta does
+not apply GEO/per-app/DPI scenarios yet; UI explains this, preserving the ready
+Russia-direct preset for both existing engines. OS server
 forwarding/NAT, network acceptance and credential provisioning are Core-side
 blockers, not satisfied by an APK build or a visible beta label.
 

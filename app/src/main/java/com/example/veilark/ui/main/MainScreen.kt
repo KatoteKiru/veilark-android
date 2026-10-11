@@ -249,6 +249,10 @@ fun MainScreen(
   geoUpdating: Boolean = false,
   geoUpdateMessage: String? = null,
   geoStatusDescription: String? = null,
+  coreBetaActive: Boolean = false,
+  coreBetaAvailable: Boolean = false,
+  coreBetaProfileName: String? = null,
+  coreBetaRuntimeAvailable: Boolean = false,
   trustTunnelActive: Boolean = false,
   singBoxAvailable: Boolean = true,
   trustTunnelAvailable: Boolean = false,
@@ -274,6 +278,7 @@ fun MainScreen(
   onDeleteSubscription: (String) -> Unit = {},
   onShareQr: (String, String) -> Unit = { _, _ -> },
   onSwitchProfile: () -> Unit = {},
+  onSelectEngine: (String) -> Unit = { onSwitchProfile() },
   onRefreshLatency: () -> Unit = {},
   onOpenRouting: () -> Unit = {},
   onRefreshGeo: () -> Unit = {},
@@ -306,7 +311,8 @@ fun MainScreen(
   var showTechnicalLogs by rememberSaveable { mutableStateOf(false) }
   var showAbout by rememberSaveable { mutableStateOf(false) }
   var legalDocument by rememberSaveable { mutableStateOf<LegalDocument?>(null) }
-  var subscriptionUrl by rememberSaveable { mutableStateOf("") }
+  // Import text may contain a Core PSK. Never serialize it into SavedState/Bundle.
+  var subscriptionUrl by remember { mutableStateOf("") }
   var importAttempted by rememberSaveable { mutableStateOf(false) }
   var importSubmitted by remember { mutableStateOf(false) }
   var observedImporting by remember { mutableStateOf(false) }
@@ -329,11 +335,14 @@ fun MainScreen(
   val routingSavedReconnectMessage = stringResource(R.string.routing_saved_reconnect)
   val clipboard = LocalClipboardManager.current
   val activeSubscriptions = remember(
+    coreBetaActive,
     trustTunnelActive,
     trustSubscriptions,
     singBoxSubscriptions,
   ) {
-    if (trustTunnelActive) {
+    if (coreBetaActive) {
+      listOfNotNull(coreBetaProfileName?.let { SubscriptionUiItem(id = "core-beta", name = it, nodeCount = 1, refreshable = false, deletable = false) })
+    } else if (trustTunnelActive) {
       trustSubscriptions
     } else {
       singBoxSubscriptions.map { subscription ->
@@ -355,6 +364,7 @@ fun MainScreen(
       if (importError == null) {
         showImport = false
         importAttempted = false
+        subscriptionUrl = ""
       }
       importSubmitted = false
       observedImporting = false
@@ -445,9 +455,11 @@ fun MainScreen(
       onDismiss = {
         showImport = false
         importAttempted = false
+        subscriptionUrl = ""
       },
       onImportFile = {
         showImport = false
+        subscriptionUrl = ""
         onImportFile()
       },
       onScanQr = scanAndImport,
@@ -567,11 +579,14 @@ fun MainScreen(
       }
       item {
         EngineSelectorCard(
+          coreBetaActive = coreBetaActive,
+          coreBetaAvailable = coreBetaAvailable,
+          coreBetaRuntimeAvailable = coreBetaRuntimeAvailable,
           trustTunnelActive = trustTunnelActive,
           singBoxAvailable = singBoxAvailable,
           trustTunnelAvailable = trustTunnelAvailable,
           connectionState = connectionState,
-          onSwitchProfile = onSwitchProfile,
+          onSelectEngine = onSelectEngine,
         )
       }
       if (importError != null) {
@@ -592,10 +607,13 @@ fun MainScreen(
       item {
         ProfileCard(
           profileName = profileName,
+          coreBetaActive = coreBetaActive,
           trustTunnelActive = trustTunnelActive,
           nodes = connectionNodes,
           subscriptions = activeSubscriptions,
-          selectedSubscriptionId = if (trustTunnelActive) {
+          selectedSubscriptionId = if (coreBetaActive) {
+            "core-beta"
+          } else if (trustTunnelActive) {
             selectedTrustSubscriptionId
           } else {
             selectedSubscriptionId
@@ -606,8 +624,8 @@ fun MainScreen(
           expanded = showNodes,
           latencies = nodeLatencies,
           automaticAvailable = automaticNodeSelectionAvailable,
-          canRefreshLatency = trustTunnelActive ||
-            profileName != null,
+          canRefreshLatency = !coreBetaActive && (trustTunnelActive ||
+            profileName != null),
           latencyChecking = latencyChecking,
           onRefreshSubscription = onRefreshSubscription,
           onAddSubscription = openImport,
@@ -1109,15 +1127,17 @@ private fun ConnectionCard(
 
 @Composable
 private fun EngineSelectorCard(
+  coreBetaActive: Boolean,
+  coreBetaAvailable: Boolean,
+  coreBetaRuntimeAvailable: Boolean,
   trustTunnelActive: Boolean,
   singBoxAvailable: Boolean,
   trustTunnelAvailable: Boolean,
   connectionState: ConnectionState,
-  onSwitchProfile: () -> Unit,
+  onSelectEngine: (String) -> Unit,
 ) {
   val alternativeAvailable = if (trustTunnelActive) singBoxAvailable else trustTunnelAvailable
   val idle = connectionState.allowsProfileSwitch()
-  val canSwitch = idle && alternativeAvailable
   val fontScale = LocalDensity.current.fontScale
   Column {
     SectionHeading(stringResource(R.string.connection_mode))
@@ -1133,11 +1153,11 @@ private fun EngineSelectorCard(
             EngineModeButton(
               title = "sing-box",
               trust = false,
-              selected = !trustTunnelActive,
+              selected = !trustTunnelActive && !coreBetaActive,
               enabled = idle && singBoxAvailable,
               shapes = shapes,
               modifier = mod,
-              onClick = { if (trustTunnelActive && canSwitch) onSwitchProfile() },
+              onClick = { if (idle && singBoxAvailable && (trustTunnelActive || coreBetaActive)) onSelectEngine("sing-box") },
             )
           }
           val trust: @Composable (Modifier, ToggleButtonShapes) -> Unit = { mod, shapes ->
@@ -1148,7 +1168,7 @@ private fun EngineSelectorCard(
               enabled = idle && trustTunnelAvailable,
               shapes = shapes,
               modifier = mod,
-              onClick = { if (!trustTunnelActive && canSwitch) onSwitchProfile() },
+              onClick = { if (!trustTunnelActive && idle && trustTunnelAvailable) onSelectEngine("trusttunnel") },
             )
           }
           if (stackModes) {
@@ -1178,6 +1198,8 @@ private fun EngineSelectorCard(
                 stringResource(R.string.engine_switch_disconnect_first)
               !alternativeAvailable ->
                 stringResource(R.string.engine_switch_add_profile)
+              coreBetaActive ->
+                stringResource(R.string.core_beta_scope)
               trustTunnelActive ->
                 stringResource(R.string.engine_trust_summary)
               else ->
@@ -1187,11 +1209,16 @@ private fun EngineSelectorCard(
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
           )
-          OutlinedButton(onClick = {}, enabled = false, modifier = Modifier.fillMaxWidth()) {
+          ToggleButton(
+            checked = coreBetaActive,
+            onCheckedChange = { if (idle && coreBetaAvailable && !coreBetaActive) onSelectEngine("veilark-core-beta") },
+            enabled = idle && coreBetaAvailable,
+            modifier = Modifier.fillMaxWidth().testTag("engine_core_beta"),
+          ) {
             Text(stringResource(R.string.core_beta_title))
           }
           Text(
-            stringResource(R.string.core_beta_not_ready),
+            stringResource(if (!coreBetaRuntimeAvailable) R.string.core_beta_unavailable else if (!coreBetaAvailable) R.string.core_beta_add_profile else R.string.core_beta_scope),
             style = MaterialTheme.typography.bodySmall,
             modifier = Modifier.padding(horizontal = 4.dp),
           )
@@ -1582,6 +1609,7 @@ private fun LogEntryCard(entry: TechnicalLogEntry) {
 @Composable
 private fun ProfileCard(
   profileName: String?,
+  coreBetaActive: Boolean,
   trustTunnelActive: Boolean,
   nodes: List<ConnectionNode>,
   subscriptions: List<SubscriptionUiItem>,
@@ -1650,7 +1678,7 @@ private fun ProfileCard(
   Column {
     SectionHeading(
       text = stringResource(
-        if (trustTunnelActive) R.string.trust_profile else R.string.singbox_profile,
+        if (coreBetaActive) R.string.core_beta_title else if (trustTunnelActive) R.string.trust_profile else R.string.singbox_profile,
       ),
     )
     Surface(
@@ -1677,6 +1705,7 @@ private fun ProfileCard(
             Text(
               when {
                 profileName == null -> stringResource(R.string.import_subscription)
+                coreBetaActive -> stringResource(R.string.core_beta_scope)
                 selectedNode != null && !trustTunnelActive ->
                   "${selectedNode.name} · ${selectedNode.protocol}"
                 selectedNode != null -> selectedNode.protocol
@@ -1697,7 +1726,9 @@ private fun ProfileCard(
             ) {
               Box(contentAlignment = Alignment.Center) {
                 val motion = MaterialTheme.motionScheme
-                AnimatedContent(
+                if (coreBetaActive) {
+                  Text("V", style = MaterialTheme.typography.titleLarge)
+                } else AnimatedContent(
                   targetState = trustTunnelActive,
                   transitionSpec = {
                     fadeIn(motion.defaultEffectsSpec()) togetherWith fadeOut(motion.fastEffectsSpec())
@@ -3153,7 +3184,9 @@ private fun ImportDialog(
               if (importing) R.string.profile_importing else R.string.profile_import,
             ),
             confirmIcon = Icons.Rounded.FileDownload,
-            confirmEnabled = subscriptionUrl.contains("://") && !importing,
+            confirmEnabled = !importing && (subscriptionUrl.contains("://") ||
+              (subscriptionUrl.trimStart().startsWith("{") &&
+                subscriptionUrl.contains("veilark-core-beta-profile-v1"))),
             loading = importing,
             onConfirm = onImportUrl,
           )

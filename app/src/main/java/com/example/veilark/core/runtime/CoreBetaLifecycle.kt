@@ -55,6 +55,10 @@ internal class CoreBetaLifecycle(
     lock.withLock { handle?.let { api.status(it) == 1 } ?: false }
   }
 
+  suspend fun status(): Int? = withContext(Dispatchers.IO) {
+    lock.withLock { handle?.let { api.status(it) } }
+  }
+
   /** Bounded off-UI stop/release. On timeout ownership remains held and a new start is forbidden. */
   suspend fun stopAndRelease(maxAttempts: Int = 100): Boolean =
     withContext(Dispatchers.IO + NonCancellable) {

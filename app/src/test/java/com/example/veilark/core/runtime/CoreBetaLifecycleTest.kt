@@ -48,6 +48,18 @@ class CoreBetaLifecycleTest {
     catch (_: IllegalStateException) { }
     assertTrue(closed); assertTrue(lifecycle.stopAndRelease())
   }
+  @Test fun statusReportsTerminalAndFailureWithoutDroppingOwnership() = runBlocking {
+    val fake = Fake().apply { busy = 0 }
+    val lifecycle = CoreBetaLifecycle(fake) { }
+    assertNull(lifecycle.status())
+    lifecycle.startBorrowed({ 9L }, { })
+    fake.statusCode = 1
+    assertEquals(1, lifecycle.status())
+    fake.statusCode = -3
+    assertEquals(-3, lifecycle.status())
+    assertTrue(lifecycle.stopAndRelease())
+    assertNull(lifecycle.status())
+  }
   @Test fun cancellationDuringStartStopsAndReleasesCreatedHandle() = runBlocking {
     val fake = Fake().apply { busy = 0 }
     val lifecycle = CoreBetaLifecycle(fake) { }
