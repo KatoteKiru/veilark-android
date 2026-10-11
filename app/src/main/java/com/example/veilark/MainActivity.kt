@@ -39,6 +39,7 @@ import com.example.veilark.profile.SubscriptionSelectionPolicy
 import com.example.veilark.profile.SubscriptionRefreshPolicy
 import com.example.veilark.profile.ApplicationRoutingPolicy
 import com.example.veilark.profile.GeoRoutingAssets
+import com.example.veilark.profile.GeoUpdateStatus
 import com.example.veilark.profile.ProfileSelection
 import com.example.veilark.profile.InstalledApp
 import com.example.veilark.profile.InstalledAppLoader
@@ -160,6 +161,10 @@ class MainActivity : ComponentActivity() {
       var refreshingSubscription by remember { mutableStateOf(false) }
       var geoUpdating by remember { mutableStateOf(false) }
       var geoUpdateMessage by remember { mutableStateOf<String?>(null) }
+      var geoStatus by remember { mutableStateOf(GeoUpdateStatus()) }
+      LaunchedEffect(Unit) {
+        geoStatus = withContext(Dispatchers.IO) { GeoRoutingAssets.status(this@MainActivity) }
+      }
       var subscriptionRefreshAvailable by remember {
         mutableStateOf(
           if (profileEngine == ProfileEngine.TRUST_TUNNEL) {
@@ -637,6 +642,7 @@ class MainActivity : ComponentActivity() {
           routingAvailable = true,
           geoUpdating = geoUpdating,
           geoUpdateMessage = geoUpdateMessage,
+          geoStatusDescription = geoStatusDescription(geoStatus, geoUpdating),
           trustTunnelActive = profileEngine == ProfileEngine.TRUST_TUNNEL,
           singBoxAvailable = singBoxProfiles.isNotEmpty(),
           trustTunnelAvailable =
@@ -1435,6 +1441,7 @@ class MainActivity : ComponentActivity() {
                   TechnicalLogStore.warning("GEO", "Geo update rejected; last-known-good retained")
                 }
                 geoUpdating = false
+                geoStatus = withContext(Dispatchers.IO) { GeoRoutingAssets.status(this@MainActivity) }
               }
             }
           },
@@ -1725,6 +1732,29 @@ class MainActivity : ComponentActivity() {
     }.onFailure {
       TechnicalLogStore.warning("PROFILE", "Saved profile selection validation failed")
     }
+  }
+
+  private fun geoStatusDescription(status: GeoUpdateStatus, updating: Boolean): String {
+    val formatter = java.text.DateFormat.getDateTimeInstance(
+      java.text.DateFormat.MEDIUM, java.text.DateFormat.SHORT,
+    )
+    fun date(value: Long?) = value?.let { formatter.format(java.util.Date(it)) }
+      ?: getString(R.string.geo_no_date)
+    val state = if (updating) GeoUpdateStatus.Result.UPDATING else status.result
+    val stateResource = when (state) {
+      GeoUpdateStatus.Result.NEVER -> R.string.geo_state_never
+      GeoUpdateStatus.Result.UPDATING -> R.string.geo_state_updating
+      GeoUpdateStatus.Result.SUCCESS -> R.string.geo_state_success
+      GeoUpdateStatus.Result.FAILED -> R.string.geo_state_failed
+      GeoUpdateStatus.Result.CANCELLED, GeoUpdateStatus.Result.INTERRUPTED -> R.string.geo_state_interrupted
+    }
+    return listOf(
+      getString(stateResource),
+      getString(R.string.geo_last_attempt, date(status.lastAttemptAtMillis)),
+      getString(R.string.geo_last_success, date(status.lastSuccessAtMillis)),
+      status.sourceGeneratedAt?.let { getString(R.string.geo_current_source, it) }
+        ?: getString(R.string.geo_packaged_source),
+    ).joinToString("\n")
   }
 
   private fun geoRuleSets(mode: String): ProfileSelection.GeoRuleSets? =

@@ -248,6 +248,7 @@ fun MainScreen(
   routingAvailable: Boolean = true,
   geoUpdating: Boolean = false,
   geoUpdateMessage: String? = null,
+  geoStatusDescription: String? = null,
   trustTunnelActive: Boolean = false,
   singBoxAvailable: Boolean = true,
   trustTunnelAvailable: Boolean = false,
@@ -471,6 +472,7 @@ fun MainScreen(
         connectionState == ConnectionState.Failed,
       geoUpdating = geoUpdating,
       geoUpdateMessage = geoUpdateMessage,
+      geoStatusDescription = geoStatusDescription,
       onRefreshGeo = onRefreshGeo,
       onApply = { route, direct, vpn, apps, dpi, packages ->
         val reconnectRequired = connectionState != ConnectionState.Disconnected &&
@@ -1184,6 +1186,14 @@ private fun EngineSelectorCard(
             modifier = Modifier.padding(horizontal = 4.dp),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
+          )
+          OutlinedButton(onClick = {}, enabled = false, modifier = Modifier.fillMaxWidth()) {
+            Text(stringResource(R.string.core_beta_title))
+          }
+          Text(
+            stringResource(R.string.core_beta_not_ready),
+            style = MaterialTheme.typography.bodySmall,
+            modifier = Modifier.padding(horizontal = 4.dp),
           )
         }
       }
@@ -2372,6 +2382,7 @@ private fun RoutingSettingsDialog(
   geoRefreshEnabled: Boolean,
   geoUpdating: Boolean,
   geoUpdateMessage: String?,
+  geoStatusDescription: String?,
   onRefreshGeo: () -> Unit,
   onApply: (String, String, String, String, String, Set<String>) -> Unit,
   onDismiss: () -> Unit,
@@ -2389,6 +2400,20 @@ private fun RoutingSettingsDialog(
     mutableStateOf(selectedApplications)
   }
   var search by rememberSaveable { mutableStateOf("") }
+  var showCustomGeo by rememberSaveable { mutableStateOf(false) }
+  if (showCustomGeo) {
+    CustomGeoProfileDialog(
+      initialDirect = direct,
+      initialVpn = vpn,
+      onUse = { profile ->
+        route = ProfileSelection.ROUTING_MANUAL
+        direct = profile.directEntries
+        vpn = profile.vpnEntries
+        showCustomGeo = false
+      },
+      onDismiss = { showCustomGeo = false },
+    )
+  }
   val visibleApps = remember(installedApplications, search) {
     installedApplications
       .filter {
@@ -2450,6 +2475,14 @@ private fun RoutingSettingsDialog(
             verticalArrangement = Arrangement.spacedBy(10.dp),
           ) {
             item { SettingsSectionTitle(stringResource(R.string.traffic)) }
+            geoStatusDescription?.let { description ->
+              item { Text(description, style = MaterialTheme.typography.bodySmall) }
+            }
+            item {
+              OutlinedButton(onClick = { showCustomGeo = true }, modifier = Modifier.fillMaxWidth()) {
+                Text(stringResource(R.string.custom_geo_title))
+              }
+            }
             if (geoUpdateMessage != null) {
               item {
                 Text(

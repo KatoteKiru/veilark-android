@@ -1,0 +1,31 @@
+<resources>
+    <string name="custom_geo_title">Свой GEO-фильтр</string>
+    <string name="custom_geo_explanation">Создайте свой сценарий из доменов и IP-сетей либо выберите файл правил Veilark на GitHub. Предпросмотр и сохранение не меняют трафик. Выберите правила, затем нажмите «Применить» в настройках маршрутизации.</string>
+    <string name="custom_geo_source">Адрес правил GitHub или JSON Veilark</string>
+    <string name="custom_geo_import_direct">Список .txt с GitHub — добавить в «Напрямую»</string>
+    <string name="custom_geo_import_vpn">Список .txt с GitHub — добавить в «Через VPN»</string>
+    <string name="custom_geo_import">Предпросмотр импорта</string>
+    <string name="custom_geo_load">Открыть сохранённый</string>
+    <string name="custom_geo_saved_profiles">Сохранённые сценарии</string>
+    <string name="custom_geo_delete">Удалить сохранённый сценарий</string>
+    <string name="custom_geo_not_found">Сохранённого фильтра нет. Сначала создайте и сохраните его.</string>
+    <string name="custom_geo_name">Название фильтра</string>
+    <string name="custom_geo_vpn">Домены и IP через VPN</string>
+    <string name="custom_geo_preview">Проверить и посмотреть</string>
+    <string name="custom_geo_preview_result">Напрямую: %1$d · Через VPN: %2$d. Остальной трафик идёт через VPN.</string>
+    <string name="custom_geo_save">Сохранить фильтр</string>
+    <string name="custom_geo_saved">Сохранено на устройстве. Маршрутизация пока не изменилась.</string>
+    <string name="custom_geo_use">Выбрать эти правила</string>
+    <string name="core_beta_title">Veilark Core · beta</string>
+    <string name="core_beta_not_ready">Подключение пока недоступно: проверяем нативное ядро и тестовый профиль.</string>
+    <string name="geo_last_attempt">Последняя попытка: %1$s</string>
+    <string name="geo_last_success">Последнее успешное обновление: %1$s</string>
+    <string name="geo_no_date">Ещё не было</string>
+    <string name="geo_current_source">Версия GEO: %1$s</string>
+    <string name="geo_packaged_source">GEO из приложения или восстановленных локальных файлов</string>
+    <string name="geo_state_never">GEO: локальные файлы, обновление ещё не запускалось</string>
+    <string name="geo_state_updating">GEO: идёт обновление</string>
+    <string name="geo_state_success">GEO: обновление завершено</string>
+    <string name="geo_state_failed">GEO: обновление не удалось, предыдущие файлы сохранены</string>
+    <string name="geo_state_interrupted">GEO: обновление прервано, предыдущие файлы сохранены</string>
+</resources>

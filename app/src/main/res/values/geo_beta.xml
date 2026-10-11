@@ -1,0 +1,31 @@
+<resources>
+    <string name="custom_geo_title">My GEO filter</string>
+    <string name="custom_geo_explanation">Build your own routing scenario using domains and IP ranges, or choose a Veilark rules file on GitHub. Preview and save do not change traffic. Use the rules, then Apply in routing settings.</string>
+    <string name="custom_geo_source">GitHub rules URL or Veilark JSON</string>
+    <string name="custom_geo_import_direct">Add GitHub text rules to direct traffic</string>
+    <string name="custom_geo_import_vpn">Add GitHub text rules to VPN traffic</string>
+    <string name="custom_geo_import">Import preview</string>
+    <string name="custom_geo_load">Load saved</string>
+    <string name="custom_geo_saved_profiles">Saved scenarios</string>
+    <string name="custom_geo_delete">Delete saved scenario</string>
+    <string name="custom_geo_not_found">No saved GEO filter. Create and save one first.</string>
+    <string name="custom_geo_name">Filter name</string>
+    <string name="custom_geo_vpn">Domains and IPs through VPN</string>
+    <string name="custom_geo_preview">Validate and preview</string>
+    <string name="custom_geo_preview_result">Direct rules: %1$d · VPN rules: %2$d. Remaining traffic goes through VPN.</string>
+    <string name="custom_geo_save">Save filter</string>
+    <string name="custom_geo_saved">Saved locally. Traffic settings have not changed.</string>
+    <string name="custom_geo_use">Use these rules</string>
+    <string name="core_beta_title">Veilark Core · beta</string>
+    <string name="core_beta_not_ready">Not ready for connection: native runtime and test profile are being validated.</string>
+    <string name="geo_last_attempt">Last update attempt: %1$s</string>
+    <string name="geo_last_success">Last successful update: %1$s</string>
+    <string name="geo_no_date">Never</string>
+    <string name="geo_current_source">GEO version: %1$s</string>
+    <string name="geo_packaged_source">Bundled or locally recovered GEO</string>
+    <string name="geo_state_never">GEO: using local files; no update attempted</string>
+    <string name="geo_state_updating">GEO: updating</string>
+    <string name="geo_state_success">GEO: update completed</string>
+    <string name="geo_state_failed">GEO: update failed; previous files retained</string>
+    <string name="geo_state_interrupted">GEO: update interrupted; previous files retained</string>
+</resources>

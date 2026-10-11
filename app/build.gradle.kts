@@ -1,4 +1,5 @@
 import java.net.URI
+import java.security.MessageDigest
 import java.util.Base64
 import java.util.Properties
 import org.gradle.api.DefaultTask
@@ -76,6 +77,23 @@ val veilarkCoreCanaryRequested = providers.gradleProperty("veilarkCoreCanary")
   }
   .orElse(false)
 
+// Private candidate only; production/OSS builds do not pick up lab artifacts.
+val bundleCoreBetaRuntime = providers.gradleProperty("bundleVeilarkCoreBetaRuntime")
+  .map { it.toBooleanStrict() }.orElse(false).get()
+val coreBetaRuntimeDirectory = rootProject.file("build/core-beta-runtime")
+if (bundleCoreBetaRuntime) {
+  val runtime = coreBetaRuntimeDirectory.resolve("arm64-v8a/libveilark_core_runtime.so")
+  require(runtime.isFile && runtime.length() == 9_216_456L) { "Verified Core beta ARM64 runtime missing" }
+  val digest = MessageDigest.getInstance("SHA-256").digest(runtime.readBytes())
+    .joinToString("") { "%02x".format(it) }
+  require(digest == "4ddbd704d4af2ce18f72cfbdd567f2fad7157b580709fcb0f9ee1761970dc017") {
+    "Core beta runtime hash does not match reviewed artifact"
+  }
+  require(coreBetaRuntimeDirectory.walkTopDown().filter { it.isFile }.toList() == listOf(runtime)) {
+    "Unexpected Core beta artifacts in staging directory"
+  }
+}
+
 val privatePropertiesFile = rootProject.file("private.properties")
 val privateProperties = Properties().apply {
   if (privatePropertiesFile.isFile) {
@@ -137,6 +155,7 @@ android {
         versionCode = 70
         versionName = "0.8.0-rc42"
         buildConfigField("boolean", "VEILARK_CORE_ENABLED", "false")
+        buildConfigField("boolean", "CORE_BETA_RUNTIME_BUNDLED", "false")
         buildConfigField("String", "TELEGRAM_BOT_URL", quotedBuildConfig(telegramBotUrl))
         buildConfigField("String", "WEB_ACCOUNT_URL", quotedBuildConfig(webAccountUrl))
         ndk {
@@ -166,6 +185,7 @@ android {
         dimension = "distribution"
         applicationId = privateApplicationId
         buildConfigField("boolean", "SELF_UPDATE_ENABLED", "true")
+        buildConfigField("boolean", "CORE_BETA_RUNTIME_BUNDLED", bundleCoreBetaRuntime.toString())
         buildConfigField("String", "OTA_MANIFEST_URL", quotedBuildConfig(privateOtaManifestUrl))
         buildConfigField("String", "OTA_HOST", quotedBuildConfig(privateOtaHost))
         buildConfigField("int", "OTA_PORT", privateOtaPort.toString())
@@ -188,6 +208,9 @@ android {
           signingConfig = signingConfigs.getByName("ossRelease")
         }
       }
+    }
+    if (bundleCoreBetaRuntime) {
+      sourceSets.getByName("private").jniLibs.directories.add(coreBetaRuntimeDirectory.absolutePath)
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
