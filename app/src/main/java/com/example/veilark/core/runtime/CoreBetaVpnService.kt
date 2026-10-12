@@ -93,7 +93,8 @@ class CoreBetaVpnService : VpnService() {
         currentCoroutineContext().ensureActive()
         publish(ConnectionState.Connecting)
         var reachedReady = false
-        val sessionStarted = SystemClock.elapsedRealtime()
+        var readyAtMillis: Long? = null
+        var endedAtMillis = 0L
         try {
           startSession(activeTun, profile)
           val deadline = SystemClock.elapsedRealtime() + 15_000
@@ -102,6 +103,7 @@ class CoreBetaVpnService : VpnService() {
             val status = lifecycle.status() ?: error("Missing session")
             if (status == 1 && !reachedReady) {
               reachedReady = true
+              readyAtMillis = SystemClock.elapsedRealtime()
               publish(ConnectionState.Connected)
             }
             if (status == 3 || status < 0) break
@@ -110,9 +112,11 @@ class CoreBetaVpnService : VpnService() {
           }
         } catch (cancelled: CancellationException) { throw cancelled }
         catch (_: Exception) { /* Safe public error below; no credential-bearing exception text. */ }
-        finally { check(lifecycle.stopAndRelease()) { "Core cleanup did not complete" } }
-        val healthyRotation = reachedReady && SystemClock.elapsedRealtime() - sessionStarted >=
-          minOf(30L, profile.lifetimeSeconds.toLong() - 1) * 1000
+        finally {
+          endedAtMillis = SystemClock.elapsedRealtime()
+          check(lifecycle.stopAndRelease()) { "Core cleanup did not complete" }
+        }
+        val healthyRotation = CoreBetaReconnectPolicy.isHealthyRotation(readyAtMillis, endedAtMillis, profile.lifetimeSeconds)
         if (healthyRotation) consecutiveFailures = 0 else consecutiveFailures++
         check(consecutiveFailures <= 5) { "Core beta cannot connect" }
         publish(ConnectionState.Connecting)
@@ -206,6 +210,9 @@ class CoreBetaVpnService : VpnService() {
 }
 
 internal object CoreBetaReconnectPolicy {
+  fun isHealthyRotation(readyAtMillis: Long?, endedAtMillis: Long, lifetimeSeconds: Int): Boolean =
+    readyAtMillis != null && endedAtMillis - readyAtMillis >= minOf(30L, lifetimeSeconds.toLong() - 1) * 1000
+
   fun delayMillis(consecutiveFailures: Int): Long {
     require(consecutiveFailures in 1..5)
     return (1000L shl (consecutiveFailures - 1)).coerceAtMost(16_000)
