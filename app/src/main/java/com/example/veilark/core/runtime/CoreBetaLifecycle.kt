@@ -14,6 +14,7 @@ import kotlinx.coroutines.withContext
 internal interface CoreBetaHandleApi {
   fun status(handle: Long): Int
   fun failure(handle: Long): Int = 0
+  fun progress(handle: Long, field: Int): Long = -4
   fun stop(handle: Long): Int
   fun release(handle: Long): Int
 }
@@ -65,6 +66,14 @@ internal class CoreBetaLifecycle(
   /** Capture payload-free terminal diagnostics while this owner still holds the handle. */
   suspend fun failure(): Int? = withContext(Dispatchers.IO) {
     lock.withLock { handle?.let { api.failure(it) } }
+  }
+
+  /** Query under the same ownership lock as status/release; never exposes packet contents. */
+  suspend fun progress(): LongArray? = withContext(Dispatchers.IO) {
+    lock.withLock {
+      handle?.let { current -> LongArray(5) { field -> api.progress(current, field) } }
+        ?.takeIf { counts -> counts.all { it >= 0 } }
+    }
   }
 
   /** Bounded off-UI stop/release. On timeout ownership remains held and a new start is forbidden. */

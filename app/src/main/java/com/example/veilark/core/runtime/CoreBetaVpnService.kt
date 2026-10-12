@@ -41,6 +41,8 @@ class CoreBetaVpnService : VpnService() {
     override fun status(handle: Long) = VeilarkCoreRuntimeNative.nativeStatus(handle)
     override fun failure(handle: Long) = try { VeilarkCoreRuntimeNative.nativeFailureV1(handle) }
       catch (_: UnsatisfiedLinkError) { 0 } // Preparation remains compatible with beta2's native ABI.
+    override fun progress(handle: Long, field: Int) = try { VeilarkCoreRuntimeNative.nativeProgressV1(handle, field) }
+      catch (_: UnsatisfiedLinkError) { -4L }
     override fun stop(handle: Long) = VeilarkCoreRuntimeNative.nativeStop(handle)
     override fun release(handle: Long) = VeilarkCoreRuntimeNative.nativeRelease(handle)
   })
@@ -51,6 +53,13 @@ class CoreBetaVpnService : VpnService() {
   private var managerReleased = false
   private var diagnosticStage = "SERVICE"
   private var lastFailureCode: String? = null
+  private val lateCleanup by lazy {
+    CoreBetaLateCleanup(
+      cleanup = { lifecycle.stopAndRelease() },
+      onReleased = { nativeReleased = true; releaseManagerIfDestroyed() },
+      event = { TechnicalLogStore.info("CORE", it) },
+    )
+  }
 
   private fun stage(value: String) {
     diagnosticStage = value // Only fixed local stage names, never profile or exception text.
@@ -79,7 +88,7 @@ class CoreBetaVpnService : VpnService() {
       manager.createNotificationChannel(NotificationChannel(CHANNEL, "Veilark Core beta", NotificationManager.IMPORTANCE_LOW))
       val open = PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
       val notice = NotificationCompat.Builder(this, CHANNEL)
-        .setSmallIcon(R.drawable.ic_vpn_status).setContentTitle("Veilark Core · beta")
+        .setSmallIcon(R.drawable.ic_vpn_status).setContentTitle("Veilark Core В· beta")
         .setContentText(getString(R.string.core_beta_notification_text)).setContentIntent(open).setOngoing(true).build()
       if (Build.VERSION.SDK_INT >= 34) startForeground(NOTIFICATION, notice, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
       else startForeground(NOTIFICATION, notice)
@@ -119,6 +128,7 @@ class CoreBetaVpnService : VpnService() {
         var reachedReady = false
         var readyAtMillis: Long? = null
         var endedAtMillis = 0L
+        var lastProgressAt = 0L
         try {
           startSession(activeTun, profile)
           val deadline = SystemClock.elapsedRealtime() + 15_000
@@ -131,7 +141,13 @@ class CoreBetaVpnService : VpnService() {
               stage("AUTHENTICATED")
               publish(ConnectionState.Connected)
             }
+            val now = SystemClock.elapsedRealtime()
+            if (reachedReady && (lastProgressAt == 0L || now - lastProgressAt >= 5_000)) {
+              recordProgress()
+              lastProgressAt = now
+            }
             if (status == 3 || status < 0) {
+              recordProgress()
               if (status < 0) {
                 val reason = lifecycle.failure() ?: 0
                 lastFailureCode = "CORE-NATIVE($status/$reason)"
@@ -167,7 +183,14 @@ class CoreBetaVpnService : VpnService() {
       stopForeground(STOP_FOREGROUND_REMOVE)
       stopSelf()
       releaseManagerIfDestroyed()
+      if (!released) lateCleanup.launchOnce()
     }
+  }
+
+  private suspend fun recordProgress() {
+    val counts = lifecycle.progress() ?: return
+    TechnicalLogStore.info("CORE", "tun_read_packets=${counts[0]} tun_read_bytes=${counts[1]} " +
+      "tun_write_packets=${counts[2]} tun_write_bytes=${counts[3]} local_ipv6_dropped=${counts[4]}")
   }
 
   private suspend fun startSession(tun: ParcelFileDescriptor, profile: CoreBetaProfile) {

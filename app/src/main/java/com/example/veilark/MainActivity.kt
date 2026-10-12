@@ -1600,7 +1600,7 @@ class MainActivity : ComponentActivity() {
                 ) { getString(R.string.trust_routing_mode_unsupported) }
                 if (newRoutingMode == ProfileSelection.ROUTING_MANUAL) {
                   TrustTunnelGeoRouting.manualExclusions(newDirectRoutes, newVpnRoutes)
-                  GeoCategoryCatalog(filesDir).trustDirectExclusions(newDirectRoutes, newVpnRoutes)
+                  GeoCategoryCatalog.fromContext(this).trustDirectExclusions(newDirectRoutes, newVpnRoutes)
                 }
                 if (connectionState != ConnectionState.Disconnected &&
                   connectionState != ConnectionState.Failed
@@ -1883,7 +1883,7 @@ class MainActivity : ComponentActivity() {
     }
 
   private fun categoryRuleSets(mode: String, direct: String, vpn: String): Map<String, String> =
-    if (mode == ProfileSelection.ROUTING_MANUAL) GeoCategoryCatalog(filesDir).localPaths(direct, vpn) else emptyMap()
+    if (mode == ProfileSelection.ROUTING_MANUAL) GeoCategoryCatalog.fromContext(this).localPaths(direct, vpn) else emptyMap()
 
   private fun Throwable.userMessage(fallbackRes: Int): String {
     val language = resources.configuration.locales[0].language

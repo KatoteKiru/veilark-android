@@ -15,15 +15,37 @@ data class GeoCategory(val id: String, val label: String, val kind: String)
 /** Explicit downloads from the official MetaCubeX public GEO rule-set publisher (no HAPP data).
  * Catalog snapshots bind an immutable Git tree, blob hash and bounded asset size.
  * Existing files remain available offline; incomplete updates never replace them. */
-class GeoCategoryCatalog(filesDir: File) {
+class GeoCategoryCatalog @JvmOverloads constructor(
+  filesDir: File,
+  private val bundled: ((String) -> ByteArray)? = null,
+) {
   private val root = File(filesDir, "geo-categories")
   private val catalog = File(root, "catalog.json")
   private val prepared = File(root, "prepared.json")
   private data class Entry(val category: GeoCategory, val revision: String, val blob: String, val size: Int)
 
-  fun load(): List<GeoCategory> = entries().map { it.category }
+  /** The packaged catalog makes browsing independent of a working VPN/GitHub API. */
+  fun load(): List<GeoCategory> {
+    if (!catalog.exists() && bundled != null) {
+      val bytes = bundled.invoke("catalog.json")
+      parseEntries(bytes) // Validate before publishing; never overwrite an existing snapshot.
+      atomic(catalog, bytes)
+    }
+    return entries().map { it.category }
+  }
 
   suspend fun refresh(): List<GeoCategory> = withContext(Dispatchers.IO) {
+    // The service mirror avoids five GitHub API requests on restricted mobile networks.
+    val mirrored = try {
+      fetch("https://nl2.senyasenyavski.uk:2096/veilark/geo/catalog.json", 4 * 1024 * 1024)
+        .also { parseEntries(it) }
+    } catch (_: java.io.IOException) { null }
+      catch (_: IllegalArgumentException) { null }
+      catch (_: org.json.JSONException) { null }
+    if (mirrored != null) {
+      atomic(catalog, mirrored)
+      return@withContext load()
+    }
     val reference = JSONObject(String(fetch("https://api.github.com/repos/MetaCubeX/meta-rules-dat/git/ref/heads/sing", 16384), Charsets.UTF_8)).getJSONObject("object")
     require(reference.getString("type") == "commit")
     val revision = reference.getString("sha").also { require(HASH.matches(it)) }
@@ -49,12 +71,15 @@ class GeoCategoryCatalog(filesDir: File) {
   suspend fun prepare(directEntries: String, vpnEntries: String): Map<String, String> = withContext(Dispatchers.IO) {
     val selected = selected(directEntries, vpnEntries)
     if (selected.isEmpty()) return@withContext emptyMap()
+    load()
     val available = entries().associateBy { it.category.id }
     val paths = selected.associateWith { id ->
       val entry = available[id] ?: error("Категория $id отсутствует: сначала загрузите каталог GEO")
       val target = file(entry)
       if (!valid(target, entry)) {
-        val bytes = fetch("https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/${entry.revision}/geo/${entry.category.kind}/${id.substringAfter(':')}.json", MAX_ASSET)
+        val packaged = runCatching { bundled?.invoke(target.name) }.getOrNull()?.takeIf { validBytes(it, entry) }
+        val path = "${entry.revision}/${entry.category.kind}/${id.substringAfter(':')}.json"
+        val bytes = packaged ?: fetchAsset(path, entry)
         require(validBytes(bytes, entry)) { "Проверка файла GEO не пройдена" }
         atomic(target, bytes)
       }
@@ -71,6 +96,7 @@ class GeoCategoryCatalog(filesDir: File) {
   fun localPaths(directEntries: String, vpnEntries: String): Map<String, String> {
     val selected = selected(directEntries, vpnEntries)
     if (selected.isEmpty()) return emptyMap()
+    load()
     val knownGood = entries(prepared).associateBy { it.category.id }
     val available = if (selected.all { it in knownGood }) knownGood else entries().associateBy { it.category.id } + knownGood
     return selected.associateWith { id ->
@@ -88,7 +114,12 @@ class GeoCategoryCatalog(filesDir: File) {
   private fun entries(source: File = catalog): List<Entry> {
     if (!source.exists()) return emptyList()
     require(source.length() <= 4 * 1024 * 1024) { "Каталог GEO повреждён" }
-    val json = JSONObject(source.readText())
+    return parseEntries(source.readBytes())
+  }
+
+  private fun parseEntries(bytes: ByteArray): List<Entry> {
+    require(bytes.size <= 4 * 1024 * 1024) { "Каталог GEO повреждён" }
+    val json = JSONObject(String(bytes, Charsets.UTF_8))
     require(json.getInt("version") == 1)
     val array = json.getJSONArray("entries")
     require(array.length() in 1..10000)
@@ -109,6 +140,24 @@ class GeoCategoryCatalog(filesDir: File) {
   private fun valid(file: File, entry: Entry) = file.isFile && file.length() == entry.size.toLong() && validBytes(file.readBytes(), entry)
   private fun validBytes(bytes: ByteArray, entry: Entry) = bytes.size == entry.size &&
     gitBlobHash(bytes) == entry.blob && runCatching { validateSource(String(bytes, Charsets.UTF_8)); true }.getOrDefault(false)
+
+  private fun fetchAsset(path: String, entry: Entry): ByteArray {
+    // Both endpoints deliver the same immutable Git blob; callers verify hash and size.
+    return try {
+      fetch("https://nl2.senyasenyavski.uk:2096/veilark/geo/$path", MAX_ASSET).also {
+        require(validBytes(it, entry)) { "Проверка зеркала GEO не пройдена" }
+      }
+    } catch (_: java.io.IOException) {
+      fetch(upstreamAssetUrl(path), MAX_ASSET)
+    } catch (_: IllegalArgumentException) {
+      fetch(upstreamAssetUrl(path), MAX_ASSET)
+    }
+  }
+
+  private fun upstreamAssetUrl(path: String): String {
+    val revision = path.substringBefore('/')
+    return "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/$revision/geo/${path.substringAfter('/')}"
+  }
 
   private fun fetch(url: String, limit: Int): ByteArray {
     val connection = java.net.URI(url).toURL().openConnection() as HttpURLConnection
@@ -154,6 +203,9 @@ class GeoCategoryCatalog(filesDir: File) {
   }
 
   companion object {
+    fun fromContext(context: android.content.Context): GeoCategoryCatalog = GeoCategoryCatalog(context.filesDir) { name ->
+      context.assets.open("geo-categories/$name").use { it.readBytes() }
+    }
     internal fun validateSource(text: String): JSONObject {
       CustomGeoProfile.requireBoundedDepth(text)
       val root = JSONObject(text)

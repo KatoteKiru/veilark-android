@@ -69,6 +69,23 @@ class CoreBetaLifecycleTest {
     catch (_: IllegalStateException) { }
     assertTrue(closed); assertTrue(lifecycle.stopAndRelease())
   }
+  @Test fun lateReaperReleasesRetainedHandleOnlyAfterWorkerBecomesTerminal() = runBlocking {
+    val fake = Fake().apply { statusCode = 2; busy = 0 }
+    val lifecycle = CoreBetaLifecycle(fake) { }
+    lifecycle.startBorrowed({ 1L }, { })
+    assertFalse(lifecycle.stopAndRelease(2))
+    assertFalse(fake.calls.contains("release"))
+    fake.statusCode = 3
+    val released = AtomicInteger()
+    val reaper = CoreBetaLateCleanup(
+      cleanup = { lifecycle.stopAndRelease() },
+      onReleased = { released.incrementAndGet() }, event = { },
+    )
+    reaper.launchOnce()!!.join()
+    assertEquals(1, released.get())
+    assertNull(lifecycle.status())
+    assertEquals(2L, lifecycle.startBorrowed({ 2L }, { }))
+  }
   @Test fun statusReportsTerminalAndFailureWithoutDroppingOwnership() = runBlocking {
     val fake = Fake().apply { busy = 0 }
     val lifecycle = CoreBetaLifecycle(fake) { }

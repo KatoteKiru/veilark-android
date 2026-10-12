@@ -52,7 +52,7 @@ internal fun CustomGeoProfileDialog(
   val locale = LocalConfiguration.current.locales[0] ?: Locale.ROOT
   val scope = rememberCoroutineScope()
   val store = remember(context) { CustomGeoProfileStore(context.filesDir) }
-  val catalog = remember(context) { GeoCategoryCatalog(context.filesDir) }
+  val catalog = remember(context) { GeoCategoryCatalog.fromContext(context) }
   val defaultName = stringResource(R.string.geo_scenario_default_name)
   var name by rememberSaveable { mutableStateOf(defaultName) }
   var direct by rememberSaveable { mutableStateOf(initialDirect) }
@@ -85,9 +85,8 @@ internal fun CustomGeoProfileDialog(
   }
   LaunchedEffect(store, catalog) {
     try {
-      withContext(Dispatchers.IO) { store.list() to catalog.load() }.let {
-        savedProfiles = it.first; categories = it.second
-      }
+      categories = withContext(Dispatchers.IO) { catalog.load() }
+      savedProfiles = withContext(Dispatchers.IO) { store.list() }
     } catch (cancelled: CancellationException) { throw cancelled }
     catch (failure: Exception) { error = failure.message ?: genericError }
     finally { loading = false }
@@ -125,6 +124,8 @@ internal fun CustomGeoProfileDialog(
           }
         }
         if (busy || loading || geoUpdating) LinearProgressIndicator(Modifier.fillMaxWidth())
+        error?.let { Text(it, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+          color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium) }
         LazyColumn(Modifier.weight(1f).fillMaxWidth(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
           if (section == 0) {
             item {
@@ -136,7 +137,7 @@ internal fun CustomGeoProfileDialog(
                   if (trustTunnelActive) Text(stringResource(R.string.geo_scenario_trust_categories),
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                   FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(enabled = !busy && !loading && refreshEnabled, onClick = {
+                    OutlinedButton(enabled = !busy && !loading, onClick = {
                       task { categories = catalog.refresh() }
                     }) { Text(stringResource(R.string.geo_scenario_download_catalog)) }
                     TextButton(enabled = refreshEnabled && !trustTunnelActive && !geoUpdating && !busy, onClick = onRefreshGeo) {
@@ -215,7 +216,6 @@ internal fun CustomGeoProfileDialog(
             }
           }
           item { Text(stringResource(R.string.geo_scenario_remaining), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-          error?.let { item { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium) } }
           if (saved) item { Text(stringResource(R.string.custom_geo_saved), color = MaterialTheme.colorScheme.primary) }
         }
         HorizontalDivider()

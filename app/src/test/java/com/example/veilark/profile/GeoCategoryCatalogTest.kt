@@ -6,12 +6,37 @@ import org.junit.Assert.*
 import org.junit.Test
 import java.io.File
 import java.nio.file.Files
+import kotlinx.coroutines.runBlocking
 
 class GeoCategoryCatalogTest {
   private fun rejected(block: () -> Unit) {
     try { block(); fail("Expected safe rejection") } catch (_: IllegalArgumentException) { }
   }
   private val config = """{"route":{"final":"proxy"},"dns":{"servers":[]}}"""
+
+  @Test fun firstInstallBrowsesAndPreparesPackagedCategoryWithoutNetwork() = runBlocking {
+    val directory = Files.createTempDirectory("geo-bootstrap").toFile()
+    try {
+      val asset = """{"version":2,"rules":[{"domain_suffix":["telegram.org"]}]}""".toByteArray()
+      val blob = GeoCategoryCatalog.gitBlobHash(asset)
+      val snapshot = JSONObject().put("version", 1).put("entries", JSONArray().put(JSONObject()
+        .put("id", "geosite:telegram").put("revision", "a".repeat(40)).put("blob", blob).put("size", asset.size))).toString().toByteArray()
+      val catalog = GeoCategoryCatalog(directory) { name ->
+        when (name) {
+          "catalog.json" -> snapshot
+          "$blob-geosite-telegram.json" -> asset
+          else -> error("Unexpected bundle lookup: $name")
+        }
+      }
+      assertEquals("geosite:telegram", catalog.load().single().id)
+      assertEquals(1, catalog.prepare("geosite:telegram", "").size)
+      assertEquals(listOf("telegram.org", "*.telegram.org"), catalog.trustDirectExclusions("geosite:telegram", ""))
+      val existing = File(directory, "geo-categories/catalog.json").readBytes()
+      val replacement = GeoCategoryCatalog(directory) { error("Existing catalog must not be replaced") }
+      assertEquals("geosite:telegram", replacement.load().single().id)
+      assertArrayEquals(existing, File(directory, "geo-categories/catalog.json").readBytes())
+    } finally { directory.deleteRecursively() }
+  }
 
   @Test fun categoriesRoundTripAndInvalidPathsReject() {
     val profile = CustomGeoProfile.create("Strategy", "geosite:telegram geoip:de", "geosite:google@!cn geosite:geolocation-!cn")

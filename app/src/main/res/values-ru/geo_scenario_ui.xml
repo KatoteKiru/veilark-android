@@ -9,9 +9,9 @@
     <string name="geo_scenario_selection_summary">Напрямую: %1$d · VPN: %2$d</string>
     <string name="geo_scenario_remaining">Остальной трафик идёт через VPN. Выбор и сохранение меняют только черновик; для включения нажмите «Применить» в разделе маршрутизации.</string>
     <string name="geo_scenario_edit">Выбрать категории и изменить стратегию</string>
-    <string name="geo_scenario_catalog_description">Загрузите список категорий, найдите сервис или страну и выберите «Напрямую» либо «VPN». Файлы выбранных правил загрузятся при выборе стратегии.</string>
+    <string name="geo_scenario_catalog_description">Найдите сервис или страну и выберите «Напрямую» либо «VPN». Список категорий доступен без сети. Недостающие файлы правил загрузятся при выборе стратегии.</string>
     <string name="geo_scenario_trust_categories">В TrustTunnel категории можно отправить «Напрямую», если они содержат домены и IP-сети. Совмещать их с правилами VPN нельзя. Сложные категории проверяются перед выбором; неподдерживаемые правила не меняют прежнюю маршрутизацию.</string>
-    <string name="geo_scenario_download_catalog">Загрузить список категорий</string>
+    <string name="geo_scenario_download_catalog">Обновить список категорий</string>
     <string name="geo_scenario_search">Поиск сервиса, страны или категории</string>
     <string name="geo_scenario_selected_only">Только выбранные</string>
     <string name="geo_scenario_catalog_empty">Загрузите список категорий, чтобы выбрать нужные правила.</string>

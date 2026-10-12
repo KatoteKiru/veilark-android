@@ -9,9 +9,9 @@
     <string name="geo_scenario_selection_summary">Direct: %1$d · VPN: %2$d</string>
     <string name="geo_scenario_remaining">Other traffic goes through VPN. Choosing or saving a strategy changes the draft; tap Apply on the routing screen to activate it.</string>
     <string name="geo_scenario_edit">Choose categories and edit strategy</string>
-    <string name="geo_scenario_catalog_description">Download the category list, search for a service or country, and choose Direct or VPN. Selected rule files download when you choose the strategy.</string>
+    <string name="geo_scenario_catalog_description">Search for a service or country and choose Direct or VPN. The category list is available offline. Missing rule files download when you choose the strategy.</string>
     <string name="geo_scenario_trust_categories">TrustTunnel supports Direct categories with domain and IP rules. VPN overrides cannot be combined with Direct categories. Complex categories are checked before selection; unsupported rules preserve your current routing.</string>
-    <string name="geo_scenario_download_catalog">Download category list</string>
+    <string name="geo_scenario_download_catalog">Update category list</string>
     <string name="geo_scenario_search">Search services, countries or category names</string>
     <string name="geo_scenario_selected_only">Selected only</string>
     <string name="geo_scenario_catalog_empty">Download the category list to start choosing rules.</string>

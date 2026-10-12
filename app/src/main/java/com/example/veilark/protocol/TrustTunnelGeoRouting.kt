@@ -45,7 +45,7 @@ object TrustTunnelGeoRouting {
       ProfileSelection.ROUTING_MANUAL -> {
         val direct = preferences.getString("trust_direct_routes", "").orEmpty()
         val vpn = preferences.getString("trust_vpn_routes", "").orEmpty()
-        (manualExclusions(direct, vpn) + GeoCategoryCatalog(context.filesDir).trustDirectExclusions(direct, vpn)).distinct()
+        (manualExclusions(direct, vpn) + GeoCategoryCatalog.fromContext(context).trustDirectExclusions(direct, vpn)).distinct()
       }
       else -> emptyList()
     }

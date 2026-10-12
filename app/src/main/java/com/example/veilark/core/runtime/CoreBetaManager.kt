@@ -57,6 +57,7 @@ object CoreBetaManager {
   @Synchronized internal fun stopEngine(context: Context, attempt: LifecycleAttempt? = null) {
     val current = activeAttempt ?: return
     if (attempt != null && current != attempt) return
+    com.example.veilark.diagnostics.TechnicalLogStore.info("CORE", "stop_requested")
     context.stopService(Intent(context, CoreBetaVpnService::class.java))
     // A queued service start cannot own JNI/TUN until attachAttempt succeeds.
     // Invalidate its token even when Android reports a pending service existed.

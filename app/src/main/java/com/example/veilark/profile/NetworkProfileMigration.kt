@@ -83,7 +83,7 @@ object NetworkProfileMigration {
       vpnPackage = context.packageName,
       dpiMode = dpiMode,
       geoRuleSets = geoRuleSets,
-      categoryRuleSets = if (routingMode == ProfileSelection.ROUTING_MANUAL) GeoCategoryCatalog(context.filesDir).localPaths(directRoutes, vpnRoutes) else emptyMap(),
+      categoryRuleSets = if (routingMode == ProfileSelection.ROUTING_MANUAL) GeoCategoryCatalog.fromContext(context).localPaths(directRoutes, vpnRoutes) else emptyMap(),
     )
     if (reconciled != current) {
       SecureProfileStore.save(context, SecureProfileStore.SING_BOX, reconciled)
