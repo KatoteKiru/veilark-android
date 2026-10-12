@@ -574,7 +574,8 @@ fun MainScreen(
             }
           ],
           importing = importing,
-          onConnect = if (profileName == null) openImport else onConnect,
+          onConnect = if (profileName == null && connectionState != ConnectionState.Connected &&
+            connectionState != ConnectionState.Connecting) openImport else onConnect,
         )
       }
       item {
@@ -1082,7 +1083,7 @@ private fun ConnectionCard(
       Button(
         onClick = onConnect,
         shapes = ButtonDefaults.shapesFor(buttonHeight),
-        enabled = !importing,
+        enabled = connected || connecting || !importing,
         modifier = Modifier.fillMaxWidth().heightIn(min = buttonHeight),
         contentPadding = ButtonDefaults.contentPaddingFor(buttonHeight, hasStartIcon = true),
         colors = if (connected || connecting) {
@@ -1092,7 +1093,7 @@ private fun ConnectionCard(
         },
       ) {
         val iconSize = ButtonDefaults.iconSizeFor(buttonHeight)
-        if (importing) {
+        if (importing && !connected && !connecting) {
           // "Checking profile" is a progress state, not an add/power action.
           LoadingIndicator(
             modifier = Modifier.size(iconSize + 8.dp),
@@ -1101,8 +1102,9 @@ private fun ConnectionCard(
         } else {
           Icon(
             imageVector = when {
-              profileName == null -> Icons.Rounded.Add
               connecting -> Icons.Rounded.Close
+              connected -> Icons.Rounded.PowerSettingsNew
+              profileName == null -> Icons.Rounded.Add
               else -> Icons.Rounded.PowerSettingsNew
             },
             contentDescription = null,
@@ -1112,10 +1114,10 @@ private fun ConnectionCard(
         Spacer(Modifier.size(ButtonDefaults.iconSpacingFor(buttonHeight)))
         Text(
           text = when {
-            importing -> stringResource(R.string.profile_checking)
-            profileName == null -> stringResource(R.string.profile_add)
             connecting -> stringResource(R.string.connection_cancel)
             connected -> stringResource(R.string.disconnect)
+            importing -> stringResource(R.string.profile_checking)
+            profileName == null -> stringResource(R.string.profile_add)
             else -> stringResource(R.string.connect)
           },
           style = ButtonDefaults.textStyleFor(buttonHeight),
