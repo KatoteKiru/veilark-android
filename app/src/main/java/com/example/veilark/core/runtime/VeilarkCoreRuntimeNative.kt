@@ -25,6 +25,7 @@ object VeilarkCoreRuntimeNative {
     sourceIpv4: Int, lifetimeSeconds: Int,
   ): Long
   @JvmStatic external fun nativeStatus(handle: Long): Int
+  @JvmStatic external fun nativeFailureV1(handle: Long): Int
   @JvmStatic external fun nativeStop(handle: Long): Int
   @JvmStatic external fun nativeRelease(handle: Long): Int
 }

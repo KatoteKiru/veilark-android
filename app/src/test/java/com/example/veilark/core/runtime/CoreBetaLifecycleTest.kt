@@ -16,8 +16,29 @@ class CoreBetaLifecycleTest {
     var busy = 1
     val calls = mutableListOf<String>()
     override fun status(handle: Long): Int { calls += "status"; return statusCode }
+    override fun failure(handle: Long): Int { calls += "failure"; return 17 }
     override fun stop(handle: Long): Int { calls += "stop"; return 0 }
     override fun release(handle: Long): Int { calls += "release"; return if (busy-- > 0) -2 else 0 }
+  }
+  @Test fun terminalReasonMustBeCapturedBeforeHandleRelease() = runBlocking {
+    val fake = Fake(); fake.busy = 0
+    val lifecycle = CoreBetaLifecycle(fake) { }
+    lifecycle.startBorrowed({ 1L }, { })
+    assertEquals(17, lifecycle.failure())
+    assertTrue(lifecycle.stopAndRelease())
+    assertNull(lifecycle.failure())
+    assertTrue(fake.calls.indexOf("failure") < fake.calls.indexOf("release"))
+    assertEquals(1, fake.calls.count { it == "failure" })
+  }
+  @Test fun failedNativeAdmissionKeepsCodeAndClosesCallerDescriptors() = runBlocking {
+    val lifecycle = CoreBetaLifecycle(Fake()) { }
+    var closed = 0
+    try {
+      lifecycle.startBorrowed({ -3L }, { closed++ })
+      fail("Expected native admission failure")
+    } catch (failure: CoreBetaStartFailure) { assertEquals(-3L, failure.code) }
+    assertEquals(1, closed)
+    assertNull(lifecycle.failure())
   }
   @Test fun terminalBusyRequiresSuccessfulReleaseBeforeRestart() = runBlocking {
     val fake = Fake(); val lifecycle = CoreBetaLifecycle(fake) { }

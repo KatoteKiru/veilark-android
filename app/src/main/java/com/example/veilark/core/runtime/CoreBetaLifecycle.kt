@@ -13,9 +13,12 @@ import kotlinx.coroutines.withContext
 /** Inject only a verified native artifact. This seam is not registered as a VPN engine. */
 internal interface CoreBetaHandleApi {
   fun status(handle: Long): Int
+  fun failure(handle: Long): Int = 0
   fun stop(handle: Long): Int
   fun release(handle: Long): Int
 }
+
+internal class CoreBetaStartFailure(val code: Long) : IllegalStateException("Core session could not start")
 
 /** Keeps ownership through terminal-but-still-running workers; never falls back to another engine. */
 internal class CoreBetaLifecycle(
@@ -32,7 +35,7 @@ internal class CoreBetaLifecycle(
         try {
           check(handle == null) { "Previous Core session has not been released" }
           val started = start()
-          check(started > 0) { "Core session could not start" }
+          if (started <= 0) throw CoreBetaStartFailure(started)
           handle = started
           started
         } finally {
@@ -57,6 +60,11 @@ internal class CoreBetaLifecycle(
 
   suspend fun status(): Int? = withContext(Dispatchers.IO) {
     lock.withLock { handle?.let { api.status(it) } }
+  }
+
+  /** Capture payload-free terminal diagnostics while this owner still holds the handle. */
+  suspend fun failure(): Int? = withContext(Dispatchers.IO) {
+    lock.withLock { handle?.let { api.failure(it) } }
   }
 
   /** Bounded off-UI stop/release. On timeout ownership remains held and a new start is forbidden. */

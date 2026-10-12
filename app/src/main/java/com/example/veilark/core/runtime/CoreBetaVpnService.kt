@@ -16,6 +16,7 @@ import android.system.StructPollfd
 import androidx.core.app.NotificationCompat
 import com.example.veilark.MainActivity
 import com.example.veilark.R
+import com.example.veilark.diagnostics.TechnicalLogStore
 import com.example.veilark.lifecycle.LifecycleAttempt
 import com.example.veilark.profile.CoreBetaProfile
 import com.example.veilark.profile.CoreBetaProfileStore
@@ -38,6 +39,8 @@ class CoreBetaVpnService : VpnService() {
   private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
   private val lifecycle = CoreBetaLifecycle(object : CoreBetaHandleApi {
     override fun status(handle: Long) = VeilarkCoreRuntimeNative.nativeStatus(handle)
+    override fun failure(handle: Long) = try { VeilarkCoreRuntimeNative.nativeFailureV1(handle) }
+      catch (_: UnsatisfiedLinkError) { 0 } // Preparation remains compatible with beta2's native ABI.
     override fun stop(handle: Long) = VeilarkCoreRuntimeNative.nativeStop(handle)
     override fun release(handle: Long) = VeilarkCoreRuntimeNative.nativeRelease(handle)
   })
@@ -46,6 +49,23 @@ class CoreBetaVpnService : VpnService() {
   @Volatile private var destroyed = false
   @Volatile private var nativeReleased = false
   private var managerReleased = false
+  private var diagnosticStage = "SERVICE"
+  private var lastFailureCode: String? = null
+
+  private fun stage(value: String) {
+    diagnosticStage = value // Only fixed local stage names, never profile or exception text.
+    TechnicalLogStore.info("CORE", "stage=$value")
+  }
+
+  private fun recordFailure(failure: Throwable) {
+    val detail = when (failure) {
+      is CoreBetaStartFailure -> " start_code=${failure.code}"
+      is ErrnoException -> " errno=${failure.errno}"
+      else -> " class=${failure.javaClass.simpleName}"
+    }
+    lastFailureCode = "CORE-$diagnosticStage"
+    TechnicalLogStore.error("CORE", "stage=$diagnosticStage$detail")
+  }
 
   @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class, kotlinx.coroutines.DelicateCoroutinesApi::class)
   override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -63,8 +83,9 @@ class CoreBetaVpnService : VpnService() {
         .setContentText(getString(R.string.core_beta_notification_text)).setContentIntent(open).setOngoing(true).build()
       if (Build.VERSION.SDK_INT >= 34) startForeground(NOTIFICATION, notice, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
       else startForeground(NOTIFICATION, notice)
-    } catch (_: Exception) {
-      publish(ConnectionState.Failed, getString(R.string.core_beta_connection_failed))
+    } catch (failure: Exception) {
+      recordFailure(failure)
+      publish(ConnectionState.Failed, getString(R.string.core_beta_connection_failed) + " [CORE-SERVICE]")
       nativeReleased = true // No TUN/native worker was started on this path.
       stopSelf()
       return START_NOT_STICKY
@@ -78,7 +99,9 @@ class CoreBetaVpnService : VpnService() {
     var tun: ParcelFileDescriptor? = null
     try {
       currentCoroutineContext().ensureActive()
+      stage("NATIVE_LOAD")
       check(VeilarkCoreRuntimeNative.loadCandidate())
+      stage("PROFILE_STORE")
       val profile = CoreBetaProfileStore.load(this)
       // Android blocks an address family absent from addresses/routes/DNS. Never
       // call allowFamily(AF_INET6), add IPv6 DNS/routes, or allowBypass here.
@@ -86,6 +109,7 @@ class CoreBetaVpnService : VpnService() {
         .addAddress(profile.clientIpv4, 32).addRoute("0.0.0.0", 0)
       profile.dnsIpv4.forEach { builder.addDnsServer(it) }
       if (Build.VERSION.SDK_INT >= 29) builder.setMetered(false)
+      stage("TUN_ESTABLISH")
       val activeTun = checkNotNull(builder.establish())
       tun = activeTun
       var consecutiveFailures = 0
@@ -104,14 +128,22 @@ class CoreBetaVpnService : VpnService() {
             if (status == 1 && !reachedReady) {
               reachedReady = true
               readyAtMillis = SystemClock.elapsedRealtime()
+              stage("AUTHENTICATED")
               publish(ConnectionState.Connected)
             }
-            if (status == 3 || status < 0) break
+            if (status == 3 || status < 0) {
+              if (status < 0) {
+                val reason = lifecycle.failure() ?: 0
+                lastFailureCode = "CORE-NATIVE($status/$reason)"
+                TechnicalLogStore.error("CORE", "native_status=$status native_reason=$reason ready=$reachedReady")
+              }
+              break
+            }
             if (!reachedReady && SystemClock.elapsedRealtime() >= deadline) error("Authentication timeout")
             delay(250)
           }
         } catch (cancelled: CancellationException) { throw cancelled }
-        catch (_: Exception) { /* Safe public error below; no credential-bearing exception text. */ }
+        catch (failure: Exception) { recordFailure(failure) }
         finally {
           endedAtMillis = SystemClock.elapsedRealtime()
           check(lifecycle.stopAndRelease()) { "Core cleanup did not complete" }
@@ -124,8 +156,9 @@ class CoreBetaVpnService : VpnService() {
       }
     } catch (_: CancellationException) {
       // Explicit stop/revoke is completed only after native ownership release.
-    } catch (_: Throwable) {
-      publish(ConnectionState.Failed, getString(R.string.core_beta_connection_failed))
+    } catch (failure: Throwable) {
+      if (lastFailureCode == null) recordFailure(failure)
+      publish(ConnectionState.Failed, getString(R.string.core_beta_connection_failed) + " [${lastFailureCode ?: "CORE-UNKNOWN"}]")
     } finally {
       val released = runCatching { lifecycle.stopAndRelease() }.getOrDefault(false)
       runCatching { tun?.close() }
@@ -146,12 +179,15 @@ class CoreBetaVpnService : VpnService() {
     val initiator = context.copyOfRange(32, 64)
     val responder = context.copyOfRange(64, 96)
     try {
+      stage("SOCKET_CREATE")
       // Atomic NONBLOCK creation works on minSdk29; public Os.fcntlInt is API30+.
       val raw = Os.socket(OsConstants.AF_INET, OsConstants.SOCK_STREAM or OsConstants.SOCK_NONBLOCK, OsConstants.IPPROTO_TCP)
       socket = try { ParcelFileDescriptor.dup(raw) } finally { Os.close(raw) }
       val connectedSocket = checkNotNull(socket)
+      stage("SOCKET_PROTECT")
       check(protect(connectedSocket.fd))
       val address = ipv4(profile.endpointIpv4)
+      stage("TCP_CONNECT")
       try { Os.connect(connectedSocket.fileDescriptor, address, profile.endpointPort) }
       catch (error: ErrnoException) { if (error.errno != OsConstants.EINPROGRESS) throw error }
       val poll = StructPollfd().apply { fd = connectedSocket.fileDescriptor; events = OsConstants.POLLOUT.toShort() }
@@ -167,6 +203,7 @@ class CoreBetaVpnService : VpnService() {
       // getpeername is public Android SDK; failed async connect has no peer.
       val peer = Os.getpeername(connectedSocket.fileDescriptor) as? InetSocketAddress
       check(peer != null && peer.address == address && peer.port == profile.endpointPort)
+      stage("NATIVE_START")
       borrowedTun = ParcelFileDescriptor.dup(tun.fileDescriptor)
       val source = profile.clientIpv4.split('.').fold(0) { value, octet -> (value shl 8) or octet.toInt() }
       lifecycle.startBorrowed(
@@ -175,6 +212,7 @@ class CoreBetaVpnService : VpnService() {
         closeOriginals = { runCatching { borrowedTun?.close() }; borrowedTun = null
           runCatching { socket?.close() }; socket = null },
       )
+      stage("AUTHENTICATING")
     } finally {
       key.fill(0); context.fill(0); carrier.fill(0); initiator.fill(0); responder.fill(0)
       runCatching { borrowedTun?.close() }; runCatching { socket?.close() }

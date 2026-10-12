@@ -83,10 +83,10 @@ val bundleCoreBetaRuntime = providers.gradleProperty("bundleVeilarkCoreBetaRunti
 val coreBetaRuntimeDirectory = rootProject.file("build/core-beta-runtime")
 if (bundleCoreBetaRuntime) {
   val runtime = coreBetaRuntimeDirectory.resolve("arm64-v8a/libveilark_core_runtime.so")
-  require(runtime.isFile && runtime.length() == 9_216_456L) { "Verified Core beta ARM64 runtime missing" }
+  require(runtime.isFile && runtime.length() == 9_217_752L) { "Verified Core beta ARM64 runtime missing" }
   val digest = MessageDigest.getInstance("SHA-256").digest(runtime.readBytes())
     .joinToString("") { "%02x".format(it) }
-  require(digest == "4ddbd704d4af2ce18f72cfbdd567f2fad7157b580709fcb0f9ee1761970dc017") {
+  require(digest == "03433376493a5f9ea92cccdb998ae557c19bb4d30567004efcd902a10488d296") {
     "Core beta runtime hash does not match reviewed artifact"
   }
   require(coreBetaRuntimeDirectory.walkTopDown().filter { it.isFile }.toList() == listOf(runtime)) {
@@ -152,8 +152,8 @@ android {
     defaultConfig {
         minSdk = 29
         targetSdk = 36
-        versionCode = 72
-        versionName = "0.9.0-beta2"
+        versionCode = 73
+        versionName = "0.9.0-beta3"
         buildConfigField("boolean", "VEILARK_CORE_ENABLED", "false")
         buildConfigField("boolean", "CORE_BETA_RUNTIME_BUNDLED", "false")
         buildConfigField("String", "TELEGRAM_BOT_URL", quotedBuildConfig(telegramBotUrl))
