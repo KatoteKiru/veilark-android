@@ -16,6 +16,7 @@ object SecureProfileStore {
   const val TRUST_TUNNEL = "trust-tunnel"
   const val TRUST_TUNNEL_CATALOG = "trust-tunnel-catalog"
   const val SING_BOX_CATALOG = "sing-box-catalog"
+  const val CORE_BETA = "veilark-core-beta-profile"
 
   fun exists(context: Context, id: String): Boolean = encryptedFile(context, id).isFile
 
@@ -74,16 +75,19 @@ object SecureProfileStore {
     legacy.delete()
   }
 
-  private fun encryptedFile(context: Context, id: String): File {
+  private fun encryptedFile(context: Context, id: String): File = profileFile(context.filesDir, id)
+
+  internal fun profileFile(filesDir: File, id: String): File {
     require(
       id == SING_BOX ||
         id == TRUST_TUNNEL ||
         id == TRUST_TUNNEL_CATALOG ||
-        id == SING_BOX_CATALOG,
+        id == SING_BOX_CATALOG ||
+        id == CORE_BETA,
     ) {
       "Неизвестный тип профиля"
     }
-    return File(context.filesDir, "secure-profiles/$id.vlk")
+    return File(filesDir, "secure-profiles/$id.vlk")
   }
 
   private fun getOrCreateKey(): SecretKey {

@@ -4,7 +4,7 @@ import android.content.Context
 
 /** Validates before encrypted atomic replacement. Importing never activates a VPN engine. */
 object CoreBetaProfileStore {
-  private const val ID = "veilark-core-beta-profile"
+  private const val ID = SecureProfileStore.CORE_BETA
 
   fun import(context: Context, payload: ByteArray): CoreBetaProfile {
     val checked = CoreBetaProfile.parse(payload)

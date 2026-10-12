@@ -6,6 +6,25 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 
 class ImportDeepLinkTest {
+  @Test fun opaqueCodeImportsThroughQrAndIntentWithoutReadableDomain() {
+    val target = "https://provider.example/sub/random-token"
+    val code = java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(target.toByteArray())
+    val link = "veilark://import?code=$code"
+    assertFalse(link.contains("provider.example"))
+    assertEquals(target, ImportDeepLink.parseUri(link))
+    assertEquals(target, ImportDeepLink.parseQrPayload(link))
+  }
+
+  @Test fun opaqueCodeCannotBypassHttpsOrOwnershipBoundaries() {
+    for (target in listOf("http://provider.example/sub", "https://user:secret@provider.example/sub", "file:///secret")) {
+      val code = java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(target.toByteArray())
+      assertNull(ImportDeepLink.parseUri("veilark://import?code=$code"))
+    }
+    for (query in listOf("code=not-valid!", "code=YQ==", "code=", "code=YQ&url=https%3A%2F%2Fprovider.example")) {
+      assertNull(ImportDeepLink.parseUri("veilark://import?$query"))
+    }
+  }
+
   @Test
   fun acceptsHttpsSubscriptionOnColdOrWarmViewIntent() {
     assertEquals(
