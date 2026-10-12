@@ -11,6 +11,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -439,6 +440,26 @@ internal fun startupSideEffectAllowed(
     expectedLifecycleAttempt != null &&
     expectedLifecycleAttempt == activeLifecycleAttempt
 
+/** Initial startup observation, with retained Core retries and unchanged legacy deadlines. */
+internal suspend fun awaitInitialEngineState(
+  engine: EngineId,
+  states: Flow<ConnectionState>,
+  commands: Flow<Long>,
+  sequence: Long,
+  legacyTimeoutMillis: Long = 48_000L,
+): Pair<ConnectionState, Long>? {
+  suspend fun awaitResult() = combine(states, commands) { state, version -> state to version }
+    .first { (state, version) ->
+      version != sequence || state == ConnectionState.Connected ||
+        state == ConnectionState.Failed || state == ConnectionState.Disconnected
+    }
+  // Core retains the TUN while retrying authentication. Only readiness, a fatal
+  // failure, completed stop or a superseding command ends its initial wait.
+  // Per-attempt socket/authentication deadlines remain in CoreBetaVpnService.
+  return if (engine == EngineId.CoreBeta) awaitResult()
+  else withTimeoutOrNull(legacyTimeoutMillis) { awaitResult() }
+}
+
 /**
  * Process-wide Android adapter for [AndroidTunnelLifecycleCoordinator].
  *
@@ -612,13 +633,9 @@ object AndroidTunnelLifecycleOwner {
     attempt: LifecycleAttempt,
     sequence: Long,
   ) {
-    val result = withTimeoutOrNull(START_TIMEOUT_MS) {
-      combine(stateFor(attempt.engine), commandVersion) { state, version -> state to version }
-        .first { (state, version) ->
-          version != sequence || state == ConnectionState.Connected ||
-            state == ConnectionState.Failed || state == ConnectionState.Disconnected
-        }
-    }
+    val result = awaitInitialEngineState(
+      attempt.engine, stateFor(attempt.engine), commandVersion, sequence, START_TIMEOUT_MS,
+    )
     val superseded = commandSequence.get() != sequence
     val state = result?.first
     val action = when {

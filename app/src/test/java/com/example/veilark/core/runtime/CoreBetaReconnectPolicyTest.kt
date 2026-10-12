@@ -17,4 +17,12 @@ class CoreBetaReconnectPolicyTest {
   }
   @Test(expected = IllegalArgumentException::class) fun zeroAttemptRejected() { CoreBetaReconnectPolicy.delayMillis(0) }
   @Test(expected = IllegalArgumentException::class) fun unboundedAttemptRejected() { CoreBetaReconnectPolicy.delayMillis(6) }
+  @Test fun repeatedFailuresRetainBoundedBackoffUntilExplicitStop() {
+    var failures = 0
+    repeat(100_000) { failures = CoreBetaReconnectPolicy.nextFailureCount(failures, false) }
+    assertEquals(5, failures)
+    assertEquals(16_000L, CoreBetaReconnectPolicy.delayMillis(failures))
+    assertEquals(0, CoreBetaReconnectPolicy.nextFailureCount(failures, true))
+    assertEquals(1, CoreBetaReconnectPolicy.nextFailureCount(0, false))
+  }
 }

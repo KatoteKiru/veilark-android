@@ -117,7 +117,7 @@ class MainActivity : ComponentActivity() {
             ?: ProfileEngine.SING_BOX,
         )
       }
-      var coreProfileName by remember { mutableStateOf(runCatching { CoreBetaProfileStore.load(this).name }.getOrNull()) }
+      var coreProfileName by remember { mutableStateOf(runCatching { CoreBetaProfileStore.load(this).use { it.name } }.getOrNull()) }
       val coreRuntimeAvailable = remember { VeilarkCoreRuntimeNative.loadCandidate() }
       var trustProfiles by remember {
         mutableStateOf(TrustTunnelCatalog.load(this))
@@ -575,9 +575,10 @@ class MainActivity : ComponentActivity() {
           getString(R.string.engine_switch_disconnect_first)
         }
         check(CoreBetaManager.stopped.value) { getString(R.string.core_beta_cleanup_failed) }
-        val imported = CoreBetaProfileStore.import(this@MainActivity, payload)
-        coreProfileName = imported.name
-        if (profileEngine == ProfileEngine.CORE_BETA) profileName = imported.name
+        CoreBetaProfileStore.import(this@MainActivity, payload).use { imported ->
+          coreProfileName = imported.name
+          if (profileEngine == ProfileEngine.CORE_BETA) profileName = imported.name
+        }
         // Import is intentionally separate from selecting or starting the engine.
         importError = null
         return true
@@ -704,7 +705,7 @@ class MainActivity : ComponentActivity() {
           dpiMode = dpiMode,
           selectedApplications = selectedApplications,
           installedApplications = installedApplications,
-          routingAvailable = profileEngine != ProfileEngine.CORE_BETA,
+          routingAvailable = true,
           geoUpdating = geoUpdating,
           geoUpdateMessage = geoUpdateMessage,
           geoStatusDescription = geoStatusDescription(geoStatus, geoUpdating),
@@ -1549,11 +1550,25 @@ class MainActivity : ComponentActivity() {
               packages,
             ->
             runCatching {
-              check(profileEngine != ProfileEngine.CORE_BETA) { getString(R.string.core_beta_scope) }
               val applicationPolicy = ApplicationRoutingPolicy.fromPreferences(
                 newApplicationMode,
                 packages,
               )
+              if (profileEngine == ProfileEngine.CORE_BETA) {
+                require(newRoutingMode == ProfileSelection.ROUTING_ALL && newDirectRoutes.isBlank() &&
+                  newVpnRoutes.isBlank() && newDpiMode == ProfileSelection.DPI_OFF) { getString(R.string.core_beta_scope) }
+                val plan = applicationPolicy.forAndroidVpn(packageName)
+                (plan.includedPackages + plan.excludedPackages).forEach { packageManager.getApplicationInfo(it, 0) }
+                check(profilePreferences.edit().putString("application_mode", newApplicationMode)
+                  .putStringSet("selected_applications", packages).commit()) { getString(R.string.routing_save_failed) }
+                applicationMode = newApplicationMode
+                selectedApplications = packages
+                if (connectionState != ConnectionState.Disconnected && connectionState != ConnectionState.Failed) {
+                  CoreBetaManager.stop(this)
+                }
+                importError = null
+                return@runCatching
+              }
               if (profileEngine == ProfileEngine.TRUST_TUNNEL) {
                 // Validate Android's mutually exclusive allow/disallow plan before any stop/write.
                 applicationPolicy.forTrustTunnel(packageName)
@@ -1835,7 +1850,7 @@ class MainActivity : ComponentActivity() {
         else -> requestedEngine ?: ProfileEngine.SING_BOX
       }
       val displayName = if (resolvedEngine == ProfileEngine.CORE_BETA) {
-        runCatching { CoreBetaProfileStore.load(this).name }.getOrNull()
+        runCatching { CoreBetaProfileStore.load(this).use { it.name } }.getOrNull()
       } else if (resolvedEngine == ProfileEngine.TRUST_TUNNEL) {
         trustProfiles.firstOrNull { it.id == trustId }?.name
       } else {

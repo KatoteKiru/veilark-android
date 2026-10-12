@@ -11,6 +11,30 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class CoreBetaLifecycleTest {
+  @Test fun additiveTelemetryPreservesOldProviderAndStopsReadingAfterRelease() = runBlocking {
+    var fields = 5
+    var reads = 0
+    val api = object : CoreBetaHandleApi {
+      override fun status(handle: Long) = 3
+      override fun stop(handle: Long) = 0
+      override fun release(handle: Long) = 0
+      override fun progress(handle: Long, field: Int): Long {
+        reads++
+        return if (field < fields) field.toLong() else -1
+      }
+    }
+    val owner = CoreBetaLifecycle(api) { }
+    owner.startBorrowed({ 7L }, { })
+    assertArrayEquals(longArrayOf(0, 1, 2, 3, 4), owner.progress())
+    fields = 10
+    assertArrayEquals(LongArray(10) { it.toLong() }, owner.progress())
+    fields = 4
+    assertNull(owner.progress()) // Missing required counters are unavailable.
+    assertTrue(owner.stopAndRelease())
+    val before = reads
+    assertNull(owner.progress())
+    assertEquals(before, reads) // Never query a released handle.
+  }
   private class Fake : CoreBetaHandleApi {
     var statusCode = 3
     var busy = 1

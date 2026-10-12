@@ -26,7 +26,8 @@ object VeilarkCoreRuntimeNative {
   ): Long
   @JvmStatic external fun nativeStatus(handle: Long): Int
   @JvmStatic external fun nativeFailureV1(handle: Long): Int
-  /** Aggregate packet counts only; fields0..4, unavailable returns negative. */
+  /** Aggregate counts fields0..5; additive numeric rejection fields6..9.
+   * Independent snapshots, no IP addresses/payloads; unavailable is negative. */
   @JvmStatic external fun nativeProgressV1(handle: Long, field: Int): Long
   @JvmStatic external fun nativeStop(handle: Long): Int
   @JvmStatic external fun nativeRelease(handle: Long): Int

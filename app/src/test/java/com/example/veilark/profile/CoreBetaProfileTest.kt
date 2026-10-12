@@ -119,4 +119,51 @@ class CoreBetaProfileTest {
     try { CoreBetaProfile.parse(byteArrayOf(0xc3.toByte(), 0x28)); fail("Invalid UTF-8 accepted") }
     catch (e: IllegalArgumentException) { assertEquals("Invalid Veilark Core beta profile.", e.message) }
   }
+
+  @Test fun persistenceCanDiscardEnvelopeWithoutDestroyingReconnectCredentials() {
+    val raw = fixture()
+    CoreBetaProfile.parse(raw).use { profile ->
+      assertEquals(raw, profile.validatedEnvelope()) // Existing validate/persist contract.
+      profile.discardEnvelope()
+      try { profile.validatedEnvelope(); fail("Original enrollment JSON remains retained") }
+      catch (failure: IllegalStateException) {
+        assertEquals("Core profile envelope is unavailable.", failure.message)
+      }
+      assertEquals(32, profile.keyCopy().size)
+      assertEquals(96, profile.contextCopy().size)
+      assertEquals("Test beta", profile.name)
+    }
+  }
+
+  @Test fun closeWipesOwnedBuffersIsIdempotentAndRejectsNewSecretCopies() {
+    val expectedKey = ByteArray(32) { (it + 1).toByte() }
+    val encodedKey = java.util.Base64.getEncoder().encodeToString(expectedKey)
+    val profile = CoreBetaProfile.parse(fixture().replace("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=", encodedKey))
+    // Inspect the owned buffers, not caller copies: a no-op close must fail this test.
+    val ownedKey = CoreBetaProfile::class.java.getDeclaredField("key").apply { isAccessible = true }.get(profile) as ByteArray
+    val ownedContext = CoreBetaProfile::class.java.getDeclaredField("context").apply { isAccessible = true }.get(profile) as ByteArray
+    val envelope = CoreBetaProfile::class.java.getDeclaredField("envelope").apply { isAccessible = true }
+    val callerCopy = profile.keyCopy()
+    assertArrayEquals(expectedKey, ownedKey)
+    assertTrue(ownedContext.any { it != 0.toByte() })
+    profile.close(); profile.close()
+    assertTrue(ownedKey.all { it == 0.toByte() })
+    assertTrue(ownedContext.all { it == 0.toByte() })
+    assertNull(envelope.get(profile))
+    assertArrayEquals(expectedKey, callerCopy) // JNI caller separately owns and wipes its copy.
+    for (copy in listOf({ profile.keyCopy() }, { profile.contextCopy() })) {
+      try { copy(); fail("Closed enrollment reused") }
+      catch (failure: IllegalStateException) { assertEquals("Core profile is closed.", failure.message) }
+    }
+    callerCopy.fill(0)
+  }
+
+  @Test fun useClosesOwnedSecretsWhenOwnerThrows() {
+    val profile = CoreBetaProfile.parse(fixture())
+    try {
+      profile.use { error("synthetic owner failure") }
+    } catch (_: IllegalStateException) { }
+    try { profile.contextCopy(); fail("Exception bypassed owner cleanup") }
+    catch (failure: IllegalStateException) { assertEquals("Core profile is closed.", failure.message) }
+  }
 }

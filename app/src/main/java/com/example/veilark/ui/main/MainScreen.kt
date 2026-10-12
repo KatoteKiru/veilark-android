@@ -480,6 +480,7 @@ fun MainScreen(
       selectedApplications = selectedApplications,
       installedApplications = installedApplications,
       trustTunnelActive = trustTunnelActive,
+      coreBetaActive = coreBetaActive,
       geoRefreshEnabled = connectionState == ConnectionState.Disconnected ||
         connectionState == ConnectionState.Failed,
       geoUpdating = geoUpdating,
@@ -655,11 +656,12 @@ fun MainScreen(
       }
       item {
         RoutingCard(
-          routingMode = routingMode,
+          routingMode = if (coreBetaActive) ProfileSelection.ROUTING_ALL else routingMode,
           applicationMode = applicationMode,
-          dpiMode = dpiMode,
+          dpiMode = if (coreBetaActive) ProfileSelection.DPI_OFF else dpiMode,
           selectedApplicationCount = selectedApplications.size,
           available = routingAvailable,
+          coreBetaActive = coreBetaActive,
           onClick = {
             if (routingAvailable) {
               onOpenRouting()
@@ -2202,6 +2204,7 @@ private fun RoutingCard(
   dpiMode: String,
   selectedApplicationCount: Int,
   available: Boolean,
+  coreBetaActive: Boolean,
   onClick: () -> Unit,
 ) {
   Column {
@@ -2217,7 +2220,7 @@ private fun RoutingCard(
         if (available) {
           InfoRow(
             stringResource(R.string.traffic),
-            when (routingMode) {
+            if (coreBetaActive) stringResource(R.string.core_ipv4_mode) else when (routingMode) {
               ProfileSelection.ROUTING_RU_DIRECT -> stringResource(R.string.russia_direct)
               ProfileSelection.ROUTING_MANUAL -> stringResource(R.string.custom_rules)
               else -> stringResource(R.string.all_traffic_vpn)
@@ -2241,18 +2244,20 @@ private fun RoutingCard(
             },
           )
           HorizontalDivider(modifier = Modifier.padding(horizontal = 20.dp))
-          InfoRow(
-            stringResource(R.string.dpi_protection),
-            if (dpiMode == ProfileSelection.DPI_TLS_FRAGMENT) {
-              stringResource(R.string.tls_fragmentation)
-            } else {
-              stringResource(R.string.standard)
-            },
-          )
+          if (!coreBetaActive) {
+            InfoRow(
+              stringResource(R.string.dpi_protection),
+              if (dpiMode == ProfileSelection.DPI_TLS_FRAGMENT) {
+                stringResource(R.string.tls_fragmentation)
+              } else {
+                stringResource(R.string.standard)
+              },
+            )
+            HorizontalDivider(modifier = Modifier.padding(horizontal = 20.dp))
+          }
+          InfoRow(stringResource(R.string.dns), stringResource(if (coreBetaActive) R.string.core_profile_dns else R.string.protected_value))
           HorizontalDivider(modifier = Modifier.padding(horizontal = 20.dp))
-          InfoRow(stringResource(R.string.dns), stringResource(R.string.protected_value))
-          HorizontalDivider(modifier = Modifier.padding(horizontal = 20.dp))
-          InfoRow(stringResource(R.string.kill_switch), stringResource(R.string.enabled_value))
+          InfoRow(stringResource(if (coreBetaActive) R.string.core_ipv6_blocked else R.string.kill_switch), stringResource(R.string.enabled_value))
         } else {
           InfoRow(stringResource(R.string.traffic), stringResource(R.string.trust_full_tunnel))
           HorizontalDivider(modifier = Modifier.padding(horizontal = 20.dp))
@@ -2412,6 +2417,7 @@ private fun RoutingSettingsDialog(
   selectedApplications: Set<String>,
   installedApplications: List<InstalledApp>,
   trustTunnelActive: Boolean,
+  coreBetaActive: Boolean,
   geoRefreshEnabled: Boolean,
   geoUpdating: Boolean,
   geoUpdateMessage: String?,
@@ -2424,11 +2430,11 @@ private fun RoutingSettingsDialog(
   // upstream recomposition (for example the installed-app list loading or a
   // geo update refreshing props), so in-progress edits are not discarded. It
   // is saveable, so rotation or process death keeps the draft as well.
-  var route by rememberSaveable { mutableStateOf(routingMode) }
-  var direct by rememberSaveable { mutableStateOf(directRoutes) }
-  var vpn by rememberSaveable { mutableStateOf(vpnRoutes) }
+  var route by rememberSaveable { mutableStateOf(if (coreBetaActive) ProfileSelection.ROUTING_ALL else routingMode) }
+  var direct by rememberSaveable { mutableStateOf(if (coreBetaActive) "" else directRoutes) }
+  var vpn by rememberSaveable { mutableStateOf(if (coreBetaActive) "" else vpnRoutes) }
   var appMode by rememberSaveable { mutableStateOf(applicationMode) }
-  var dpi by rememberSaveable { mutableStateOf(dpiMode) }
+  var dpi by rememberSaveable { mutableStateOf(if (coreBetaActive) ProfileSelection.DPI_OFF else dpiMode) }
   var packages by rememberSaveable(stateSaver = StringSetSaver) {
     mutableStateOf(selectedApplications)
   }
@@ -2514,77 +2520,81 @@ private fun RoutingSettingsDialog(
             contentPadding = PaddingValues(horizontal = 20.dp, vertical = 16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
           ) {
-            item { SettingsSectionTitle(stringResource(R.string.traffic)) }
-            geoStatusDescription?.let { description ->
-              item { Text(description, style = MaterialTheme.typography.bodySmall) }
-            }
-            item {
-              OutlinedButton(onClick = { showCustomGeo = true }, modifier = Modifier.fillMaxWidth()) {
-                Text(stringResource(R.string.geo_scenario_title))
+            if (!coreBetaActive) {
+              item { SettingsSectionTitle(stringResource(R.string.traffic)) }
+              geoStatusDescription?.let { description ->
+                item { Text(description, style = MaterialTheme.typography.bodySmall) }
               }
-            }
-            if (geoUpdateMessage != null) {
               item {
-                Text(
-                  text = geoUpdateMessage,
-                  style = MaterialTheme.typography.bodySmall,
-                  color = MaterialTheme.colorScheme.primary,
+                OutlinedButton(onClick = { showCustomGeo = true }, modifier = Modifier.fillMaxWidth()) {
+                  Text(stringResource(R.string.geo_scenario_title))
+                }
+              }
+              if (geoUpdateMessage != null) {
+                item {
+                  Text(
+                    text = geoUpdateMessage,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.primary,
+                  )
+                }
+              }
+              item {
+                SettingChoice(
+                  title = stringResource(R.string.all_traffic_vpn),
+                  selected = route == ProfileSelection.ROUTING_ALL,
+                  onClick = { route = ProfileSelection.ROUTING_ALL },
                 )
               }
-            }
-            item {
-              SettingChoice(
-                title = stringResource(R.string.all_traffic_vpn),
-                selected = route == ProfileSelection.ROUTING_ALL,
-                onClick = { route = ProfileSelection.ROUTING_ALL },
-              )
-            }
-            item {
-              SettingChoice(
-                title = stringResource(R.string.russia_direct),
-                subtitle = stringResource(
-                  if (trustTunnelActive) {
-                    R.string.trust_russia_direct_description
-                  } else {
-                    R.string.russia_direct_description
-                  },
-                ),
-                selected = route == ProfileSelection.ROUTING_RU_DIRECT,
-                onClick = { route = ProfileSelection.ROUTING_RU_DIRECT },
-              )
-            }
-            item {
-              SettingChoice(
-                title = stringResource(R.string.custom_rules),
-                subtitle = stringResource(R.string.custom_rules_description),
-                selected = route == ProfileSelection.ROUTING_MANUAL,
-                onClick = { route = ProfileSelection.ROUTING_MANUAL },
-              )
-            }
-            if (route == ProfileSelection.ROUTING_MANUAL) {
               item {
-                Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceContainer) {
-                  Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(stringResource(R.string.geo_scenario_selection_summary,
-                      direct.lineSequence().count { it.isNotBlank() },
-                      vpn.lineSequence().count { it.isNotBlank() }), style = MaterialTheme.typography.bodyMedium)
-                    Text(stringResource(R.string.geo_scenario_remaining), style = MaterialTheme.typography.bodySmall,
-                      color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    OutlinedButton(onClick = { showCustomGeo = true }, modifier = Modifier.fillMaxWidth()) {
-                      Text(stringResource(R.string.geo_scenario_edit))
+                SettingChoice(
+                  title = stringResource(R.string.russia_direct),
+                  subtitle = stringResource(
+                    if (trustTunnelActive) {
+                      R.string.trust_russia_direct_description
+                    } else {
+                      R.string.russia_direct_description
+                    },
+                  ),
+                  selected = route == ProfileSelection.ROUTING_RU_DIRECT,
+                  onClick = { route = ProfileSelection.ROUTING_RU_DIRECT },
+                )
+              }
+              item {
+                SettingChoice(
+                  title = stringResource(R.string.custom_rules),
+                  subtitle = stringResource(R.string.custom_rules_description),
+                  selected = route == ProfileSelection.ROUTING_MANUAL,
+                  onClick = { route = ProfileSelection.ROUTING_MANUAL },
+                )
+              }
+              if (route == ProfileSelection.ROUTING_MANUAL) {
+                item {
+                  Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceContainer) {
+                    Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                      Text(stringResource(R.string.geo_scenario_selection_summary,
+                        direct.lineSequence().count { it.isNotBlank() },
+                        vpn.lineSequence().count { it.isNotBlank() }), style = MaterialTheme.typography.bodyMedium)
+                      Text(stringResource(R.string.geo_scenario_remaining), style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                      OutlinedButton(onClick = { showCustomGeo = true }, modifier = Modifier.fillMaxWidth()) {
+                        Text(stringResource(R.string.geo_scenario_edit))
+                      }
                     }
                   }
                 }
               }
+            } else {
+              item { Text(stringResource(R.string.core_beta_scope), style = MaterialTheme.typography.bodyMedium) }
             }
-            if (trustTunnelActive) {
+            if (trustTunnelActive || coreBetaActive) {
               item {
                 Surface(
                   shape = RoundedCornerShape(18.dp),
                   color = MaterialTheme.colorScheme.secondaryContainer,
                 ) {
                   Text(
-                    text = stringResource(R.string.trust_app_rules_note),
+                    text = stringResource(if (coreBetaActive) R.string.core_application_rules_note else R.string.trust_app_rules_note),
                     modifier = Modifier.padding(16.dp),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSecondaryContainer,
@@ -2688,7 +2698,7 @@ private fun RoutingSettingsDialog(
                 )
               }
             }
-            if (!trustTunnelActive) {
+            if (!trustTunnelActive && !coreBetaActive) {
               item { SettingsSectionTitle(stringResource(R.string.dpi_protection)) }
               item {
                 SettingChoice(

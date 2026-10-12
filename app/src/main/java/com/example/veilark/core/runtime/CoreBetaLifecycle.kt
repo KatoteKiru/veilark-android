@@ -71,8 +71,13 @@ internal class CoreBetaLifecycle(
   /** Query under the same ownership lock as status/release; never exposes packet contents. */
   suspend fun progress(): LongArray? = withContext(Dispatchers.IO) {
     lock.withLock {
-      handle?.let { current -> LongArray(5) { field -> api.progress(current, field) } }
-        ?.takeIf { counts -> counts.all { it >= 0 } }
+      handle?.let { current ->
+        val counts = LongArray(10) { field -> api.progress(current, field) }
+        // Fields 5..9 are additive: old providers may return a negative value
+        // for those fields. Preserve their original five counters in that case.
+        if (counts.take(5).any { it < 0 }) null
+        else if (counts.drop(5).any { it < 0 }) counts.copyOf(5) else counts
+      }
     }
   }
 

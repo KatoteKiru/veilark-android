@@ -19,6 +19,8 @@ import com.example.veilark.R
 import com.example.veilark.diagnostics.TechnicalLogStore
 import com.example.veilark.lifecycle.LifecycleAttempt
 import com.example.veilark.profile.CoreBetaProfile
+import com.example.veilark.profile.ApplicationRoutingPolicy
+import com.example.veilark.profile.ProfileSelection
 import com.example.veilark.profile.CoreBetaProfileStore
 import com.example.veilark.vpn.ConnectionState
 import kotlinx.coroutines.CancellationException
@@ -106,17 +108,27 @@ class CoreBetaVpnService : VpnService() {
 
   private suspend fun runTunnel() {
     var tun: ParcelFileDescriptor? = null
+    var loadedProfile: CoreBetaProfile? = null
     try {
       currentCoroutineContext().ensureActive()
       stage("NATIVE_LOAD")
       check(VeilarkCoreRuntimeNative.loadCandidate())
       stage("PROFILE_STORE")
       val profile = CoreBetaProfileStore.load(this)
+      loadedProfile = profile
       // Android blocks an address family absent from addresses/routes/DNS. Never
       // call allowFamily(AF_INET6), add IPv6 DNS/routes, or allowBypass here.
       val builder = Builder().setSession("Veilark Core beta").setMtu(1280).setBlocking(false)
         .addAddress(profile.clientIpv4, 32).addRoute("0.0.0.0", 0)
       profile.dnsIpv4.forEach { builder.addDnsServer(it) }
+      stage("APPLICATION_RULES")
+      val preferences = getSharedPreferences("profile_meta", MODE_PRIVATE)
+      val applicationRules = ApplicationRoutingPolicy.fromPreferences(
+        preferences.getString("application_mode", ProfileSelection.APPS_ALL) ?: ProfileSelection.APPS_ALL,
+        preferences.getStringSet("selected_applications", emptySet()).orEmpty(),
+      ).forAndroidVpn(packageName)
+      applicationRules.includedPackages.forEach { builder.addAllowedApplication(it) }
+      applicationRules.excludedPackages.forEach { builder.addDisallowedApplication(it) }
       if (Build.VERSION.SDK_INT >= 29) builder.setMetered(false)
       stage("TUN_ESTABLISH")
       val activeTun = checkNotNull(builder.establish())
@@ -165,8 +177,11 @@ class CoreBetaVpnService : VpnService() {
           check(lifecycle.stopAndRelease()) { "Core cleanup did not complete" }
         }
         val healthyRotation = CoreBetaReconnectPolicy.isHealthyRotation(readyAtMillis, endedAtMillis, profile.lifetimeSeconds)
-        if (healthyRotation) consecutiveFailures = 0 else consecutiveFailures++
-        check(consecutiveFailures <= 5) { "Core beta cannot connect" }
+        // A failed reconnect must not silently remove the selected apps' TUN
+        // routes. Retain the TUN until explicit stop/revoke; bound each attempt
+        // and saturate the retry backoff instead of exhausting an integer budget.
+        consecutiveFailures = CoreBetaReconnectPolicy.nextFailureCount(consecutiveFailures, healthyRotation)
+        if (!healthyRotation) TechnicalLogStore.info("CORE", "reconnect_backoff_ms=${CoreBetaReconnectPolicy.delayMillis(consecutiveFailures)}")
         publish(ConnectionState.Connecting)
         delay(if (healthyRotation) 250 else CoreBetaReconnectPolicy.delayMillis(consecutiveFailures))
       }
@@ -177,6 +192,7 @@ class CoreBetaVpnService : VpnService() {
       publish(ConnectionState.Failed, getString(R.string.core_beta_connection_failed) + " [${lastFailureCode ?: "CORE-UNKNOWN"}]")
     } finally {
       val released = runCatching { lifecycle.stopAndRelease() }.getOrDefault(false)
+      loadedProfile?.close()
       runCatching { tun?.close() }
       nativeReleased = released
       if (!released) publish(ConnectionState.Failed, getString(R.string.core_beta_cleanup_failed))
@@ -189,8 +205,13 @@ class CoreBetaVpnService : VpnService() {
 
   private suspend fun recordProgress() {
     val counts = lifecycle.progress() ?: return
+    // Rejection fields are independent snapshots of the last observed rejection,
+    // not an atomic packet record or proof of the terminal failure's direction.
+    val rejection = if (counts.size >= 10) " local_foreign_ipv4_dropped=${counts[5]} " +
+      "last_reject_direction=${counts[6]} last_reject_family=${counts[7]} " +
+      "last_reject_protocol=${counts[8]} last_reject_source_class=${counts[9]}" else ""
     TechnicalLogStore.info("CORE", "tun_read_packets=${counts[0]} tun_read_bytes=${counts[1]} " +
-      "tun_write_packets=${counts[2]} tun_write_bytes=${counts[3]} local_ipv6_dropped=${counts[4]}")
+      "tun_write_packets=${counts[2]} tun_write_bytes=${counts[3]} local_ipv6_dropped=${counts[4]}$rejection")
   }
 
   private suspend fun startSession(tun: ParcelFileDescriptor, profile: CoreBetaProfile) {
@@ -271,6 +292,11 @@ class CoreBetaVpnService : VpnService() {
 }
 
 internal object CoreBetaReconnectPolicy {
+  fun nextFailureCount(previous: Int, healthyRotation: Boolean): Int {
+    require(previous in 0..5)
+    return if (healthyRotation) 0 else (previous + 1).coerceAtMost(5)
+  }
+
   fun isHealthyRotation(readyAtMillis: Long?, endedAtMillis: Long, lifetimeSeconds: Int): Boolean =
     readyAtMillis != null && endedAtMillis - readyAtMillis >= minOf(30L, lifetimeSeconds.toLong() - 1) * 1000
 

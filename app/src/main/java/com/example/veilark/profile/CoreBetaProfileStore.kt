@@ -8,12 +8,18 @@ object CoreBetaProfileStore {
 
   fun import(context: Context, payload: ByteArray): CoreBetaProfile {
     val checked = CoreBetaProfile.parse(payload)
-    SecureProfileStore.save(context, ID, checked.validatedEnvelope())
-    return checked
+    try {
+      SecureProfileStore.save(context, ID, checked.validatedEnvelope())
+      checked.discardEnvelope()
+      return checked
+    } catch (failure: Throwable) {
+      checked.close()
+      throw failure
+    }
   }
 
   fun load(context: Context): CoreBetaProfile =
-    CoreBetaProfile.parse(SecureProfileStore.load(context, ID))
+    CoreBetaProfile.parse(SecureProfileStore.load(context, ID)).also { it.discardEnvelope() }
 
   fun exists(context: Context): Boolean = SecureProfileStore.exists(context, ID)
   fun delete(context: Context): Boolean = SecureProfileStore.delete(context, ID)

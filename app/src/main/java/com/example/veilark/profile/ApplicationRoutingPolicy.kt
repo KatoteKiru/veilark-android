@@ -23,7 +23,10 @@ data class ApplicationRoutingPolicy(
     }
   }
 
-  fun forTrustTunnel(vpnPackage: String): TrustTunnelApplicationRules {
+  fun forTrustTunnel(vpnPackage: String): TrustTunnelApplicationRules = forAndroidVpn(vpnPackage)
+
+  /** Shared Android allow/disallow plan, independent of the tunnel transport. */
+  fun forAndroidVpn(vpnPackage: String): TrustTunnelApplicationRules {
     require(vpnPackage.isNotBlank()) { "Не задан пакет VPN-приложения" }
     val selected = selectedPackages
       .asSequence()

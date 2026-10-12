@@ -17,13 +17,27 @@ class CoreBetaProfile private constructor(
   val lifetimeSeconds: Int,
   private val key: ByteArray,
   private val context: ByteArray,
-  private val envelope: String,
-) {
-  fun keyCopy(): ByteArray = key.copyOf()
+  private var envelope: String?,
+) : java.io.Closeable {
+  private var closed = false
+  @Synchronized fun keyCopy(): ByteArray {
+    check(!closed) { "Core profile is closed." }
+    return key.copyOf()
+  }
   /** carrier || initiator || responder, exactly 96 bytes. */
-  fun contextCopy(): ByteArray = context.copyOf()
+  @Synchronized fun contextCopy(): ByteArray {
+    check(!closed) { "Core profile is closed." }
+    return context.copyOf()
+  }
   /** Only for the existing encrypted private profile store. */
-  fun validatedEnvelope(): String = envelope
+  @Synchronized fun validatedEnvelope(): String =
+    checkNotNull(envelope) { "Core profile envelope is unavailable." }
+  /** Persistence has completed; runtime and UI metadata never need the original JSON. */
+  @Synchronized internal fun discardEnvelope() { envelope = null }
+  /** Close only after the reconnect owner is finished; copies remain caller-owned. */
+  @Synchronized override fun close() {
+    key.fill(0); context.fill(0); envelope = null; closed = true
+  }
   override fun toString(): String = "CoreBetaProfile(secret redacted)"
 
   companion object {
@@ -41,9 +55,13 @@ class CoreBetaProfile private constructor(
     }
 
     fun parse(input: String): CoreBetaProfile {
+      var parsedKey: ByteArray? = null
       try {
         check(input.length <= MAX_INPUT_BYTES)
-        check(validUnicode(input) && input.toByteArray(Charsets.UTF_8).size <= MAX_INPUT_BYTES)
+        check(validUnicode(input))
+        val sizeCheckBytes = input.toByteArray(Charsets.UTF_8)
+        try { check(sizeCheckBytes.size <= MAX_INPUT_BYTES) }
+        finally { sizeCheckBytes.fill(0) }
         val root = StrictJson(input).parse().obj(setOf("schema", "name", "engine", "beta", "enrollment", "network"))
         check(root["schema"] == "veilark-core-beta-profile-v1")
         check(root["engine"] == "original-v1" && root["beta"] == true)
@@ -76,6 +94,7 @@ class CoreBetaProfile private constructor(
         val keyText = e["psk_base64"].str()
         check(keyText.matches(Regex("[A-Za-z0-9+/]{43}=")))
         val key = Base64.getDecoder().decode(keyText)
+        parsedKey = key
         check(key.size == 32 && Base64.getEncoder().encodeToString(key) == keyText)
         val network = root["network"].obj(setOf("dns_ipv4", "lifetime_seconds"))
         val dns = (network["dns_ipv4"] as? List<*>) ?: error("invalid")
@@ -83,8 +102,10 @@ class CoreBetaProfile private constructor(
         val resolvers = dns.map { it.str().also { value -> check(dnsIpv4(ipv4(value))) } }
         check(resolvers.distinct().size == resolvers.size)
         return CoreBetaProfile(name, endpoint[0], port, peer, client, server, Collections.unmodifiableList(resolvers.toList()), network["lifetime_seconds"].integer(10, 3595), key, context, input)
+          .also { parsedKey = null } // The returned closeable profile now owns these bytes.
       } catch (_: IllegalArgumentException) { throw IllegalArgumentException(ERROR) }
       catch (_: IllegalStateException) { throw IllegalArgumentException(ERROR) }
+      finally { parsedKey?.fill(0) }
     }
 
     private const val ERROR = "Invalid Veilark Core beta profile."

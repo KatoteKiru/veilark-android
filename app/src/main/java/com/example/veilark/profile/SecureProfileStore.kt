@@ -24,7 +24,9 @@ object SecureProfileStore {
     val cipher = Cipher.getInstance(TRANSFORMATION)
     cipher.init(Cipher.ENCRYPT_MODE, getOrCreateKey())
     cipher.updateAAD(id.toByteArray(Charsets.UTF_8))
-    val ciphertext = cipher.doFinal(plaintext.toByteArray(Charsets.UTF_8))
+    val plaintextBytes = plaintext.toByteArray(Charsets.UTF_8)
+    val ciphertext = try { cipher.doFinal(plaintextBytes) }
+      finally { plaintextBytes.fill(0) }
     val destination = encryptedFile(context, id)
     destination.parentFile?.mkdirs()
     val atomicFile = AtomicFile(destination)
@@ -58,8 +60,9 @@ object SecureProfileStore {
       GCMParameterSpec(128, payload.copyOfRange(2, 2 + ivSize)),
     )
     cipher.updateAAD(id.toByteArray(Charsets.UTF_8))
-    return cipher.doFinal(payload.copyOfRange(2 + ivSize, payload.size))
-      .toString(Charsets.UTF_8)
+    val plaintextBytes = cipher.doFinal(payload.copyOfRange(2 + ivSize, payload.size))
+    return try { plaintextBytes.toString(Charsets.UTF_8) }
+      finally { plaintextBytes.fill(0) }
   }
 
   fun delete(context: Context, id: String): Boolean = encryptedFile(context, id).delete()
