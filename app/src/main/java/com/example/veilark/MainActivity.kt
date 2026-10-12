@@ -39,6 +39,7 @@ import com.example.veilark.profile.SubscriptionSelectionPolicy
 import com.example.veilark.profile.SubscriptionRefreshPolicy
 import com.example.veilark.profile.ApplicationRoutingPolicy
 import com.example.veilark.profile.GeoRoutingAssets
+import com.example.veilark.profile.GeoCategoryCatalog
 import com.example.veilark.profile.GeoUpdateStatus
 import com.example.veilark.profile.ProfileSelection
 import com.example.veilark.profile.InstalledApp
@@ -870,6 +871,7 @@ class MainActivity : ComponentActivity() {
                     directRoutes,
                     vpnRoutes,
                     geoRuleSets(routingMode),
+                    categoryRuleSets(routingMode, directRoutes, vpnRoutes),
                   )
                   config = ProfileSelection.applyApplications(
                     config,
@@ -1054,6 +1056,7 @@ class MainActivity : ComponentActivity() {
                     refreshDirectRoutes,
                     refreshVpnRoutes,
                     geoRuleSets(refreshRoutingMode),
+                    categoryRuleSets(refreshRoutingMode, refreshDirectRoutes, refreshVpnRoutes),
                   )
                   config = ProfileSelection.applyApplications(
                     config,
@@ -1556,17 +1559,13 @@ class MainActivity : ComponentActivity() {
                 applicationPolicy.forTrustTunnel(packageName)
               }
               if (profileEngine == ProfileEngine.SING_BOX) {
-                if (connectionState != ConnectionState.Disconnected &&
-                  connectionState != ConnectionState.Failed
-                ) {
-                  VeilarkVpnService.stop(this)
-                }
                 var config = ProfileSelection.applyRouting(
                   SecureProfileStore.load(this, SecureProfileStore.SING_BOX),
                   newRoutingMode,
                   newDirectRoutes,
                   newVpnRoutes,
                   geoRuleSets(newRoutingMode),
+                  categoryRuleSets(newRoutingMode, newDirectRoutes, newVpnRoutes),
                 )
                 config = ProfileSelection.applyApplications(
                   config,
@@ -1576,6 +1575,12 @@ class MainActivity : ComponentActivity() {
                 )
                 config = ProfileSelection.applyDpiProtection(config, newDpiMode)
                 Libbox.checkConfig(config)
+                // Reject missing or invalid category data before disconnecting the current VPN.
+                if (connectionState != ConnectionState.Disconnected &&
+                  connectionState != ConnectionState.Failed
+                ) {
+                  VeilarkVpnService.stop(this)
+                }
                 SecureProfileStore.save(this, SecureProfileStore.SING_BOX, config)
                 singBoxProfiles.firstOrNull { it.id == selectedSingBoxId }?.let { current ->
                   singBoxProfiles = SingBoxCatalog.upsert(
@@ -1595,6 +1600,7 @@ class MainActivity : ComponentActivity() {
                 ) { getString(R.string.trust_routing_mode_unsupported) }
                 if (newRoutingMode == ProfileSelection.ROUTING_MANUAL) {
                   TrustTunnelGeoRouting.manualExclusions(newDirectRoutes, newVpnRoutes)
+                  GeoCategoryCatalog(filesDir).trustDirectExclusions(newDirectRoutes, newVpnRoutes)
                 }
                 if (connectionState != ConnectionState.Disconnected &&
                   connectionState != ConnectionState.Failed
@@ -1875,6 +1881,9 @@ class MainActivity : ComponentActivity() {
     } else {
       null
     }
+
+  private fun categoryRuleSets(mode: String, direct: String, vpn: String): Map<String, String> =
+    if (mode == ProfileSelection.ROUTING_MANUAL) GeoCategoryCatalog(filesDir).localPaths(direct, vpn) else emptyMap()
 
   private fun Throwable.userMessage(fallbackRes: Int): String {
     val language = resources.configuration.locales[0].language

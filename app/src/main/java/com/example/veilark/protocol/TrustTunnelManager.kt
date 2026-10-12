@@ -5,6 +5,7 @@ import com.adguard.trusttunnel.AppNotifier
 import com.adguard.trusttunnel.VpnService
 import com.adguard.trusttunnel.VpnState
 import com.example.veilark.R
+import com.example.veilark.profile.GeoCategoryCatalog
 import com.example.veilark.diagnostics.TechnicalLogStore
 import com.example.veilark.lifecycle.AndroidTunnelLifecycleOwner
 import com.example.veilark.lifecycle.LifecycleAttempt
@@ -101,7 +102,16 @@ object TrustTunnelManager : AppNotifier {
     // Start a small, full-tunnel profile first. The native adapter applies the
     // large, verified CIDR set only after CONNECTED, so TUN admission and the
     // first handshake are not blocked by route compilation.
-    val directCidrs = if (routingMode != ProfileSelection.ROUTING_ALL) {
+    val selectedCategories = if (routingMode == ProfileSelection.ROUTING_MANUAL) {
+      GeoCategoryCatalog.selected(
+        routingPreferences.getString("trust_direct_routes", "").orEmpty(),
+        routingPreferences.getString("trust_vpn_routes", "").orEmpty(),
+      )
+    } else emptySet()
+    val directCidrs = if (selectedCategories.isNotEmpty()) {
+      // A saved category strategy must not silently turn into a different full-tunnel plan.
+      TrustTunnelGeoRouting.currentDirectExclusions(context)
+    } else if (routingMode != ProfileSelection.ROUTING_ALL) {
       runCatching { TrustTunnelGeoRouting.currentDirectExclusions(context) }
         .onFailure {
           TechnicalLogStore.warning(

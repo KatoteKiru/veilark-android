@@ -99,8 +99,9 @@ data class CustomGeoProfile private constructor(
 
     private fun normalize(input: String): List<String> = input.split(Regex("[\\s,;]+")).filter(String::isNotBlank).map { raw ->
       require(raw.length <= 260) { "Слишком длинное правило" }
+      if (GeoCategoryCatalog.isCategory(raw)) return@map raw
       require(!raw.contains(":") || raw.substringBefore('/').matches(Regex("[0-9a-fA-F:]+"))) {
-        "Поддерживаются только домены и IP/CIDR; geosite, geoip, URL и regexp пока не поддерживаются"
+        "Используйте домены, IP/CIDR или категории geosite:/geoip: из каталога"
       }
       require(!raw.contains('/') || raw.substringAfter('/').toIntOrNull() != null) { "Используйте домен или IP/CIDR, без URL" }
       if (raw.contains(':')) {

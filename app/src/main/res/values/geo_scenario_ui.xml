@@ -1,0 +1,29 @@
+<resources>
+    <string name="geo_scenario_title">GEO strategies</string>
+    <string name="geo_scenario_default_name">My strategy</string>
+    <string name="geo_scenario_name">Strategy name</string>
+    <string name="geo_scenario_back">Back to routing</string>
+    <string name="geo_scenario_categories">Categories</string>
+    <string name="geo_scenario_saved">Saved</string>
+    <string name="geo_scenario_custom">Custom rules</string>
+    <string name="geo_scenario_selection_summary">Direct: %1$d · VPN: %2$d</string>
+    <string name="geo_scenario_remaining">Other traffic goes through VPN. Choosing or saving a strategy changes the draft; tap Apply on the routing screen to activate it.</string>
+    <string name="geo_scenario_edit">Choose categories and edit strategy</string>
+    <string name="geo_scenario_catalog_description">Download the category list, search for a service or country, and choose Direct or VPN. Selected rule files download when you choose the strategy.</string>
+    <string name="geo_scenario_trust_categories">TrustTunnel supports Direct categories with domain and IP rules. VPN overrides cannot be combined with Direct categories. Complex categories are checked before selection; unsupported rules preserve your current routing.</string>
+    <string name="geo_scenario_download_catalog">Download category list</string>
+    <string name="geo_scenario_search">Search services, countries or category names</string>
+    <string name="geo_scenario_selected_only">Selected only</string>
+    <string name="geo_scenario_catalog_empty">Download the category list to start choosing rules.</string>
+    <string name="geo_scenario_no_results">No matching categories. Try a service name such as telegram, or clear the search and Selected only filter.</string>
+    <string name="geo_scenario_off">Unused</string>
+    <string name="geo_scenario_direct">Direct</string>
+    <string name="geo_scenario_vpn">VPN</string>
+    <string name="geo_scenario_saved_empty">No saved strategies yet. Select categories, name your strategy, then save it.</string>
+    <string name="geo_scenario_open">Open strategy</string>
+    <string name="geo_scenario_custom_description">Additional domains, IP networks or category IDs. These rules stay alongside the categories you select.</string>
+    <string name="geo_scenario_import_description">Optional: import your own JSON strategy or a GitHub rules file.</string>
+    <string name="geo_scenario_save">Save strategy</string>
+    <string name="geo_scenario_choose">Choose strategy</string>
+    <string name="geo_scenario_operation_failed">Could not load or save the strategy. Existing routing was preserved.</string>
+</resources>

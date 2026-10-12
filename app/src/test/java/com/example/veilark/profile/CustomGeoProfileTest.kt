@@ -25,7 +25,7 @@ class CustomGeoProfileTest {
     rejected { CustomGeoProfile.parse(valid.dropLast(1) + ",\"unexpected\":true}") }
     rejected { CustomGeoProfile.parse(valid + "\u0000trailing") }
     rejected { CustomGeoProfile.parse("""{"schema":"veilark-custom-geo-v1","name":"test","direct":["bank.example"]}""") }
-    rejected { CustomGeoProfile.create("unsupported", "geosite:ru", "") }
+    rejected { CustomGeoProfile.create("unsupported", "geosite:../../ru", "") }
     rejected { CustomGeoProfile.create("bad\u0000name", "bank.example", "") }
   }
 

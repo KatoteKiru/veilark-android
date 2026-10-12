@@ -2436,6 +2436,12 @@ private fun RoutingSettingsDialog(
     CustomGeoProfileDialog(
       initialDirect = direct,
       initialVpn = vpn,
+      geoUpdating = geoUpdating,
+      geoStatusDescription = geoStatusDescription,
+      geoUpdateMessage = geoUpdateMessage,
+      refreshEnabled = geoRefreshEnabled,
+      trustTunnelActive = trustTunnelActive,
+      onRefreshGeo = onRefreshGeo,
       onUse = { profile ->
         route = ProfileSelection.ROUTING_MANUAL
         direct = profile.directEntries
@@ -2444,6 +2450,7 @@ private fun RoutingSettingsDialog(
       },
       onDismiss = { showCustomGeo = false },
     )
+    return
   }
   val visibleApps = remember(installedApplications, search) {
     installedApplications
@@ -2511,7 +2518,7 @@ private fun RoutingSettingsDialog(
             }
             item {
               OutlinedButton(onClick = { showCustomGeo = true }, modifier = Modifier.fillMaxWidth()) {
-                Text(stringResource(R.string.custom_geo_title))
+                Text(stringResource(R.string.geo_scenario_title))
               }
             }
             if (geoUpdateMessage != null) {
@@ -2554,28 +2561,18 @@ private fun RoutingSettingsDialog(
             }
             if (route == ProfileSelection.ROUTING_MANUAL) {
               item {
-                OutlinedTextField(
-                  value = direct,
-                  onValueChange = { direct = it },
-                  modifier = Modifier.fillMaxWidth(),
-                  label = { Text(stringResource(R.string.direct_without_vpn)) },
-                  supportingText = { Text(stringResource(R.string.routes_input_hint)) },
-                  placeholder = { Text("bank.example\n192.0.2.0/24") },
-                  minLines = 3,
-                  shape = RoundedCornerShape(16.dp),
-                )
-              }
-              item {
-                OutlinedTextField(
-                  value = vpn,
-                  onValueChange = { vpn = it },
-                  modifier = Modifier.fillMaxWidth(),
-                  label = { Text(stringResource(R.string.always_vpn)) },
-                  supportingText = { Text(stringResource(R.string.vpn_routes_priority)) },
-                  placeholder = { Text("video.example\n2001:db8::/32") },
-                  minLines = 3,
-                  shape = RoundedCornerShape(16.dp),
-                )
+                Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceContainer) {
+                  Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(stringResource(R.string.geo_scenario_selection_summary,
+                      direct.lineSequence().count { it.isNotBlank() },
+                      vpn.lineSequence().count { it.isNotBlank() }), style = MaterialTheme.typography.bodyMedium)
+                    Text(stringResource(R.string.geo_scenario_remaining), style = MaterialTheme.typography.bodySmall,
+                      color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    OutlinedButton(onClick = { showCustomGeo = true }, modifier = Modifier.fillMaxWidth()) {
+                      Text(stringResource(R.string.geo_scenario_edit))
+                    }
+                  }
+                }
               }
             }
             if (trustTunnelActive) {

@@ -43,7 +43,18 @@ The packaged JSON is deterministically derived from the pinned SRS with the
 pinned sing-box tool. Its source hash, derived hash and IPv4/IPv6 counts are
 recorded so a rule update cannot silently change the routing dataset.
 
-## Other dependencies
+## Optional downloadable GEO category catalog
+
+- project: <https://github.com/MetaCubeX/meta-rules-dat>
+- publisher license: GPL-3.0 (repository `LICENSE`)
+- upstream directory: `sing` branch, `geo/geosite/*.json` and `geo/geoip/*.json`
+- catalog resolves the exact commit before enumeration; downloaded JSON is
+  bound to its Git blob hash and byte size from the immutable tree.
+- optional categories are downloaded only on explicit selection and are stored
+  separately from the unchanged, pinned Russia-direct packaged assets.
+- no HAPP formats or datasets are used.
+
+## Android libraries
 
 The application uses AndroidX, Jetpack Compose, CameraX, ZXing core barcode
 scanning, SnakeYAML, Kotlin coroutines, RxAndroid, ktoml, SLF4J and
