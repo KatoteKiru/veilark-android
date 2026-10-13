@@ -11,7 +11,7 @@
     <string name="core_authenticated_hint">Туннель авторизован. Приложение ещё не проверило доступ в интернет.</string>
     <string name="core_beta_notification_text">IPv4 VPN · Veilark Core beta</string>
     <string name="core_beta_cleanup_failed">Core beta не завершил остановку. Принудительно остановите Veilark в настройках приложения Android, затем откройте его снова перед подключением.</string>
-    <string name="core_beta_scope">Бета: маршруты IPv4 и выбранные приложения используют ваши правила Core. Доступны весь трафик или свои CIDR; настроенные DNS идут через Core. IPv6 блокируется. Доменный GEO пока недоступен; настройки других ядер сохраняются.</string>
+    <string name="core_beta_scope">Выбирайте приложения и IP-диапазоны. Правила по доменам пока недоступны.</string>
     <string name="core_beta_unavailable">Veilark Core beta доступен только в сборке с нативным ядром для ARM64.</string>
     <string name="core_beta_add_profile">Импортируйте тестовый профиль Core, затем выберите этот режим.</string>
     <string name="core_beta_imported">Профиль Core сохранён. Выберите Veilark Core · beta для подключения.</string>

@@ -1218,14 +1218,12 @@ private fun EngineSelectorCard(
               trust(Modifier.weight(1f), ButtonGroupDefaults.connectedTrailingButtonShapes())
             }
           }
-          Text(
+          if (!coreBetaActive || !idle || !alternativeAvailable) Text(
             text = when {
               !idle ->
                 stringResource(R.string.engine_switch_disconnect_first)
               !alternativeAvailable ->
                 stringResource(R.string.engine_switch_add_profile)
-              coreBetaActive ->
-                stringResource(R.string.core_beta_scope)
               trustTunnelActive ->
                 stringResource(R.string.engine_trust_summary)
               else ->
@@ -1731,7 +1729,7 @@ private fun ProfileCard(
             Text(
               when {
                 profileName == null -> stringResource(R.string.import_subscription)
-                coreBetaActive -> stringResource(R.string.core_beta_scope)
+                coreBetaActive -> stringResource(R.string.core_beta_title)
                 selectedNode != null && !trustTunnelActive ->
                   "${selectedNode.name} · ${selectedNode.protocol}"
                 selectedNode != null -> selectedNode.protocol
