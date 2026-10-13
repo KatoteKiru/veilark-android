@@ -440,7 +440,7 @@ internal fun startupSideEffectAllowed(
     expectedLifecycleAttempt != null &&
     expectedLifecycleAttempt == activeLifecycleAttempt
 
-/** Initial startup observation, with retained Core retries and unchanged legacy deadlines. */
+/** Bounded initial startup observation; explicit commands can interrupt it. */
 internal suspend fun awaitInitialEngineState(
   engine: EngineId,
   states: Flow<ConnectionState>,
@@ -453,11 +453,9 @@ internal suspend fun awaitInitialEngineState(
       version != sequence || state == ConnectionState.Connected ||
         state == ConnectionState.Failed || state == ConnectionState.Disconnected
     }
-  // Core retains the TUN while retrying authentication. Only readiness, a fatal
-  // failure, completed stop or a superseding command ends its initial wait.
-  // Per-attempt socket/authentication deadlines remain in CoreBetaVpnService.
-  return if (engine == EngineId.CoreBeta) awaitResult()
-  else withTimeoutOrNull(legacyTimeoutMillis) { awaitResult() }
+  // All initial starts are bounded. Core cancellation also directly stops its
+  // captured service lease, independently of this serialized owner's wait.
+  return withTimeoutOrNull(legacyTimeoutMillis) { awaitResult() }
 }
 
 /**

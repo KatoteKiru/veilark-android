@@ -11,11 +11,11 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class InitialEngineWaitTest {
-  @Test fun coreRetryWaitRetainsOwnershipPastLegacyDeadlineAndObservesStop() = runBlocking {
+  @Test fun coreInitialWaitObservesExplicitStopBeforeDeadline() = runBlocking {
     val states = MutableStateFlow(ConnectionState.Connecting)
     val commands = MutableStateFlow(7L)
     val pending = async(start = CoroutineStart.UNDISPATCHED) {
-      awaitInitialEngineState(EngineId.CoreBeta, states, commands, 7L, legacyTimeoutMillis = 1L)
+      awaitInitialEngineState(EngineId.CoreBeta, states, commands, 7L, legacyTimeoutMillis = 1_000L)
     }
     delay(20)
     assertFalse(pending.isCompleted)
@@ -28,7 +28,7 @@ class InitialEngineWaitTest {
       val states = MutableStateFlow(ConnectionState.Connecting)
       val commands = MutableStateFlow(7L)
       val pending = async(start = CoroutineStart.UNDISPATCHED) {
-        awaitInitialEngineState(EngineId.CoreBeta, states, commands, 7L, legacyTimeoutMillis = 1L)
+        awaitInitialEngineState(EngineId.CoreBeta, states, commands, 7L, legacyTimeoutMillis = 1_000L)
       }
       states.value = terminal
       assertEquals(terminal to 7L, withTimeout(1_000) { pending.await() })
@@ -36,7 +36,7 @@ class InitialEngineWaitTest {
   }
 
   @Test fun existingEnginesStillExpireTheirInitialWait() = runBlocking {
-    for (engine in listOf(EngineId.SingBox, EngineId.TrustTunnel)) {
+    for (engine in listOf(EngineId.SingBox, EngineId.TrustTunnel, EngineId.CoreBeta)) {
       assertNull(awaitInitialEngineState(engine, MutableStateFlow(ConnectionState.Connecting),
         MutableStateFlow(7L), 7L, legacyTimeoutMillis = 1L))
     }

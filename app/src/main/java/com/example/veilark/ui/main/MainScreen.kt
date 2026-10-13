@@ -253,6 +253,7 @@ fun MainScreen(
   coreBetaAvailable: Boolean = false,
   coreBetaProfileName: String? = null,
   coreBetaRuntimeAvailable: Boolean = false,
+  stopAvailable: Boolean = false,
   trustTunnelActive: Boolean = false,
   singBoxAvailable: Boolean = true,
   trustTunnelAvailable: Boolean = false,
@@ -575,7 +576,8 @@ fun MainScreen(
             }
           ],
           importing = importing,
-          onConnect = if (profileName == null && connectionState != ConnectionState.Connected &&
+          stopAvailable = stopAvailable,
+          onConnect = if (!stopAvailable && profileName == null && connectionState != ConnectionState.Connected &&
             connectionState != ConnectionState.Connecting) openImport else onConnect,
         )
       }
@@ -948,11 +950,13 @@ private fun ConnectionCard(
   stage: StartupStage,
   latency: Int?,
   importing: Boolean,
+  stopAvailable: Boolean = false,
   onConnect: () -> Unit,
 ) {
   val connected = state == ConnectionState.Connected
   val connecting = state == ConnectionState.Connecting
   val failed = state == ConnectionState.Failed
+  val action = connectionCardAction(state, profileName != null, importing, stopAvailable)
   val motion = MaterialTheme.motionScheme
   // The emblem morphs from a soft square into a 12-sided "seal" when the tunnel
   // is up. The morph only animates on a state change; nothing loops at rest.
@@ -1085,17 +1089,17 @@ private fun ConnectionCard(
       Button(
         onClick = onConnect,
         shapes = ButtonDefaults.shapesFor(buttonHeight),
-        enabled = connected || connecting || !importing,
+        enabled = action != ConnectionCardAction.Checking,
         modifier = Modifier.fillMaxWidth().heightIn(min = buttonHeight),
         contentPadding = ButtonDefaults.contentPaddingFor(buttonHeight, hasStartIcon = true),
-        colors = if (connected || connecting) {
+        colors = if (connected || connecting || stopAvailable) {
           ButtonDefaults.filledTonalButtonColors()
         } else {
           ButtonDefaults.buttonColors()
         },
       ) {
         val iconSize = ButtonDefaults.iconSizeFor(buttonHeight)
-        if (importing && !connected && !connecting) {
+        if (action == ConnectionCardAction.Checking) {
           // "Checking profile" is a progress state, not an add/power action.
           LoadingIndicator(
             modifier = Modifier.size(iconSize + 8.dp),
@@ -1103,10 +1107,9 @@ private fun ConnectionCard(
           )
         } else {
           Icon(
-            imageVector = when {
-              connecting -> Icons.Rounded.Close
-              connected -> Icons.Rounded.PowerSettingsNew
-              profileName == null -> Icons.Rounded.Add
+            imageVector = when (action) {
+              ConnectionCardAction.Cancel -> Icons.Rounded.Close
+              ConnectionCardAction.Add -> Icons.Rounded.Add
               else -> Icons.Rounded.PowerSettingsNew
             },
             contentDescription = null,
@@ -1115,11 +1118,11 @@ private fun ConnectionCard(
         }
         Spacer(Modifier.size(ButtonDefaults.iconSpacingFor(buttonHeight)))
         Text(
-          text = when {
-            connecting -> stringResource(R.string.connection_cancel)
-            connected -> stringResource(R.string.disconnect)
-            importing -> stringResource(R.string.profile_checking)
-            profileName == null -> stringResource(R.string.profile_add)
+          text = when (action) {
+            ConnectionCardAction.Cancel -> stringResource(R.string.connection_cancel)
+            ConnectionCardAction.Disconnect -> stringResource(R.string.disconnect)
+            ConnectionCardAction.Checking -> stringResource(R.string.profile_checking)
+            ConnectionCardAction.Add -> stringResource(R.string.profile_add)
             else -> stringResource(R.string.connect)
           },
           style = ButtonDefaults.textStyleFor(buttonHeight),
@@ -1127,6 +1130,22 @@ private fun ConnectionCard(
       }
     }
   }
+}
+
+internal enum class ConnectionCardAction { Cancel, Disconnect, Checking, Add, Connect }
+
+/** A live engine lease takes precedence over import progress and missing captions. */
+internal fun connectionCardAction(
+  state: ConnectionState,
+  hasProfile: Boolean,
+  importing: Boolean,
+  stopAvailable: Boolean = false,
+): ConnectionCardAction = when {
+  state == ConnectionState.Connected -> ConnectionCardAction.Disconnect
+  stopAvailable || state == ConnectionState.Connecting -> ConnectionCardAction.Cancel
+  importing -> ConnectionCardAction.Checking
+  !hasProfile -> ConnectionCardAction.Add
+  else -> ConnectionCardAction.Connect
 }
 
 @Composable

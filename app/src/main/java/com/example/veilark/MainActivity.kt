@@ -294,6 +294,8 @@ class MainActivity : ComponentActivity() {
       val singBoxConnectionState by VeilarkVpnService.state.collectAsStateWithLifecycle()
       val trustTunnelConnectionState by TrustTunnelManager.state.collectAsStateWithLifecycle()
       val coreConnectionState by CoreBetaManager.state.collectAsStateWithLifecycle()
+      val coreStopped by CoreBetaManager.stopped.collectAsStateWithLifecycle()
+      val coreStopAvailable = profileEngine == ProfileEngine.CORE_BETA && !coreStopped
       val coreConnectionError by CoreBetaManager.failureMessage.collectAsStateWithLifecycle()
       val connectionState = if (profileEngine == ProfileEngine.CORE_BETA) {
         coreConnectionState
@@ -655,6 +657,7 @@ class MainActivity : ComponentActivity() {
         MainScreen(
           profileName = profileName,
           connectionState = connectionState,
+          stopAvailable = coreStopAvailable,
           startupStage = startupStage,
           importError = importError ?: if (profileEngine == ProfileEngine.CORE_BETA) {
             if (coreConnectionState == ConnectionState.Failed) coreConnectionError ?: getString(R.string.core_beta_connection_failed) else null
@@ -1698,7 +1701,7 @@ class MainActivity : ComponentActivity() {
           },
           onConnect = {
             runCatching {
-              if (connectionState == ConnectionState.Connected ||
+              if (coreStopAvailable || connectionState == ConnectionState.Connected ||
                 connectionState == ConnectionState.Connecting
               ) {
                 if (profileEngine == ProfileEngine.CORE_BETA) {

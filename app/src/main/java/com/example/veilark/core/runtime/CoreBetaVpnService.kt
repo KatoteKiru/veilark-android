@@ -80,6 +80,18 @@ class CoreBetaVpnService : VpnService() {
 
   @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class, kotlinx.coroutines.DelicateCoroutinesApi::class)
   override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+    if (intent?.action == ACTION_STOP) {
+      val accepted = handleCoreStopCommand(attempt,
+        intent.getLongExtra("attempt", -1), intent.getLongExtra("epoch", -1)) {
+          TechnicalLogStore.info("CORE", "stop_command_received")
+          // Do not wait for bound-service destruction to cancel its worker.
+          scope.cancel()
+        }
+      if (!accepted && !running && !CoreBetaManager.hasPendingStart()) {
+        stopSelf(startId)
+      }
+      return START_NOT_STICKY
+    }
     if (running) return START_NOT_STICKY
     attempt = CoreBetaManager.attachAttempt(intent?.getLongExtra("attempt", -1) ?: -1,
       intent?.getLongExtra("epoch", -1) ?: -1)
@@ -177,9 +189,8 @@ class CoreBetaVpnService : VpnService() {
           check(lifecycle.stopAndRelease()) { "Core cleanup did not complete" }
         }
         val healthyRotation = CoreBetaReconnectPolicy.isHealthyRotation(readyAtMillis, endedAtMillis, profile.lifetimeSeconds)
-        // A failed reconnect must not silently remove the selected apps' TUN
-        // routes. Retain the TUN until explicit stop/revoke; bound each attempt
-        // and saturate the retry backoff instead of exhausting an integer budget.
+        // Keep routes while recovering, but do not trap a failed connection in
+        // endless retries. Terminal failure is visible and cleanup is fenced.
         consecutiveFailures = CoreBetaReconnectPolicy.nextFailureCount(consecutiveFailures, healthyRotation)
         if (!healthyRotation) TechnicalLogStore.info("CORE", "reconnect_backoff_ms=${CoreBetaReconnectPolicy.delayMillis(consecutiveFailures)}")
         publish(ConnectionState.Connecting)
@@ -286,15 +297,28 @@ class CoreBetaVpnService : VpnService() {
   private fun ipv4(value: String): InetAddress = InetAddress.getByAddress(value.split('.').map { it.toInt().toByte() }.toByteArray())
 
   companion object {
+    internal const val ACTION_STOP = "uk.senyasenyavski.veilark.CORE_BETA_STOP"
     private const val CHANNEL = "veilark-core-beta"
     private const val NOTIFICATION = 3103
   }
 }
 
+internal fun coreStopCommandMatches(attempt: LifecycleAttempt?, id: Long, epoch: Long): Boolean =
+  attempt != null && attempt.attemptId == id && attempt.engineEpoch == epoch
+
+internal fun handleCoreStopCommand(
+  attempt: LifecycleAttempt?, id: Long, epoch: Long, cancelWorker: () -> Unit,
+): Boolean {
+  if (!coreStopCommandMatches(attempt, id, epoch)) return false
+  cancelWorker()
+  return true
+}
+
 internal object CoreBetaReconnectPolicy {
   fun nextFailureCount(previous: Int, healthyRotation: Boolean): Int {
     require(previous in 0..5)
-    return if (healthyRotation) 0 else (previous + 1).coerceAtMost(5)
+    check(healthyRotation || previous < 5) { "Core beta cannot connect" }
+    return if (healthyRotation) 0 else previous + 1
   }
 
   fun isHealthyRotation(readyAtMillis: Long?, endedAtMillis: Long, lifetimeSeconds: Int): Boolean =
