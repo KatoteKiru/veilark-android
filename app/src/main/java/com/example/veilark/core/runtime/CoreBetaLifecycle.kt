@@ -21,6 +21,16 @@ internal interface CoreBetaHandleApi {
 
 internal class CoreBetaStartFailure(val code: Long) : IllegalStateException("Core session could not start")
 
+/** Terminal values captured before release; only an explicitly requested rotation may use them. */
+internal data class CoreBetaReleaseOutcome(
+  val released: Boolean,
+  val terminalStatus: Int? = null,
+  val terminalReason: Int? = null,
+) {
+  val allowsPlannedRotation: Boolean
+    get() = released && terminalStatus == 3 && terminalReason == 13
+}
+
 /** Keeps ownership through terminal-but-still-running workers; never falls back to another engine. */
 internal class CoreBetaLifecycle(
   private val api: CoreBetaHandleApi,
@@ -92,24 +102,30 @@ internal class CoreBetaLifecycle(
   }
 
   /** Bounded off-UI stop/release. On timeout ownership remains held and a new start is forbidden. */
-  suspend fun stopAndRelease(maxAttempts: Int = 100): Boolean =
+  suspend fun stopAndRelease(maxAttempts: Int = 100): Boolean = cleanup(maxAttempts, false).released
+
+  /** An own timer decision is not enough: retain a racing native failure before release. */
+  suspend fun stopAndReleaseForRotation(): CoreBetaReleaseOutcome = cleanup(100, true)
+
+  private suspend fun cleanup(maxAttempts: Int, captureTerminal: Boolean): CoreBetaReleaseOutcome =
     withContext(Dispatchers.IO + NonCancellable) {
       require(maxAttempts in 1..100) { "Invalid cleanup bound" }
       lock.withLock {
-        val current = handle ?: return@withLock true
+        val current = handle ?: return@withLock CoreBetaReleaseOutcome(true)
         api.stop(current)
         repeat(maxAttempts) { attempt ->
           val status = api.status(current)
           if (status == 3 || status < 0) {
+            val reason = if (captureTerminal) api.failure(current) else null
             when (api.release(current)) {
-              0 -> { handle = null; return@withLock true }
+              0 -> { handle = null; return@withLock CoreBetaReleaseOutcome(true, status, reason) }
               -2 -> Unit // terminal status can precede worker return
-              else -> return@withLock false
+              else -> return@withLock CoreBetaReleaseOutcome(false, status, reason)
             }
           }
           if (attempt + 1 < maxAttempts) pause(50)
         }
-        false
+        CoreBetaReleaseOutcome(false)
       }
     }
 }

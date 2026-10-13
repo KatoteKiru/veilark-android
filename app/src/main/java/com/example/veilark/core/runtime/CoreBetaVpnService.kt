@@ -185,7 +185,7 @@ class CoreBetaVpnService : VpnService() {
         publish(session, ConnectionState.Connecting)
         var reachedReady = false
         var readyAtMillis: Long? = null
-        var endedAtMillis = 0L
+        var plannedRotation = false
         var lastProgressAt = 0L
         try {
           startSession(session, activeTun, profile)
@@ -215,22 +215,39 @@ class CoreBetaVpnService : VpnService() {
               }
               break
             }
+            // Only our own timer initiates a planned rotation. A native timeout,
+            // EOF or failed session never becomes healthy because it lived long.
+            if (CoreBetaReconnectPolicy.shouldRotate(status, readyAtMillis, now, profile.lifetimeSeconds)) {
+              plannedRotation = true
+              TechnicalLogStore.info("CORE", "rotation=scheduled")
+              break
+            }
             if (!reachedReady && SystemClock.elapsedRealtime() >= deadline) error("Authentication timeout")
             delay(250)
           }
         } catch (cancelled: CancellationException) { throw cancelled }
         catch (failure: Exception) { recordFailure(session, failure) }
         finally {
-          endedAtMillis = SystemClock.elapsedRealtime()
-          check(session.lifecycle.stopAndRelease()) { "Core cleanup did not complete" }
+          if (plannedRotation) {
+            val outcome = session.lifecycle.stopAndReleaseForRotation()
+            check(outcome.released) { "Core cleanup did not complete" }
+            plannedRotation = outcome.allowsPlannedRotation
+            if (!plannedRotation) {
+              session.lastFailureCode = "CORE-NATIVE(${outcome.terminalStatus}/${outcome.terminalReason})"
+              TechnicalLogStore.error("CORE", "rotation=not_confirmed native_status=${outcome.terminalStatus} " +
+                "native_reason=${outcome.terminalReason}")
+            }
+          } else {
+            check(session.lifecycle.stopAndRelease()) { "Core cleanup did not complete" }
+          }
         }
-        val healthyRotation = CoreBetaReconnectPolicy.isHealthyRotation(readyAtMillis, endedAtMillis, profile.lifetimeSeconds)
+        currentCoroutineContext().ensureActive()
         // Keep routes while recovering, but do not trap a failed connection in
         // endless retries. Terminal failure is visible and cleanup is fenced.
-        consecutiveFailures = CoreBetaReconnectPolicy.nextFailureCount(consecutiveFailures, healthyRotation)
-        if (!healthyRotation) TechnicalLogStore.info("CORE", "reconnect_backoff_ms=${CoreBetaReconnectPolicy.delayMillis(consecutiveFailures)}")
+        consecutiveFailures = CoreBetaReconnectPolicy.nextFailureCount(consecutiveFailures, plannedRotation)
+        if (!plannedRotation) TechnicalLogStore.info("CORE", "reconnect_backoff_ms=${CoreBetaReconnectPolicy.delayMillis(consecutiveFailures)}")
         publish(session, ConnectionState.Connecting)
-        delay(if (healthyRotation) 250 else CoreBetaReconnectPolicy.delayMillis(consecutiveFailures))
+        delay(if (plannedRotation) 250 else CoreBetaReconnectPolicy.delayMillis(consecutiveFailures))
       }
     } catch (_: CancellationException) {
       // Explicit stop/revoke is completed only after native ownership release.
@@ -370,14 +387,18 @@ internal fun handleCoreStopCommand(
 }
 
 internal object CoreBetaReconnectPolicy {
-  fun nextFailureCount(previous: Int, healthyRotation: Boolean): Int {
+  fun nextFailureCount(previous: Int, plannedRotation: Boolean): Int {
     require(previous in 0..5)
-    check(healthyRotation || previous < 5) { "Core beta cannot connect" }
-    return if (healthyRotation) 0 else previous + 1
+    check(plannedRotation || previous < 5) { "Core beta cannot connect" }
+    return if (plannedRotation) 0 else previous + 1
   }
 
-  fun isHealthyRotation(readyAtMillis: Long?, endedAtMillis: Long, lifetimeSeconds: Int): Boolean =
-    readyAtMillis != null && endedAtMillis - readyAtMillis >= minOf(30L, lifetimeSeconds.toLong() - 1) * 1000
+  /** Initiate before the native lifetime expires; never infer success from failure12. */
+  fun shouldRotate(status: Int, readyAtMillis: Long?, nowMillis: Long, lifetimeSeconds: Int): Boolean {
+    require(lifetimeSeconds in 10..3595)
+    return status == 1 && readyAtMillis != null && nowMillis >= readyAtMillis &&
+      nowMillis - readyAtMillis >= (lifetimeSeconds.toLong() - 1) * 1000
+  }
 
   fun delayMillis(consecutiveFailures: Int): Long {
     require(consecutiveFailures in 1..5)

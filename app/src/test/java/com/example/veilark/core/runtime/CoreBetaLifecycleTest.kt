@@ -11,6 +11,32 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class CoreBetaLifecycleTest {
+  @Test fun plannedTimerCannotHideRacingFailureMaskedByStoppedStatus() = runBlocking {
+    for (reason in listOf(0, 13, 11, 12, 16, -4)) {
+      var status = 1
+      val calls = mutableListOf<String>()
+      val api = object : CoreBetaHandleApi {
+        override fun status(handle: Long) = status
+        override fun failure(handle: Long): Int { calls += "failure"; return reason }
+        // Models READY -> timer decision -> native error -> requestStop masking status.
+        override fun stop(handle: Long): Int { status = 3; return 0 }
+        override fun release(handle: Long): Int { calls += "release"; return 0 }
+      }
+      val owner = CoreBetaLifecycle(api) { }
+      owner.startBorrowed({ 7L }, { })
+      val outcome = owner.stopAndReleaseForRotation()
+      assertTrue(outcome.released)
+      assertEquals(reason, outcome.terminalReason)
+      assertEquals(reason == 13, outcome.allowsPlannedRotation)
+      assertEquals(listOf("failure", "release"), calls)
+      assertNull(owner.failure())
+      assertEquals(listOf("failure", "release"), calls)
+    }
+    assertFalse(CoreBetaReleaseOutcome(false, 3, 13).allowsPlannedRotation)
+    assertFalse(CoreBetaReleaseOutcome(true, -3, 13).allowsPlannedRotation)
+    assertFalse(CoreBetaReleaseOutcome(true).allowsPlannedRotation)
+  }
+
   @Test fun additiveTelemetryPreservesOldProviderAndStopsReadingAfterRelease() = runBlocking {
     var fields = 5
     var reads = 0
