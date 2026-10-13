@@ -133,16 +133,32 @@ class CoreBetaVpnService : VpnService() {
       val profile = CoreBetaProfileStore.load(this)
       loadedProfile = profile
       currentCoroutineContext().ensureActive()
+      // One atomic preference snapshot: route and application policy are from
+      // the same generation, never a mixture of several getString/getStringSet calls.
+      val routingSnapshot = getSharedPreferences("profile_meta", MODE_PRIVATE).all
+      stage(session, "ROUTING_RULES")
+      val routingMode = preferenceString(routingSnapshot, "core_routing_mode", ProfileSelection.ROUTING_ALL)
+      val effectiveDns = CoreL3DnsPolicy.effective(profile.dnsIpv4)
+      val routes = CoreL3Routes.fromPreferences(routingMode,
+        preferenceString(routingSnapshot, "core_direct_routes", ""),
+        preferenceString(routingSnapshot, "core_vpn_routes", ""), effectiveDns.resolvers)
       // Android blocks an address family absent from addresses/routes/DNS. Never
       // call allowFamily(AF_INET6), add IPv6 DNS/routes, or allowBypass here.
       val builder = Builder().setSession("Veilark Core beta").setMtu(1280).setBlocking(false)
-        .addAddress(profile.clientIpv4, 32).addRoute("0.0.0.0", 0)
-      profile.dnsIpv4.forEach { builder.addDnsServer(it) }
+        .addAddress(profile.clientIpv4, 32)
+      routes.forEach { builder.addRoute(it.address, it.prefixLength) }
+      TechnicalLogStore.info("CORE", "routing_mode=$routingMode route_count=${routes.size}")
+      effectiveDns.resolvers.forEach { builder.addDnsServer(it) }
+      if (effectiveDns.removed > 0) {
+        TechnicalLogStore.info("CORE", "dns_migration_removed_count=${effectiveDns.removed} " +
+          "effective_dns_count=${effectiveDns.resolvers.size}")
+      }
       stage(session, "APPLICATION_RULES")
-      val preferences = getSharedPreferences("profile_meta", MODE_PRIVATE)
+      val savedPackages = routingSnapshot["selected_applications"]
+      require(savedPackages == null || (savedPackages is Set<*> && savedPackages.all { it is String }))
       val applicationPolicy = ApplicationRoutingPolicy.fromPreferences(
-        preferences.getString("application_mode", ProfileSelection.APPS_ALL) ?: ProfileSelection.APPS_ALL,
-        preferences.getStringSet("selected_applications", emptySet()).orEmpty(),
+        preferenceString(routingSnapshot, "application_mode", ProfileSelection.APPS_ALL),
+        (savedPackages as? Set<*>)?.filterIsInstance<String>()?.toSet().orEmpty(),
       )
       val applicationCounts = applicationPolicy.forAndroidVpn(packageName).applyInstalled(
         vpnPackage = packageName,
@@ -327,6 +343,11 @@ class CoreBetaVpnService : VpnService() {
   }
 
   private fun ipv4(value: String): InetAddress = InetAddress.getByAddress(value.split('.').map { it.toInt().toByte() }.toByteArray())
+
+  private fun preferenceString(snapshot: Map<String, *>, key: String, default: String): String {
+    val value = snapshot[key] ?: return default
+    return value as? String ?: throw IllegalArgumentException("Invalid Core routing setting")
+  }
 
   companion object {
     internal const val ACTION_STOP = "uk.senyasenyavski.veilark.CORE_BETA_STOP"

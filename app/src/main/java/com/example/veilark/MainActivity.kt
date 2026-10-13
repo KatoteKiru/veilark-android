@@ -56,6 +56,8 @@ import com.example.veilark.vpn.EndpointLatencyProbe
 import com.example.veilark.io.readAtMost
 import com.example.veilark.profile.CoreBetaProfileStore
 import com.example.veilark.core.runtime.CoreBetaManager
+import com.example.veilark.core.runtime.CoreL3DnsPolicy
+import com.example.veilark.core.runtime.CoreL3Routes
 import com.example.veilark.core.runtime.VeilarkCoreRuntimeNative
 import com.example.veilark.protocol.ProfileEngine
 import com.example.veilark.protocol.TrustTunnelManager
@@ -226,12 +228,13 @@ class MainActivity : ComponentActivity() {
           "routing_mode",
           ProfileSelection.ROUTING_ALL,
         ) ?: ProfileSelection.ROUTING_ALL
-        val key = if (profileEngine == ProfileEngine.TRUST_TUNNEL) {
-          "trust_routing_mode"
-        } else {
-          "sing_routing_mode"
+        val key = when (profileEngine) {
+          ProfileEngine.CORE_BETA -> "core_routing_mode"
+          ProfileEngine.TRUST_TUNNEL -> "trust_routing_mode"
+          else -> "sing_routing_mode"
         }
-        val storedMode = profilePreferences.getString(key, legacyMode)
+        val storedMode = profilePreferences.getString(key,
+          if (profileEngine == ProfileEngine.CORE_BETA) ProfileSelection.ROUTING_ALL else legacyMode)
         mutableStateOf(
           storedMode.takeIf {
             it in setOf(
@@ -243,18 +246,18 @@ class MainActivity : ComponentActivity() {
         )
       }
       var directRoutes by remember {
-        val key = if (profileEngine == ProfileEngine.TRUST_TUNNEL) {
-          "trust_direct_routes"
-        } else {
-          "direct_routes"
+        val key = when (profileEngine) {
+          ProfileEngine.CORE_BETA -> "core_direct_routes"
+          ProfileEngine.TRUST_TUNNEL -> "trust_direct_routes"
+          else -> "direct_routes"
         }
         mutableStateOf(profilePreferences.getString(key, "").orEmpty())
       }
       var vpnRoutes by remember {
-        val key = if (profileEngine == ProfileEngine.TRUST_TUNNEL) {
-          "trust_vpn_routes"
-        } else {
-          "vpn_routes"
+        val key = when (profileEngine) {
+          ProfileEngine.CORE_BETA -> "core_vpn_routes"
+          ProfileEngine.TRUST_TUNNEL -> "trust_vpn_routes"
+          else -> "vpn_routes"
         }
         mutableStateOf(profilePreferences.getString(key, "").orEmpty())
       }
@@ -279,12 +282,13 @@ class MainActivity : ComponentActivity() {
       var installedApplications by remember { mutableStateOf<List<InstalledApp>>(emptyList()) }
       val coroutineScope = rememberCoroutineScope()
       fun storedRoutingModeFor(engine: String, fallback: String): String {
-        val key = if (engine == ProfileEngine.TRUST_TUNNEL) {
-          "trust_routing_mode"
-        } else {
-          "sing_routing_mode"
+        val key = when (engine) {
+          ProfileEngine.CORE_BETA -> "core_routing_mode"
+          ProfileEngine.TRUST_TUNNEL -> "trust_routing_mode"
+          else -> "sing_routing_mode"
         }
-        return profilePreferences.getString(key, fallback).takeIf {
+        return profilePreferences.getString(key,
+          if (engine == ProfileEngine.CORE_BETA) ProfileSelection.ROUTING_ALL else fallback).takeIf {
           it in setOf(
             ProfileSelection.ROUTING_ALL,
             ProfileSelection.ROUTING_MANUAL,
@@ -1141,6 +1145,9 @@ class MainActivity : ComponentActivity() {
               profileName = coreProfileName
               connectionNodes = emptyList()
               selectedNodeTag = ""
+              routingMode = storedRoutingModeFor(target, ProfileSelection.ROUTING_ALL)
+              directRoutes = profilePreferences.getString("core_direct_routes", "").orEmpty()
+              vpnRoutes = profilePreferences.getString("core_vpn_routes", "").orEmpty()
               subscriptionRefreshAvailable = false
               profilePreferences.edit().putString("profile_engine", target).apply()
               importError = null
@@ -1154,8 +1161,11 @@ class MainActivity : ComponentActivity() {
             } else if (singBoxConnectionState != ConnectionState.Disconnected) {
               VeilarkVpnService.stop(this)
             }
+            val fallbackRouting = if (profileEngine == ProfileEngine.CORE_BETA)
+              profilePreferences.getString("routing_mode", ProfileSelection.ROUTING_ALL)
+                ?: ProfileSelection.ROUTING_ALL else routingMode
             profileEngine = target
-            routingMode = storedRoutingModeFor(target, routingMode)
+            routingMode = storedRoutingModeFor(target, fallbackRouting)
             directRoutes = profilePreferences.getString(
               if (target == ProfileEngine.TRUST_TUNNEL) "trust_direct_routes" else "direct_routes",
               "",
@@ -1559,8 +1569,12 @@ class MainActivity : ComponentActivity() {
                 packages,
               )
               if (profileEngine == ProfileEngine.CORE_BETA) {
-                require(newRoutingMode == ProfileSelection.ROUTING_ALL && newDirectRoutes.isBlank() &&
-                  newVpnRoutes.isBlank() && newDpiMode == ProfileSelection.DPI_OFF) { getString(R.string.core_beta_scope) }
+                require(newRoutingMode in setOf(ProfileSelection.ROUTING_ALL, ProfileSelection.ROUTING_MANUAL) &&
+                  newDpiMode == ProfileSelection.DPI_OFF) { getString(R.string.core_l3_cidr_only) }
+                CoreBetaProfileStore.load(this).use { profile ->
+                  CoreL3Routes.fromPreferences(newRoutingMode, newDirectRoutes, newVpnRoutes,
+                    CoreL3DnsPolicy.effective(profile.dnsIpv4).resolvers)
+                }
                 val plan = applicationPolicy.forAndroidVpn(packageName)
                 val installed: (String) -> Boolean = { app ->
                   try { packageManager.getApplicationInfo(app, 0); true }
@@ -1568,10 +1582,17 @@ class MainActivity : ComponentActivity() {
                 }
                 plan.applyInstalled(packageName, installed, installed)
                 check(profilePreferences.edit().putString("application_mode", newApplicationMode)
-                  .putStringSet("selected_applications", packages).commit()) { getString(R.string.routing_save_failed) }
+                  .putStringSet("selected_applications", packages)
+                  .putString("core_routing_mode", newRoutingMode)
+                  .putString("core_direct_routes", newDirectRoutes.trim())
+                  .putString("core_vpn_routes", newVpnRoutes.trim())
+                  .commit()) { getString(R.string.routing_save_failed) }
+                routingMode = newRoutingMode
+                directRoutes = newDirectRoutes.trim()
+                vpnRoutes = newVpnRoutes.trim()
                 applicationMode = newApplicationMode
                 selectedApplications = packages
-                if (connectionState != ConnectionState.Disconnected && connectionState != ConnectionState.Failed) {
+                if (!coreStopped) {
                   CoreBetaManager.stop(this)
                 }
                 importError = null

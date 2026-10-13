@@ -2452,9 +2452,9 @@ private fun RoutingSettingsDialog(
   // upstream recomposition (for example the installed-app list loading or a
   // geo update refreshing props), so in-progress edits are not discarded. It
   // is saveable, so rotation or process death keeps the draft as well.
-  var route by rememberSaveable { mutableStateOf(if (coreBetaActive) ProfileSelection.ROUTING_ALL else routingMode) }
-  var direct by rememberSaveable { mutableStateOf(if (coreBetaActive) "" else directRoutes) }
-  var vpn by rememberSaveable { mutableStateOf(if (coreBetaActive) "" else vpnRoutes) }
+  var route by rememberSaveable { mutableStateOf(routingMode) }
+  var direct by rememberSaveable { mutableStateOf(directRoutes) }
+  var vpn by rememberSaveable { mutableStateOf(vpnRoutes) }
   var appMode by rememberSaveable { mutableStateOf(applicationMode) }
   var dpi by rememberSaveable { mutableStateOf(if (coreBetaActive) ProfileSelection.DPI_OFF else dpiMode) }
   var packages by rememberSaveable(stateSaver = StringSetSaver) {
@@ -2519,7 +2519,11 @@ private fun RoutingSettingsDialog(
                 style = MaterialTheme.typography.headlineSmallEmphasized,
               )
               Text(
-                if (trustTunnelActive) "TrustTunnel" else "sing-box",
+                when {
+                  coreBetaActive -> "Veilark Core"
+                  trustTunnelActive -> "TrustTunnel"
+                  else -> "sing-box"
+                },
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
               )
@@ -2608,6 +2612,31 @@ private fun RoutingSettingsDialog(
               }
             } else {
               item { Text(stringResource(R.string.core_beta_scope), style = MaterialTheme.typography.bodyMedium) }
+              item {
+                SettingChoice(title = stringResource(R.string.all_traffic_vpn),
+                  selected = route == ProfileSelection.ROUTING_ALL,
+                  onClick = { route = ProfileSelection.ROUTING_ALL })
+              }
+              item {
+                SettingChoice(title = stringResource(R.string.core_l3_manual),
+                  subtitle = stringResource(R.string.core_l3_cidr_only),
+                  selected = route == ProfileSelection.ROUTING_MANUAL,
+                  onClick = { route = ProfileSelection.ROUTING_MANUAL })
+              }
+              if (route == ProfileSelection.ROUTING_MANUAL) {
+                item {
+                  OutlinedTextField(value = direct, onValueChange = { if (it.length <= 65_536) direct = it },
+                    label = { Text(stringResource(R.string.core_l3_direct_cidrs)) },
+                    supportingText = { Text(stringResource(R.string.core_l3_cidr_hint)) },
+                    modifier = Modifier.fillMaxWidth(), minLines = 2, maxLines = 6)
+                }
+                item {
+                  OutlinedTextField(value = vpn, onValueChange = { if (it.length <= 65_536) vpn = it },
+                    label = { Text(stringResource(R.string.core_l3_vpn_cidrs)) },
+                    supportingText = { Text(stringResource(R.string.core_l3_vpn_priority)) },
+                    modifier = Modifier.fillMaxWidth(), minLines = 2, maxLines = 6)
+                }
+              }
             }
             if (trustTunnelActive || coreBetaActive) {
               item {
