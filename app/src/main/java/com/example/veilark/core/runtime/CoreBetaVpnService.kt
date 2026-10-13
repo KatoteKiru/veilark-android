@@ -209,7 +209,9 @@ class CoreBetaVpnService : VpnService() {
               if (status < 0) {
                 val reason = session.lifecycle.failure() ?: 0
                 session.lastFailureCode = "CORE-NATIVE($status/$reason)"
-                TechnicalLogStore.error("CORE", "native_status=$status native_reason=$reason ready=$reachedReady")
+                val detail = if (reason == 11) session.lifecycle.preAuthFailureDetail() else null
+                val detailText = detail?.let { " preauth_detail=${it.code} preauth_kind=${it.name}" }.orEmpty()
+                TechnicalLogStore.error("CORE", "native_status=$status native_reason=$reason ready=$reachedReady$detailText")
               }
               break
             }

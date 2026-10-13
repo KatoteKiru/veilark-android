@@ -26,7 +26,8 @@ object VeilarkCoreRuntimeNative {
   ): Long
   @JvmStatic external fun nativeStatus(handle: Long): Int
   @JvmStatic external fun nativeFailureV1(handle: Long): Int
-  /** Aggregate counts fields0..5; additive numeric rejection fields6..9.
+  /** Aggregate counts fields0..5; additive numeric rejection fields6..9;
+   * field10 is terminal PreAuth category0..7 (negative on older providers).
    * Independent snapshots, no IP addresses/payloads; unavailable is negative. */
   @JvmStatic external fun nativeProgressV1(handle: Long, field: Int): Long
   @JvmStatic external fun nativeStop(handle: Long): Int

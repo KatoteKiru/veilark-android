@@ -68,6 +68,16 @@ internal class CoreBetaLifecycle(
     lock.withLock { handle?.let { api.failure(it) } }
   }
 
+  /** Read only FAILED/PreAuth while owning the handle; old providers return unsupported. */
+  suspend fun preAuthFailureDetail(): CorePreAuthDetail? = withContext(Dispatchers.IO) {
+    lock.withLock {
+      handle?.let { current ->
+        if (api.status(current) >= 0 || api.failure(current) != 11) null
+        else CorePreAuthDetail.fromNative(api.progress(current, 10))
+      }
+    }
+  }
+
   /** Query under the same ownership lock as status/release; never exposes packet contents. */
   suspend fun progress(): LongArray? = withContext(Dispatchers.IO) {
     lock.withLock {
