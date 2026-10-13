@@ -576,6 +576,7 @@ fun MainScreen(
             }
           ],
           importing = importing,
+          authenticatedOnly = coreBetaActive,
           stopAvailable = stopAvailable,
           onConnect = if (!stopAvailable && profileName == null && connectionState != ConnectionState.Connected &&
             connectionState != ConnectionState.Connecting) openImport else onConnect,
@@ -950,6 +951,7 @@ private fun ConnectionCard(
   stage: StartupStage,
   latency: Int?,
   importing: Boolean,
+  authenticatedOnly: Boolean,
   stopAvailable: Boolean = false,
   onConnect: () -> Unit,
 ) {
@@ -1050,7 +1052,7 @@ private fun ConnectionCard(
           text = when (current) {
             ConnectionState.Disconnected -> stringResource(R.string.vpn_off)
             ConnectionState.Connecting -> stringResource(stage.titleRes)
-            ConnectionState.Connected -> stringResource(R.string.vpn_protected)
+            ConnectionState.Connected -> stringResource(if (authenticatedOnly) R.string.core_authenticated_title else R.string.vpn_protected)
             ConnectionState.Failed -> stringResource(R.string.vpn_connect_failed)
           },
           style = MaterialTheme.typography.headlineMediumEmphasized,
@@ -1062,6 +1064,7 @@ private fun ConnectionCard(
         text = when {
           profileName == null -> stringResource(R.string.vpn_add_profile_hint)
           connecting -> stringResource(R.string.vpn_connecting_hint)
+          connected && authenticatedOnly -> stringResource(R.string.core_authenticated_hint)
           connected -> profileName
           else -> stringResource(R.string.vpn_ready_hint)
         },

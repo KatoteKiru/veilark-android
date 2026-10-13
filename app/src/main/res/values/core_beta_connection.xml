@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="core_authenticated_title">Core authenticated</string>
+    <string name="core_authenticated_hint">The tunnel is authenticated. Internet access has not been verified by the app.</string>
     <string name="core_beta_notification_text">IPv4 VPN · Veilark Core beta</string>
     <string name="core_beta_cleanup_failed">Core beta could not finish stopping. Force-stop Veilark in Android app settings, then open it again before connecting.</string>
     <string name="core_beta_scope">Beta: selected IPv4 applications use Core and profile DNS; IPv6 is blocked. Application filters are supported. GEO strategies are being integrated; other engine settings are preserved.</string>
