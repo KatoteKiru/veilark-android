@@ -1,6 +1,6 @@
 # Core L3 routing contract — Beta9
 
-Status2026-10-13: the previous shared Libbox/SOCKS/smoltcp plan is cancelled by the product owner. Its inactive Android config builder, tests and documentation are removed. Veilark Core must remain an independent L3 implementation under veilark-vlk-charter.md and ADR-0003. No sing-box, SOCKS loopback or borrowed userspace TCP/IP stack runs within a Core session.
+Status2026-10-13: Beta9/code79 is published. The owner confirms initial physical Wi-Fi forwarding, followed by a PreAuth11 disconnect; sustained/reconnect and cellular acceptance remain open. Beta10/code80 is held until the engineering-letter points are addressed. The previous shared Libbox/SOCKS/smoltcp plan is cancelled by the product owner. Veilark Core remains an independent L3 implementation under veilark-vlk-charter.md and ADR-0003.
 
 Required path: Android TUN → own Rust L3/PacketPolicy → Core Original carrier → own server kernel interface → scoped kernel forwarding/NAT → Internet. Existing reviewed standard cryptographic/carrier libraries remain permitted by the charter. Legacy engines are separate options and do not become Core components.
 
@@ -18,4 +18,12 @@ Vector owns native L3/PacketPolicy, original channel, server kernel networking a
 Freeze server kernel cutover, rollback and profile DNS compatibility before APK publication. Existing6aad native has no integrated smoltcp/SOCKS runtime; that does not establish phone forwarding. New release must bind exact provider/server/config bytes and actual forwarding evidence.
 
 ## Required acceptance
-Require actual kernel NAT/TUN native HTTPS, UDP/TCP DNS, Private DNS/captive behavior, direction/TTL/MTU, bounded stop/reconnect and protected-inventory checks. Then verify Internet and immediate cancellation on the physical phone. CI/private or public Linux native receipts are separate evidence; authenticated READY is not Internet. Beta8 remains failed by the user's report. Beta9 is not yet built or published.
+Require actual kernel NAT/TUN native HTTPS, UDP/TCP DNS, Private DNS/captive behavior, direction/TTL/MTU, bounded stop/reconnect and protected-inventory checks. Then verify Internet and immediate cancellation on the physical phone. CI/private or public Linux native receipts remain separate evidence; authenticated READY is not Internet. Beta9's initial Wi-Fi success does not close its subsequent disconnect or cellular failure.
+
+## Beta10 contracts under review
+
+Android scheduled rotation requires its own timer decision while native is Ready, followed by terminal status3/reason13 captured before successful native release. Any native failure, unsolicited completion or unsuccessful release retains the bounded retry policy. Ready duration alone cannot reset the failure budget; generic timeout12 is not a proven planned lifetime exit.
+
+A standard TLS carrier is a separate transport contract. Existing JNI consumes plaintext VLK on a connected NONBLOCK TCP descriptor; a WAN SSLSocket descriptor contains TLS records and cannot be substituted. The proposed HostNetwork byte broker handles carrier bytes only, with verified server identity, exclusive per-retry pair custody and complete worker/descriptor cleanup. Profile serialization, signing trust and server origin are pending review; no profile migration or endpoint change is active.
+
+Current Core supports All/manual IPv4 routes and per-app filters. The full bundled RU complement has21656 routes and exceeds current safety bounds. DNS-derived real-IP exclusions affect every flow to a shared address, including unknown domains. Full browser-domain parity therefore requires an explicit architecture decision and actual own direct-exit implementation; the DNS observer alone is insufficient. Do not activate unsupported controls or a new flow stack implicitly.
