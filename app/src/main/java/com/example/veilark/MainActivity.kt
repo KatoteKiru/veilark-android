@@ -38,6 +38,7 @@ import com.example.veilark.profile.SubscriptionDeletionPolicy
 import com.example.veilark.profile.SubscriptionSelectionPolicy
 import com.example.veilark.profile.SubscriptionRefreshPolicy
 import com.example.veilark.profile.ApplicationRoutingPolicy
+import com.example.veilark.profile.ApplicationRoutingUnavailableException
 import com.example.veilark.profile.GeoRoutingAssets
 import com.example.veilark.profile.GeoCategoryCatalog
 import com.example.veilark.profile.GeoUpdateStatus
@@ -1561,7 +1562,11 @@ class MainActivity : ComponentActivity() {
                 require(newRoutingMode == ProfileSelection.ROUTING_ALL && newDirectRoutes.isBlank() &&
                   newVpnRoutes.isBlank() && newDpiMode == ProfileSelection.DPI_OFF) { getString(R.string.core_beta_scope) }
                 val plan = applicationPolicy.forAndroidVpn(packageName)
-                (plan.includedPackages + plan.excludedPackages).forEach { packageManager.getApplicationInfo(it, 0) }
+                val installed: (String) -> Boolean = { app ->
+                  try { packageManager.getApplicationInfo(app, 0); true }
+                  catch (_: PackageManager.NameNotFoundException) { false }
+                }
+                plan.applyInstalled(packageName, installed, installed)
                 check(profilePreferences.edit().putString("application_mode", newApplicationMode)
                   .putStringSet("selected_applications", packages).commit()) { getString(R.string.routing_save_failed) }
                 applicationMode = newApplicationMode
@@ -1654,7 +1659,8 @@ class MainActivity : ComponentActivity() {
               check(routingEditor.commit()) { getString(R.string.routing_save_failed) }
               importError = null
             }.onFailure {
-              importError = it.userMessage(R.string.routing_apply_failed)
+              importError = if (it is ApplicationRoutingUnavailableException)
+                getString(R.string.core_beta_apps_unavailable) else it.userMessage(R.string.routing_apply_failed)
               TechnicalLogStore.error("ROUTING", "Routing settings rejected")
             }.isSuccess
           },

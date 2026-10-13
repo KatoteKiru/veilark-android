@@ -5,6 +5,7 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.content.pm.PackageManager.NameNotFoundException
 import android.net.VpnService
 import android.os.Build
 import android.os.ParcelFileDescriptor
@@ -20,6 +21,7 @@ import com.example.veilark.diagnostics.TechnicalLogStore
 import com.example.veilark.lifecycle.LifecycleAttempt
 import com.example.veilark.profile.CoreBetaProfile
 import com.example.veilark.profile.ApplicationRoutingPolicy
+import com.example.veilark.profile.ApplicationRoutingUnavailableException
 import com.example.veilark.profile.ProfileSelection
 import com.example.veilark.profile.CoreBetaProfileStore
 import com.example.veilark.vpn.ConnectionState
@@ -138,12 +140,24 @@ class CoreBetaVpnService : VpnService() {
       profile.dnsIpv4.forEach { builder.addDnsServer(it) }
       stage(session, "APPLICATION_RULES")
       val preferences = getSharedPreferences("profile_meta", MODE_PRIVATE)
-      val applicationRules = ApplicationRoutingPolicy.fromPreferences(
+      val applicationPolicy = ApplicationRoutingPolicy.fromPreferences(
         preferences.getString("application_mode", ProfileSelection.APPS_ALL) ?: ProfileSelection.APPS_ALL,
         preferences.getStringSet("selected_applications", emptySet()).orEmpty(),
-      ).forAndroidVpn(packageName)
-      applicationRules.includedPackages.forEach { builder.addAllowedApplication(it) }
-      applicationRules.excludedPackages.forEach { builder.addDisallowedApplication(it) }
+      )
+      val applicationCounts = applicationPolicy.forAndroidVpn(packageName).applyInstalled(
+        vpnPackage = packageName,
+        addIncluded = { app ->
+          try { builder.addAllowedApplication(app); true }
+          catch (_: NameNotFoundException) { false }
+        },
+        addExcluded = { app ->
+          try { builder.addDisallowedApplication(app); true }
+          catch (_: NameNotFoundException) { false }
+        },
+      )
+      TechnicalLogStore.info("CORE", "application_mode=${applicationPolicy.mode.preferenceValue} " +
+        "included_count=${applicationCounts.acceptedIncluded} excluded_count=${applicationCounts.acceptedExcluded} " +
+        "missing_count=${applicationCounts.missing}")
       if (Build.VERSION.SDK_INT >= 29) builder.setMetered(false)
       stage(session, "TUN_ESTABLISH")
       currentCoroutineContext().ensureActive()
@@ -204,7 +218,9 @@ class CoreBetaVpnService : VpnService() {
       // Explicit stop/revoke is completed only after native ownership release.
     } catch (failure: Throwable) {
       if (session.lastFailureCode == null) recordFailure(session, failure)
-      publish(session, ConnectionState.Failed, getString(R.string.core_beta_connection_failed) + " [${session.lastFailureCode ?: "CORE-UNKNOWN"}]")
+      val message = if (failure is ApplicationRoutingUnavailableException)
+        getString(R.string.core_beta_apps_unavailable) else getString(R.string.core_beta_connection_failed)
+      publish(session, ConnectionState.Failed, message + " [${session.lastFailureCode ?: "CORE-UNKNOWN"}]")
     } finally {
       val released = runCatching { session.lifecycle.stopAndRelease() }.getOrDefault(false)
       runCatching { loadedProfile?.close() }

@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="core_beta_apps_unavailable">Selected applications are no longer available. Select at least one installed application for Only mode. VPN was not started.</string>
     <string name="core_authenticated_title">Core authenticated</string>
     <string name="core_authenticated_hint">The tunnel is authenticated. Internet access has not been verified by the app.</string>
     <string name="core_beta_notification_text">IPv4 VPN · Veilark Core beta</string>

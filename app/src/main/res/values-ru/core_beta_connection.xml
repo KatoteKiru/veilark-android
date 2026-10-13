@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="core_beta_apps_unavailable">Выбранные приложения больше недоступны. Для режима «Только выбранные» выберите хотя бы одно установленное приложение. VPN не запущен.</string>
     <string name="core_authenticated_title">Core авторизован</string>
     <string name="core_authenticated_hint">Туннель авторизован. Приложение ещё не проверило доступ в интернет.</string>
     <string name="core_beta_notification_text">IPv4 VPN · Veilark Core beta</string>
