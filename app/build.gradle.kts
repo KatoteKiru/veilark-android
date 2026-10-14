@@ -298,6 +298,8 @@ dependencies {
   implementation("androidx.camera:camera-view:1.6.1")
   implementation("com.google.zxing:core:3.5.3")
   implementation("org.yaml:snakeyaml:2.6")
+  // Ed25519 is not supplied by Android's JCA before API33 (minSdk29).
+  implementation("com.google.crypto.tink:tink-android:1.23.0")
   // Tooling
   debugImplementation(libs.androidx.compose.ui.tooling)
   // Instrumented tests

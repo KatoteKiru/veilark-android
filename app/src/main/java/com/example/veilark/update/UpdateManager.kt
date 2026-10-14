@@ -9,6 +9,7 @@ import android.provider.Settings
 import androidx.core.content.FileProvider
 import com.example.veilark.BuildConfig
 import com.example.veilark.io.readAtMost
+import com.example.veilark.security.Ed25519Verifier
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
@@ -17,10 +18,7 @@ import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.net.HttpURLConnection
 import java.net.URL
-import java.security.KeyFactory
 import java.security.MessageDigest
-import java.security.Signature
-import java.security.spec.X509EncodedKeySpec
 import java.util.Base64
 
 data class AppUpdate(
@@ -171,13 +169,8 @@ object UpdateManager {
   }
 
   private fun verifySignature(payload: ByteArray, signatureValue: String) {
-    val publicKey = KeyFactory.getInstance("Ed25519").generatePublic(
-      X509EncodedKeySpec(Base64.getDecoder().decode(BuildConfig.OTA_PUBLIC_KEY)),
-    )
-    val verifier = Signature.getInstance("Ed25519")
-    verifier.initVerify(publicKey)
-    verifier.update(payload)
-    require(verifier.verify(Base64.getDecoder().decode(signatureValue))) {
+    require(Ed25519Verifier.verify(payload, Base64.getDecoder().decode(signatureValue),
+      Base64.getDecoder().decode(BuildConfig.OTA_PUBLIC_KEY))) {
       "Подпись манифеста обновления недействительна"
     }
   }

@@ -56,6 +56,16 @@ recorded so a rule update cannot silently change the routing dataset.
 
 ## Android libraries
 
+### Tink Android
+
+- project: <https://github.com/tink-crypto/tink-java>
+- version: `1.23.0` (`com.google.crypto.tink:tink-android`)
+- license: Apache License 2.0
+- use: pure-Java Ed25519 verification for signed OTA manifests on Android API29+
+- artifact and dependency hashes: `gradle/verification-metadata.xml`
+
+The verifier preserves the existing OTA public key and signed payload format.
+
 The application uses AndroidX, Jetpack Compose, CameraX, ZXing core barcode
 scanning, SnakeYAML, Kotlin coroutines, RxAndroid, ktoml, SLF4J and
 logback-android. Versions are pinned in `gradle/libs.versions.toml` and
