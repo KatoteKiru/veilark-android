@@ -301,8 +301,12 @@ class CoreBetaVpnService : VpnService() {
     try {
       stage(session, "SOCKET_CREATE")
       // Atomic NONBLOCK creation works on minSdk29; public Os.fcntlInt is API30+.
-      val raw = Os.socket(OsConstants.AF_INET, OsConstants.SOCK_STREAM or OsConstants.SOCK_NONBLOCK, OsConstants.IPPROTO_TCP)
-      socket = try { ParcelFileDescriptor.dup(raw) } finally { Os.close(raw) }
+      val raw = Os.socket(OsConstants.AF_INET,
+        OsConstants.SOCK_STREAM or OsConstants.SOCK_NONBLOCK or OsConstants.SOCK_CLOEXEC,
+        OsConstants.IPPROTO_TCP)
+      // Record ownership before closing raw: if close throws, outer finally
+      // must still close the successfully duplicated descriptor.
+      try { socket = ParcelFileDescriptor.dup(raw) } finally { Os.close(raw) }
       val connectedSocket = checkNotNull(socket)
       stage(session, "SOCKET_PROTECT")
       check(protect(connectedSocket.fd))
