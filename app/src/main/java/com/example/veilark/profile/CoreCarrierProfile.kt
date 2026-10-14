@@ -4,6 +4,7 @@ import java.nio.ByteBuffer
 import java.nio.charset.CharacterCodingException
 import java.nio.charset.CodingErrorAction
 import java.util.Base64
+import java.security.MessageDigest
 
 /** Inactive structurally validated v2. NOT time/floor/freshness admission or stored trust. */
 internal class CoreCarrierProfile private constructor(
@@ -15,6 +16,7 @@ internal class CoreCarrierProfile private constructor(
   val issuedAt: Long,
   val expiresAt: Long,
   val trustGeneration: Long,
+  val payloadSha256: String,
   val carrier: Carrier,
   val peer: Int,
   val clientIpv4: String,
@@ -116,7 +118,8 @@ internal class CoreCarrierProfile private constructor(
         require(resolvers.distinct().size == resolvers.size)
         val lifetime = network["lifetime_seconds"].number(10, 3595).toInt()
         return CoreCarrierProfile(name, envelope.issuerId, envelope.keyId, profileId, revision, issuedAt,
-          expiresAt, envelope.trustGeneration, Carrier(ipv4, port, hostname, connectMs, tlsMs, pairMs, teardownMs),
+          expiresAt, envelope.trustGeneration, MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) },
+          Carrier(ipv4, port, hostname, connectMs, tlsMs, pairMs, teardownMs),
           peer, client, server, resolvers, lifetime, key, context).also { ownedKey = null; ownedContext = null }
       } catch (_: IllegalArgumentException) { throw IllegalArgumentException(ERROR) }
         catch (_: IllegalStateException) { throw IllegalArgumentException(ERROR) }

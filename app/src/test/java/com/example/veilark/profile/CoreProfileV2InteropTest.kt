@@ -30,7 +30,7 @@ class CoreProfileV2InteropTest(private val id: String, private val vector: JsonO
     checked?.use { envelope ->
       val profile = try { CoreCarrierProfile.parse(envelope) }
         catch (_: IllegalArgumentException) { null }
-      profile?.close()
+      profile?.use { assertEquals("$id parser digest", vector.get("decoded_payload_sha256").asString, it.payloadSha256) }
       assertFalse("$id missing structural expectation", expected.get("payload_structure").isJsonNull)
       assertEquals("$id payload structure", expected.get("payload_structure").asBoolean, profile != null)
     }
