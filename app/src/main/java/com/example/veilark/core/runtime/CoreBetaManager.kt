@@ -38,10 +38,10 @@ object CoreBetaManager {
    * Replace this explicit unsupported path only with the implemented new ABI.
    */
   fun requireProfileSupported(context: Context) {
-    val kind = checkNotNull(CoreProfileStore.selectedKind(context)) {
-      context.getString(R.string.core_beta_add_profile)
-    }
-    check(kind == CoreProfileKind.LEGACY_V1) {
+    // Validate decrypted data before any caller stops an existing VPN. File
+    // existence alone cannot detect a missing Keystore key or corrupt profile.
+    val metadata = CoreProfileStore.loadMetadata(context)
+    check(metadata.kind == CoreProfileKind.LEGACY_V1) {
       context.getString(R.string.core_argon_runtime_unavailable)
     }
   }
