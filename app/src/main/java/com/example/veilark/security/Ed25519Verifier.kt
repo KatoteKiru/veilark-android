@@ -7,9 +7,11 @@ import java.security.GeneralSecurityException
 internal object Ed25519Verifier {
   private val spkiPrefix = byteArrayOf(0x30, 0x2a, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x70, 0x03, 0x21, 0x00)
 
+  fun hasSupportedPublicKeyEncoding(publicKeyX509: ByteArray): Boolean =
+    publicKeyX509.size == 44 && spkiPrefix.indices.all { publicKeyX509[it] == spkiPrefix[it] }
+
   fun verify(payload: ByteArray, signature: ByteArray, publicKeyX509: ByteArray): Boolean {
-    if (publicKeyX509.size != 44 || signature.size != 64 ||
-      spkiPrefix.indices.any { publicKeyX509[it] != spkiPrefix[it] }) return false
+    if (!hasSupportedPublicKeyEncoding(publicKeyX509) || signature.size != 64) return false
     return try {
       Ed25519Verify(publicKeyX509.copyOfRange(spkiPrefix.size, publicKeyX509.size)).verify(signature, payload)
       true

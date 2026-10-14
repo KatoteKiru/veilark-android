@@ -111,4 +111,19 @@ class CoreSignedEnvelopeTest {
     val entries = (0..64).map { CoreSignedEnvelope.IssuerSnapshot.Entry("fixture", "key$it", pair.public.encoded) }
     assertThrows(IllegalArgumentException::class.java) { CoreSignedEnvelope.IssuerSnapshot(1, entries) }
   }
+
+  @Test fun malformedTrustedKeyEncodingIsRejectedBeforeSnapshotUse() {
+    for (index in 0 until 12) {
+      val key = pair.public.encoded.copyOf()
+      key[index] = (key[index].toInt() xor 1).toByte()
+      assertThrows(IllegalArgumentException::class.java) {
+        CoreSignedEnvelope.IssuerSnapshot(1, listOf(CoreSignedEnvelope.IssuerSnapshot.Entry("fixture", "key1", key)))
+      }
+    }
+    for (length in listOf(0, 43, 45)) {
+      assertThrows(IllegalArgumentException::class.java) {
+        CoreSignedEnvelope.IssuerSnapshot(1, listOf(CoreSignedEnvelope.IssuerSnapshot.Entry("fixture", "key1", pair.public.encoded.copyOf(length))))
+      }
+    }
+  }
 }

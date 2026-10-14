@@ -30,7 +30,7 @@ internal object CoreSignedEnvelope {
         val pair = it.issuerId to it.keyId
         require(pair !in copied) { ERROR }
         val key = it.keyCopy()
-        require(key.size == 44) { ERROR }
+        require(Ed25519Verifier.hasSupportedPublicKeyEncoding(key)) { ERROR }
         copied[pair] = key
       }
       keys = copied.toMap()
