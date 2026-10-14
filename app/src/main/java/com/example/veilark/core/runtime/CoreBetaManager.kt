@@ -8,7 +8,9 @@ import androidx.core.content.ContextCompat
 import com.example.veilark.BuildConfig
 import com.example.veilark.lifecycle.AndroidTunnelLifecycleOwner
 import com.example.veilark.lifecycle.LifecycleAttempt
-import com.example.veilark.profile.CoreBetaProfileStore
+import com.example.veilark.profile.CoreProfileStore
+import com.example.veilark.profile.CoreProfileKind
+import com.example.veilark.R
 import com.example.veilark.vpn.ConnectionState
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -28,13 +30,26 @@ object CoreBetaManager {
     Build.SUPPORTED_ABIS.firstOrNull() == "arm64-v8a"
 
   fun start(context: Context) {
+    requireProfileSupported(context)
     AndroidTunnelLifecycleOwner.startCoreBeta(context)
+  }
+
+  /** Recheck at every admission boundary. Argon must never enter old PSK JNI.
+   * Replace this explicit unsupported path only with the implemented new ABI.
+   */
+  fun requireProfileSupported(context: Context) {
+    val kind = checkNotNull(CoreProfileStore.selectedKind(context)) {
+      context.getString(R.string.core_beta_add_profile)
+    }
+    check(kind == CoreProfileKind.LEGACY_V1) {
+      context.getString(R.string.core_argon_runtime_unavailable)
+    }
   }
 
   @Synchronized internal fun startEngine(context: Context, attempt: LifecycleAttempt) {
     check(isAvailable()) { "Veilark Core beta is unavailable in this build or on this device." }
     check(VpnService.prepare(context) == null) { "VPN permission is required." }
-    check(CoreBetaProfileStore.exists(context)) { "Import a Veilark Core beta profile first." }
+    requireProfileSupported(context)
     check(mutableStopped.value) { "Previous Core beta session has not stopped." }
     activeAttempt = attempt
     serviceAttached = false

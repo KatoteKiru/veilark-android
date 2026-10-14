@@ -127,6 +127,7 @@ class CoreBetaVpnService : VpnService() {
     var loadedProfile: CoreBetaProfile? = null
     try {
       currentCoroutineContext().ensureActive()
+      CoreBetaManager.requireProfileSupported(this)
       stage(session, "NATIVE_LOAD")
       check(VeilarkCoreRuntimeNative.loadCandidate())
       stage(session, "PROFILE_STORE")

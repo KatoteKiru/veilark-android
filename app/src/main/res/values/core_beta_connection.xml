@@ -13,6 +13,7 @@
     <string name="core_beta_cleanup_failed">Core beta could not finish stopping. Force-stop Veilark in Android app settings, then open it again before connecting.</string>
     <string name="core_beta_scope">Choose apps and IP ranges. Routing by domain is not available yet.</string>
     <string name="core_beta_unavailable">Veilark Core beta requires an ARM64 build with the native runtime.</string>
+    <string name="core_argon_runtime_unavailable">Core profile saved. This build does not support connecting with this profile yet.</string>
     <string name="core_beta_add_profile">Import a Core test profile, then select this mode.</string>
     <string name="core_beta_imported">Core profile saved. Select Veilark Core · beta to connect.</string>
     <string name="core_beta_connection_failed">Core beta connection failed. Check the test profile and server availability.</string>

@@ -54,7 +54,7 @@ import com.example.veilark.update.UpdateManager
 import com.example.veilark.vpn.LatencyMonitor
 import com.example.veilark.vpn.EndpointLatencyProbe
 import com.example.veilark.io.readAtMost
-import com.example.veilark.profile.CoreBetaProfileStore
+import com.example.veilark.profile.CoreProfileStore
 import com.example.veilark.core.runtime.CoreBetaManager
 import com.example.veilark.core.runtime.CoreL3DnsPolicy
 import com.example.veilark.core.runtime.CoreL3Routes
@@ -120,7 +120,7 @@ class MainActivity : ComponentActivity() {
             ?: ProfileEngine.SING_BOX,
         )
       }
-      var coreProfileName by remember { mutableStateOf(runCatching { CoreBetaProfileStore.load(this).use { it.name } }.getOrNull()) }
+      var coreProfileName by remember { mutableStateOf(runCatching { CoreProfileStore.loadMetadata(this).name }.getOrNull()) }
       val coreRuntimeAvailable = remember { VeilarkCoreRuntimeNative.loadCandidate() }
       var trustProfiles by remember {
         mutableStateOf(TrustTunnelCatalog.load(this))
@@ -465,8 +465,11 @@ class MainActivity : ComponentActivity() {
       ) { result ->
         if (result.resultCode == Activity.RESULT_OK && pendingPermissionEngine == profileEngine) {
           if (pendingCoreConnection && profileEngine == ProfileEngine.CORE_BETA) {
-            stopTunnelsAfterProfileCommit()
-            CoreBetaManager.start(this@MainActivity)
+            runCatching {
+              CoreBetaManager.requireProfileSupported(this@MainActivity)
+              stopTunnelsAfterProfileCommit()
+              CoreBetaManager.start(this@MainActivity)
+            }.onFailure { importError = it.message ?: getString(R.string.core_beta_unavailable) }
           }
           pendingConfigPath?.let {
             if (trustTunnelConnectionState != ConnectionState.Disconnected) {
@@ -519,6 +522,7 @@ class MainActivity : ComponentActivity() {
         runCatching {
           if (profileEngine == ProfileEngine.CORE_BETA) {
             check(coreRuntimeAvailable && coreProfileName != null) { getString(R.string.core_beta_unavailable) }
+            CoreBetaManager.requireProfileSupported(this@MainActivity)
             val permissionIntent = VpnService.prepare(this@MainActivity)
             if (permissionIntent == null) {
               stopTunnelsAfterProfileCommit()
@@ -577,14 +581,19 @@ class MainActivity : ComponentActivity() {
       }
 
       fun importCorePayload(payload: ByteArray): Boolean {
-        if (!payload.toString(Charsets.UTF_8).contains("veilark-core-beta-profile-v1")) return false
+        val text = payload.toString(Charsets.UTF_8)
+        if (!text.contains("veilark-core-beta-profile-v1") && !text.contains("veilark-argon-profile-v1")) return false
         check(coreConnectionState == ConnectionState.Disconnected || coreConnectionState == ConnectionState.Failed) {
           getString(R.string.engine_switch_disconnect_first)
         }
         check(CoreBetaManager.stopped.value) { getString(R.string.core_beta_cleanup_failed) }
-        CoreBetaProfileStore.import(this@MainActivity, payload).use { imported ->
-          coreProfileName = imported.name
-          if (profileEngine == ProfileEngine.CORE_BETA) profileName = imported.name
+        try {
+          CoreProfileStore.import(this@MainActivity, payload)
+        } finally {
+          // A disk error while saving selection may follow a successful profile
+          // replacement. Reflect the actual selected source even on failure.
+          coreProfileName = runCatching { CoreProfileStore.loadMetadata(this@MainActivity).name }.getOrNull()
+          if (profileEngine == ProfileEngine.CORE_BETA) profileName = coreProfileName
         }
         // Import is intentionally separate from selecting or starting the engine.
         importError = null
@@ -1571,10 +1580,9 @@ class MainActivity : ComponentActivity() {
               if (profileEngine == ProfileEngine.CORE_BETA) {
                 require(newRoutingMode in setOf(ProfileSelection.ROUTING_ALL, ProfileSelection.ROUTING_MANUAL) &&
                   newDpiMode == ProfileSelection.DPI_OFF) { getString(R.string.core_l3_cidr_only) }
-                CoreBetaProfileStore.load(this).use { profile ->
-                  CoreL3Routes.fromPreferences(newRoutingMode, newDirectRoutes, newVpnRoutes,
-                    CoreL3DnsPolicy.effective(profile.dnsIpv4).resolvers)
-                }
+                val coreMetadata = CoreProfileStore.loadMetadata(this)
+                CoreL3Routes.fromPreferences(newRoutingMode, newDirectRoutes, newVpnRoutes,
+                  CoreL3DnsPolicy.effective(coreMetadata.dnsIpv4).resolvers)
                 val plan = applicationPolicy.forAndroidVpn(packageName)
                 val installed: (String) -> Boolean = { app ->
                   try { packageManager.getApplicationInfo(app, 0); true }
@@ -1746,6 +1754,7 @@ class MainActivity : ComponentActivity() {
               } else {
                 if (profileEngine == ProfileEngine.CORE_BETA) {
                   check(coreRuntimeAvailable && coreProfileName != null) { getString(R.string.core_beta_unavailable) }
+                  CoreBetaManager.requireProfileSupported(this)
                   val permissionIntent = VpnService.prepare(this)
                   if (permissionIntent == null) {
                     stopTunnelsAfterProfileCommit()
@@ -1872,7 +1881,7 @@ class MainActivity : ComponentActivity() {
       }
       val requestedEngine = preferences.getString("profile_engine", ProfileEngine.SING_BOX)
       val resolvedEngine = when {
-        requestedEngine == ProfileEngine.CORE_BETA && CoreBetaProfileStore.exists(this) -> ProfileEngine.CORE_BETA
+        requestedEngine == ProfileEngine.CORE_BETA && CoreProfileStore.exists(this) -> ProfileEngine.CORE_BETA
         requestedEngine == ProfileEngine.TRUST_TUNNEL && trustId != null -> ProfileEngine.TRUST_TUNNEL
         requestedEngine == ProfileEngine.SING_BOX && singId != null -> ProfileEngine.SING_BOX
         singId != null -> ProfileEngine.SING_BOX
@@ -1880,7 +1889,7 @@ class MainActivity : ComponentActivity() {
         else -> requestedEngine ?: ProfileEngine.SING_BOX
       }
       val displayName = if (resolvedEngine == ProfileEngine.CORE_BETA) {
-        runCatching { CoreBetaProfileStore.load(this).use { it.name } }.getOrNull()
+        runCatching { CoreProfileStore.loadMetadata(this).name }.getOrNull()
       } else if (resolvedEngine == ProfileEngine.TRUST_TUNNEL) {
         trustProfiles.firstOrNull { it.id == trustId }?.name
       } else {
