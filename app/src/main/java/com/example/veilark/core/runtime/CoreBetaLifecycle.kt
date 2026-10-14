@@ -21,6 +21,10 @@ internal interface CoreBetaHandleApi {
 
 internal class CoreBetaStartFailure(val code: Long) : IllegalStateException("Core session could not start")
 
+/** Each successful native start receives a distinct identity, even if native
+ * reuses the numeric handle. Only the owning lifecycle can admit this instance. */
+internal class CoreBetaHandleTicket internal constructor(val handle: Long)
+
 /** Terminal values captured before release; only an explicitly requested rotation may use them. */
 internal data class CoreBetaReleaseOutcome(
   val released: Boolean,
@@ -38,30 +42,63 @@ internal class CoreBetaLifecycle(
 ) {
   private val lock = Mutex()
   private var handle: Long? = null
+  private var activeTicket: CoreBetaHandleTicket? = null
 
   /** Caller provides protected, connected NONBLOCK socket/TUN; originals remain caller-owned. */
-  suspend fun startBorrowed(start: () -> Long, closeOriginals: () -> Unit): Long = try {
-    val result = withContext(Dispatchers.IO + NonCancellable) {
-      lock.withLock {
-        try {
-          check(handle == null) { "Previous Core session has not been released" }
-          val started = start()
-          if (started <= 0) throw CoreBetaStartFailure(started)
-          handle = started
-          started
-        } finally {
-          // Native owns duplicates only. Also close originals on negative return/exception.
-          closeOriginals()
+  suspend fun startBorrowed(start: () -> Long, closeOriginals: () -> Unit): Long =
+    startBorrowedTicket(start, closeOriginals).handle
+
+  suspend fun startBorrowedTicket(start: () -> Long, closeOriginals: () -> Unit): CoreBetaHandleTicket {
+    var admitted: CoreBetaHandleTicket? = null
+    return try {
+      val result = withContext(Dispatchers.IO + NonCancellable) {
+        lock.withLock {
+          try {
+            check(handle == null) { "Previous Core session has not been released" }
+            val started = start()
+            if (started <= 0) throw CoreBetaStartFailure(started)
+            handle = started
+            CoreBetaHandleTicket(started).also { activeTicket = it; admitted = it }
+          } finally {
+            // Native owns duplicates only. Also close originals on negative return/exception.
+            closeOriginals()
+          }
         }
       }
+      currentCoroutineContext().ensureActive()
+      result
+    } catch (cancelled: CancellationException) {
+      // Cancellation can arrive while JNI creates a handle, or when its result
+      // crosses back to the cancelled caller. Preserve/clean ownership in either case.
+      admitted?.let { cleanup(100, false, it) }
+      throw cancelled
     }
-    currentCoroutineContext().ensureActive()
-    result
-  } catch (cancelled: CancellationException) {
-    // Cancellation can arrive while JNI creates a handle, or when its result
-    // crosses back to the cancelled caller. Preserve/clean ownership in either case.
-    stopAndRelease()
-    throw cancelled
+
+  }
+
+  /** Attach an additional borrowed resource after authenticated admission.
+   * The native callback must synchronously validate/duplicate it and return;
+   * never wait for handshake/traffic while holding this ownership lock.
+   * Used by two-phase Argon startup once its actual native ABI is integrated.
+   */
+  suspend fun attachBorrowed(expected: CoreBetaHandleTicket, attach: (Long) -> Unit, closeOriginals: () -> Unit) {
+    val caller = currentCoroutineContext()
+    try {
+      withContext(Dispatchers.IO + NonCancellable) {
+        lock.withLock {
+          try {
+            caller.ensureActive()
+            check(activeTicket === expected) { "Core session was replaced" }
+            val current = checkNotNull(handle) { "Core session is unavailable" }
+            attach(current)
+          } finally { closeOriginals() }
+        }
+      }
+      caller.ensureActive()
+    } catch (cancelled: CancellationException) {
+      cleanup(100, false, expected)
+      throw cancelled
+    }
   }
 
   /** Ready means authenticated admission, not public internet/DNS acceptance. */
@@ -107,10 +144,12 @@ internal class CoreBetaLifecycle(
   /** An own timer decision is not enough: retain a racing native failure before release. */
   suspend fun stopAndReleaseForRotation(): CoreBetaReleaseOutcome = cleanup(100, true)
 
-  private suspend fun cleanup(maxAttempts: Int, captureTerminal: Boolean): CoreBetaReleaseOutcome =
+  private suspend fun cleanup(maxAttempts: Int, captureTerminal: Boolean,
+    expected: CoreBetaHandleTicket? = null): CoreBetaReleaseOutcome =
     withContext(Dispatchers.IO + NonCancellable) {
       require(maxAttempts in 1..100) { "Invalid cleanup bound" }
       lock.withLock {
+        if (expected != null && activeTicket !== expected) return@withLock CoreBetaReleaseOutcome(true)
         val current = handle ?: return@withLock CoreBetaReleaseOutcome(true)
         api.stop(current)
         repeat(maxAttempts) { attempt ->
@@ -118,7 +157,7 @@ internal class CoreBetaLifecycle(
           if (status == 3 || status < 0) {
             val reason = if (captureTerminal) api.failure(current) else null
             when (api.release(current)) {
-              0 -> { handle = null; return@withLock CoreBetaReleaseOutcome(true, status, reason) }
+              0 -> { handle = null; activeTicket = null; return@withLock CoreBetaReleaseOutcome(true, status, reason) }
               -2 -> Unit // terminal status can precede worker return
               else -> return@withLock CoreBetaReleaseOutcome(false, status, reason)
             }

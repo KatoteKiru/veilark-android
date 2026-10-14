@@ -11,6 +11,75 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class CoreBetaLifecycleTest {
+  @Test fun secondPhaseAttachRetainsOwnerAndClosesDescriptorsOnAllPaths() = runBlocking {
+    val fake = Fake().apply { busy = 0 }
+    val owner = CoreBetaLifecycle(fake) { }
+    var closed = 0
+    try { owner.attachBorrowed(CoreBetaHandleTicket(7L), { fail("Must not attach without a handle") }, { closed++ }); fail("Missing handle") }
+    catch (_: IllegalStateException) { }
+    assertEquals(1,closed)
+    val ticket = owner.startBorrowedTicket({ 7L }, { })
+    owner.attachBorrowed(ticket, { assertEquals(7L,it) }, { closed++ })
+    try { owner.attachBorrowed(ticket, { throw IllegalStateException("Native rejected resource") }, { closed++ }); fail("Reject attach") }
+    catch (_: IllegalStateException) { }
+    assertEquals(3,closed);assertEquals(3,owner.status())
+    assertTrue(owner.stopAndRelease())
+    try { owner.attachBorrowed(ticket, { fail("Released handle") }, { closed++ });fail("Released owner") }
+    catch (_: IllegalStateException) { }
+    assertEquals(4,closed)
+  }
+
+  @Test fun cancellationDuringSecondPhaseClosesFdThenStopsAndReleases() = runBlocking {
+    val fake=Fake().apply { busy=0 };val owner=CoreBetaLifecycle(fake) { }
+    val ticket = owner.startBorrowedTicket({ 8L }, { })
+    val entered=CompletableDeferred<Unit>();val permit=CountDownLatch(1);val closed=AtomicInteger()
+    val job=launch(Dispatchers.Default) {
+      owner.attachBorrowed(ticket, { handle ->
+        assertEquals(8L,handle);entered.complete(Unit)
+        check(permit.await(3,TimeUnit.SECONDS))
+        assertFalse(fake.calls.contains("release"))
+      }, { closed.incrementAndGet() })
+    }
+    entered.await();job.cancel();permit.countDown();job.join()
+    assertEquals(1,closed.get());assertTrue(fake.calls.contains("stop"));assertTrue(fake.calls.contains("release"))
+    assertNull(owner.status())
+  }
+
+  @Test fun simultaneousStopCannotReleaseHandleDuringSecondPhaseNativeDup() = runBlocking {
+    val released=AtomicInteger();val closed=AtomicInteger()
+    val api=object:CoreBetaHandleApi {
+      override fun status(handle:Long)=3
+      override fun stop(handle:Long):Int { assertEquals(1,closed.get());return 0 }
+      override fun release(handle:Long):Int { released.incrementAndGet();return 0 }
+    }
+    val owner=CoreBetaLifecycle(api) { };val ticket=owner.startBorrowedTicket({ 9L }, { })
+    val entered=CompletableDeferred<Unit>();val permit=CountDownLatch(1)
+    val attaching=launch(Dispatchers.Default) {
+      owner.attachBorrowed(ticket, { entered.complete(Unit);check(permit.await(3,TimeUnit.SECONDS));assertEquals(0,released.get()) }, { closed.incrementAndGet() })
+    }
+    entered.await()
+    val stopping=launch(Dispatchers.Default) { assertTrue(owner.stopAndRelease()) }
+    permit.countDown();attaching.join();stopping.join()
+    assertEquals(1,released.get());assertEquals(1,closed.get());assertNull(owner.status())
+  }
+
+  @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+  @Test fun staleAttachmentAndCancellationCannotAffectReplacementWithReusedHandle() = runBlocking {
+    val fake=Fake().apply { busy=0 };val owner=CoreBetaLifecycle(fake) { }
+    val old=owner.startBorrowedTicket({ 7L }, { });assertTrue(owner.stopAndRelease())
+    val current=owner.startBorrowedTicket({ 7L }, { });var closed=0
+    try { owner.attachBorrowed(old,{ fail("Old ticket must not attach") },{ closed++ });fail("Stale ticket") }
+    catch (_: IllegalStateException) { }
+    val stops=fake.calls.count { it=="stop" }
+    val cancelled=kotlinx.coroutines.Job().apply { cancel() }
+    val job=launch(Dispatchers.Default+cancelled,start=kotlinx.coroutines.CoroutineStart.ATOMIC) {
+      owner.attachBorrowed(old,{ fail("Cancelled stale attach") },{ closed++ })
+    }
+    job.join();assertEquals(2,closed);assertEquals(stops,fake.calls.count { it=="stop" })
+    owner.attachBorrowed(current,{ assertEquals(7L,it) },{ closed++ })
+    assertEquals(3,closed);assertTrue(owner.stopAndRelease())
+  }
+
   @Test fun plannedTimerCannotHideRacingFailureMaskedByStoppedStatus() = runBlocking {
     for (reason in listOf(0, 13, 11, 12, 16, -4)) {
       var status = 1
