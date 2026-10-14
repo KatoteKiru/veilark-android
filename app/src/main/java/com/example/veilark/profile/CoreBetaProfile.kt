@@ -58,11 +58,11 @@ class CoreBetaProfile private constructor(
       var parsedKey: ByteArray? = null
       try {
         check(input.length <= MAX_INPUT_BYTES)
-        check(validUnicode(input))
+        check(CoreProfileJson.validUnicode(input))
         val sizeCheckBytes = input.toByteArray(Charsets.UTF_8)
         try { check(sizeCheckBytes.size <= MAX_INPUT_BYTES) }
         finally { sizeCheckBytes.fill(0) }
-        val root = StrictJson(input).parse().obj(setOf("schema", "name", "engine", "beta", "enrollment", "network"))
+        val root = CoreProfileJson.parse(input).obj(setOf("schema", "name", "engine", "beta", "enrollment", "network"))
         check(root["schema"] == "veilark-core-beta-profile-v1")
         check(root["engine"] == "original-v1" && root["beta"] == true)
         val name = root["name"].str()
@@ -116,7 +116,7 @@ class CoreBetaProfile private constructor(
       return result
     }
     private fun Any?.integer(min: Int, max: Int): Int {
-      val token = this as? NumberToken ?: error("invalid")
+      val token = this as? CoreProfileJson.NumberToken ?: error("invalid")
       check(token.text.matches(Regex("0|[1-9][0-9]*")))
       val value = token.text.toLongOrNull() ?: error("invalid")
       check(value in min.toLong()..max.toLong())
@@ -138,96 +138,5 @@ class CoreBetaProfile private constructor(
     }
     private fun privateIpv4(ip: Long): Boolean = ip ushr 24 == 10L || ip ushr 20 == 0xac1L || ip ushr 16 == 0xc0a8L
     private fun dnsIpv4(ip: Long): Boolean = ip ushr 24 !in setOf(0L, 127L) && ip ushr 16 != 0xa9feL && ip ushr 24 < 224L
-    private fun validUnicode(value: String): Boolean {
-      var i = 0
-      while (i < value.length) {
-        val c = value[i++]
-        if (Character.isHighSurrogate(c)) {
-          if (i == value.length || !Character.isLowSurrogate(value[i++])) return false
-        } else if (Character.isLowSurrogate(c)) return false
-      }
-      return true
-    }
-
-    private class NumberToken(val text: String)
-
-    /** Strict RFC 8259 syntax, duplicate decoded keys rejected before map insertion. */
-    private class StrictJson(private val input: String) {
-      private var at = 0
-      fun parse(): Any? {
-        val value = value(0)
-        space()
-        check(at == input.length)
-        return value
-      }
-      private fun space() { while (at < input.length && input[at] in " \t\r\n") at++ }
-      private fun value(depth: Int): Any? {
-        check(depth <= 8)
-        space()
-        check(at < input.length)
-        return when (input[at]) {
-          '{' -> {
-            at++
-            val map = linkedMapOf<String, Any?>()
-            space()
-            if (take('}')) map else {
-              do {
-                space()
-                val key = string()
-                check(!map.containsKey(key))
-                space(); check(take(':'))
-                map[key] = value(depth + 1)
-                space()
-              } while (take(','))
-              check(take('}')); map
-            }
-          }
-          '[' -> {
-            at++
-            val list = mutableListOf<Any?>()
-            space()
-            if (take(']')) list else {
-              do { list.add(value(depth + 1)); space() } while (take(','))
-              check(take(']')); list
-            }
-          }
-          '"' -> string()
-          't' -> { literal("true"); true }
-          'f' -> { literal("false"); false }
-          'n' -> { literal("null"); null }
-          else -> number()
-        }
-      }
-      private fun take(c: Char): Boolean = if (at < input.length && input[at] == c) { at++; true } else false
-      private fun literal(text: String) { check(input.startsWith(text, at)); at += text.length }
-      private fun number(): NumberToken {
-        val start = at
-        take('-')
-        if (!take('0')) { check(at < input.length && input[at] in '1'..'9'); digits() }
-        if (take('.')) { val before = at; digits(); check(at > before) }
-        if (take('e') || take('E')) { if (!take('+')) take('-'); val before = at; digits(); check(at > before) }
-        return NumberToken(input.substring(start, at))
-      }
-      private fun digits() { while (at < input.length && input[at] in '0'..'9') at++ }
-      private fun string(): String {
-        check(take('"'))
-        val out = StringBuilder()
-        while (at < input.length) {
-          val c = input[at++]
-          if (c == '"') return out.toString().also { check(validUnicode(it)) }
-          check(c >= ' ')
-          if (c != '\\') out.append(c) else {
-            check(at < input.length)
-            out.append(when (val escape = input[at++]) {
-              '"', '\\', '/' -> escape
-              'b' -> '\b'; 'f' -> '\u000c'; 'n' -> '\n'; 'r' -> '\r'; 't' -> '\t'
-              'u' -> { check(at + 4 <= input.length); val hex = input.substring(at, at + 4); check(hex.matches(Regex("[0-9a-fA-F]{4}"))); at += 4; hex.toInt(16).toChar() }
-              else -> error("invalid")
-            })
-          }
-        }
-        error("invalid")
-      }
-    }
   }
 }
