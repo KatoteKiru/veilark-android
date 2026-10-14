@@ -17,6 +17,7 @@ object SecureProfileStore {
   const val TRUST_TUNNEL_CATALOG = "trust-tunnel-catalog"
   const val SING_BOX_CATALOG = "sing-box-catalog"
   const val CORE_BETA = "veilark-core-beta-profile"
+  const val CORE_ARGON = "veilark-argon-profile"
 
   fun exists(context: Context, id: String): Boolean = encryptedFile(context, id).isFile
 
@@ -56,7 +57,7 @@ object SecureProfileStore {
     val cipher = Cipher.getInstance(TRANSFORMATION)
     cipher.init(
       Cipher.DECRYPT_MODE,
-      getOrCreateKey(),
+      existingKey(),
       GCMParameterSpec(128, payload.copyOfRange(2, 2 + ivSize)),
     )
     cipher.updateAAD(id.toByteArray(Charsets.UTF_8))
@@ -78,7 +79,8 @@ object SecureProfileStore {
     legacy.delete()
   }
 
-  private fun encryptedFile(context: Context, id: String): File = profileFile(context.filesDir, id)
+  private fun encryptedFile(context: Context, id: String): File =
+    profileFile(if (id == CORE_ARGON) context.noBackupFilesDir else context.filesDir, id)
 
   internal fun profileFile(filesDir: File, id: String): File {
     require(
@@ -86,7 +88,8 @@ object SecureProfileStore {
         id == TRUST_TUNNEL ||
         id == TRUST_TUNNEL_CATALOG ||
         id == SING_BOX_CATALOG ||
-        id == CORE_BETA,
+        id == CORE_BETA ||
+        id == CORE_ARGON,
     ) {
       "Неизвестный тип профиля"
     }
@@ -109,6 +112,13 @@ object SecureProfileStore {
       )
       generateKey()
     }
+  }
+
+  /** Reading never creates a replacement key for an existing encrypted profile. */
+  private fun existingKey(): SecretKey {
+    val store = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+    return store.getKey(KEY_ALIAS, null) as? SecretKey
+      ?: error("Ключ защищённого профиля недоступен")
   }
 
   private const val KEY_ALIAS = "veilark_profile_v1"

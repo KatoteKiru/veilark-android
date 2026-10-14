@@ -10,6 +10,8 @@ class SecureProfileStoreContractTest {
     val root = File("private-files")
     assertEquals(File(root, "secure-profiles/veilark-core-beta-profile.vlk"),
       SecureProfileStore.profileFile(root, SecureProfileStore.CORE_BETA))
+    assertEquals(File(root, "secure-profiles/veilark-argon-profile.vlk"),
+      SecureProfileStore.profileFile(root, SecureProfileStore.CORE_ARGON))
     for (id in listOf(SecureProfileStore.SING_BOX, SecureProfileStore.TRUST_TUNNEL,
         SecureProfileStore.SING_BOX_CATALOG, SecureProfileStore.TRUST_TUNNEL_CATALOG)) {
       assertEquals(File(root, "secure-profiles/$id.vlk"), SecureProfileStore.profileFile(root, id))
