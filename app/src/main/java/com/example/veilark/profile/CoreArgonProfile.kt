@@ -21,11 +21,11 @@ class CoreArgonProfile private constructor(
 ) : java.io.Closeable {
   private var closed = false
   @Synchronized fun clientStaticPrivateCopy(): ByteArray {
-    check(!closed) { "Argon profile is closed" }
+    check(!closed) { "Veilark Core profile is closed" }
     return clientStaticPrivate.copyOf()
   }
   @Synchronized fun serverStaticPublicCopy(): ByteArray {
-    check(!closed) { "Argon profile is closed" }
+    check(!closed) { "Veilark Core profile is closed" }
     return serverStaticPublic.copyOf()
   }
   @Synchronized internal fun validatedEnvelope(): String = checkNotNull(envelope)
@@ -38,7 +38,7 @@ class CoreArgonProfile private constructor(
 
   companion object {
     private const val MAX_BYTES = 16 * 1024
-    private const val ERROR = "Invalid Veilark Argon profile."
+    private const val ERROR = "Invalid Veilark Core profile."
 
     fun parse(bytes: ByteArray): CoreArgonProfile {
       require(bytes.size <= MAX_BYTES) { ERROR }

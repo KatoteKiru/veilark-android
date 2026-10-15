@@ -47,7 +47,7 @@ object CoreBetaManager {
   }
 
   @Synchronized internal fun startEngine(context: Context, attempt: LifecycleAttempt) {
-    check(isAvailable()) { "Veilark Core beta is unavailable in this build or on this device." }
+    check(isAvailable()) { "Veilark Core is unavailable in this build or on this device." }
     check(VpnService.prepare(context) == null) { "VPN permission is required." }
     requireProfileSupported(context)
     check(mutableStopped.value) { "Previous Core beta session has not stopped." }
@@ -59,9 +59,9 @@ object CoreBetaManager {
       ContextCompat.startForegroundService(context, Intent(context, CoreBetaVpnService::class.java)
         .putExtra("attempt", attempt.attemptId).putExtra("epoch", attempt.engineEpoch))
     } catch (failure: Exception) {
-      publish(attempt, ConnectionState.Failed, "Android could not start Veilark Core beta.")
+      publish(attempt, ConnectionState.Failed, "Android could not start Veilark Core.")
       released(attempt)
-      throw IllegalStateException("Android could not start Veilark Core beta.")
+      throw IllegalStateException("Android could not start Veilark Core.")
     }
   }
 
@@ -79,7 +79,7 @@ object CoreBetaManager {
   @Synchronized internal fun stopEngine(context: Context, attempt: LifecycleAttempt? = null) {
     val current = activeAttempt ?: return
     if (attempt != null && current != attempt) return
-    com.example.veilark.diagnostics.TechnicalLogStore.info("CORE", "stop_requested")
+    com.example.veilark.diagnostics.TechnicalLogStore.info("CORE", "${context.getString(R.string.core_beta_title)} stop_requested")
     if (serviceAttached) {
       // stopService alone cannot stop a still-bound VPN service's worker. Send
       // an explicit, fenced command to cancel it while the service is alive.

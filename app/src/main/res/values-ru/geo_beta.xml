@@ -16,7 +16,7 @@
     <string name="custom_geo_save">Сохранить фильтр</string>
     <string name="custom_geo_saved">Сохранено на устройстве. Маршрутизация пока не изменилась.</string>
     <string name="custom_geo_use">Выбрать эти правила</string>
-    <string name="core_beta_title">Veilark Core · beta</string>
+    <string name="core_beta_title">Veilark Core (маршрут: Fairway)</string>
     <string name="core_beta_not_ready">Подключение пока недоступно: проверяем нативное ядро и тестовый профиль.</string>
     <string name="geo_last_attempt">Последняя попытка: %1$s</string>
     <string name="geo_last_success">Последнее успешное обновление: %1$s</string>

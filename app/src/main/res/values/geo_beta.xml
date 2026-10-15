@@ -16,7 +16,7 @@
     <string name="custom_geo_save">Save filter</string>
     <string name="custom_geo_saved">Saved locally. Traffic settings have not changed.</string>
     <string name="custom_geo_use">Use these rules</string>
-    <string name="core_beta_title">Veilark Core · beta</string>
+    <string name="core_beta_title">Veilark Core (маршрут: Fairway)</string>
     <string name="core_beta_not_ready">Not ready for connection: native runtime and test profile are being validated.</string>
     <string name="geo_last_attempt">Last update attempt: %1$s</string>
     <string name="geo_last_success">Last successful update: %1$s</string>

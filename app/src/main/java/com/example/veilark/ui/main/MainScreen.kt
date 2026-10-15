@@ -2518,7 +2518,7 @@ private fun RoutingSettingsDialog(
               )
               Text(
                 when {
-                  coreBetaActive -> "Veilark Core"
+                  coreBetaActive -> stringResource(R.string.core_beta_title)
                   trustTunnelActive -> "TrustTunnel"
                   else -> "sing-box"
                 },

@@ -72,9 +72,15 @@ class CoreBetaVpnService : VpnService() {
   private val sessions = CoreBetaSessionGate<Session>()
   @Volatile private var destroyed = false
 
+  private fun coreInfo(message: String) =
+    TechnicalLogStore.info("CORE", "${getString(R.string.core_beta_title)} $message")
+
+  private fun coreError(message: String) =
+    TechnicalLogStore.error("CORE", "${getString(R.string.core_beta_title)} $message")
+
   private fun stage(session: Session, value: String) {
     session.diagnosticStage = value // Only fixed local stage names, never profile or exception text.
-    TechnicalLogStore.info("CORE", "stage=$value")
+    coreInfo("stage=$value")
   }
 
   private fun recordFailure(session: Session, failure: Throwable) {
@@ -84,7 +90,7 @@ class CoreBetaVpnService : VpnService() {
       else -> " class=${failure.javaClass.simpleName}"
     }
     session.lastFailureCode = "CORE-${session.diagnosticStage}"
-    TechnicalLogStore.error("CORE", "stage=${session.diagnosticStage}$detail")
+    coreError("stage=${session.diagnosticStage}$detail")
   }
 
   @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class, kotlinx.coroutines.DelicateCoroutinesApi::class)
@@ -93,7 +99,7 @@ class CoreBetaVpnService : VpnService() {
       val stopping = sessions.current()
       val accepted = handleCoreStopCommand(stopping?.attempt,
         intent.getLongExtra("attempt", -1), intent.getLongExtra("epoch", -1)) {
-          TechnicalLogStore.info("CORE", "stop_command_received")
+          coreInfo("stop_command_received")
           // Do not wait for bound-service destruction to cancel its worker.
           stopping?.scope?.cancel()
         }
@@ -110,10 +116,10 @@ class CoreBetaVpnService : VpnService() {
     check(sessions.admit(session))
     try {
       val manager = getSystemService(NotificationManager::class.java)
-      manager.createNotificationChannel(NotificationChannel(CHANNEL, "Veilark Core beta", NotificationManager.IMPORTANCE_LOW))
+      manager.createNotificationChannel(NotificationChannel(CHANNEL, getString(R.string.core_beta_title), NotificationManager.IMPORTANCE_LOW))
       val open = PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
       val notice = NotificationCompat.Builder(this, CHANNEL)
-        .setSmallIcon(R.drawable.ic_vpn_status).setContentTitle("Veilark Core · beta")
+        .setSmallIcon(R.drawable.ic_vpn_status).setContentTitle(getString(R.string.core_beta_title))
         .setContentText(getString(R.string.core_beta_notification_text)).setContentIntent(open).setOngoing(true).build()
       if (Build.VERSION.SDK_INT >= 34) startForeground(NOTIFICATION, notice, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
       else startForeground(NOTIFICATION, notice)
@@ -221,7 +227,7 @@ class CoreBetaVpnService : VpnService() {
                 session.lastFailureCode = "CORE-NATIVE($status/$reason)"
                 val detail = if (reason == 11) session.lifecycle.preAuthFailureDetail() else null
                 val detailText = detail?.let { " preauth_detail=${it.code} preauth_kind=${it.name}" }.orEmpty()
-                TechnicalLogStore.error("CORE", "native_status=$status native_reason=$reason ready=$reachedReady$detailText")
+                coreError("native_status=$status native_reason=$reason ready=$reachedReady$detailText")
               }
               break
             }
@@ -229,7 +235,7 @@ class CoreBetaVpnService : VpnService() {
             // EOF or failed session never becomes healthy because it lived long.
             if (CoreBetaReconnectPolicy.shouldRotate(status, readyAtMillis, now, profile.lifetimeSeconds)) {
               plannedRotation = true
-              TechnicalLogStore.info("CORE", "rotation=scheduled")
+              coreInfo("rotation=scheduled")
               break
             }
             if (!reachedReady && SystemClock.elapsedRealtime() >= deadline) error("Authentication timeout")
@@ -244,7 +250,7 @@ class CoreBetaVpnService : VpnService() {
             plannedRotation = outcome.allowsPlannedRotation
             if (!plannedRotation) {
               session.lastFailureCode = "CORE-NATIVE(${outcome.terminalStatus}/${outcome.terminalReason})"
-              TechnicalLogStore.error("CORE", "rotation=not_confirmed native_status=${outcome.terminalStatus} " +
+              coreError("rotation=not_confirmed native_status=${outcome.terminalStatus} " +
                 "native_reason=${outcome.terminalReason}")
             }
           } else {
@@ -255,7 +261,7 @@ class CoreBetaVpnService : VpnService() {
         // Keep routes while recovering, but do not trap a failed connection in
         // endless retries. Terminal failure is visible and cleanup is fenced.
         consecutiveFailures = CoreBetaReconnectPolicy.nextFailureCount(consecutiveFailures, plannedRotation)
-        if (!plannedRotation) TechnicalLogStore.info("CORE", "reconnect_backoff_ms=${CoreBetaReconnectPolicy.delayMillis(consecutiveFailures)}")
+        if (!plannedRotation) coreInfo("reconnect_backoff_ms=${CoreBetaReconnectPolicy.delayMillis(consecutiveFailures)}")
         publish(session, ConnectionState.Connecting)
         delay(if (plannedRotation) 250 else CoreBetaReconnectPolicy.delayMillis(consecutiveFailures))
       }
@@ -282,7 +288,7 @@ class CoreBetaVpnService : VpnService() {
             native && closed
           },
           onReleased = { completeSession(session) },
-          event = { TechnicalLogStore.info("CORE", it) },
+          event = { coreInfo(it) },
         ).launchOnce()
       }
 
@@ -292,11 +298,11 @@ class CoreBetaVpnService : VpnService() {
   private fun recordArgonFailure(session: Session, failure: Throwable) {
     session.lastFailureCode = "CORE-${session.diagnosticStage}"
     val detail = when (failure) {
-      is CoreArgonFailure -> " argon_code=${failure.code}"
+      is CoreArgonFailure -> " core_code=${failure.code}"
       is ErrnoException -> " errno=${failure.errno}"
       else -> " failure=1"
     }
-    TechnicalLogStore.error("CORE", "stage=${session.diagnosticStage}$detail")
+    coreError("stage=${session.diagnosticStage}$detail")
   }
 
   private suspend fun runArgonTunnel(session: Session, routingSnapshot: Map<String, *>) {
@@ -306,9 +312,9 @@ class CoreBetaVpnService : VpnService() {
     var activeTun: ParcelFileDescriptor? = null
     try {
       currentCoroutineContext().ensureActive()
-      stage(session, "ARGON_NATIVE_LOAD")
+      stage(session, "CORE_NATIVE_LOAD")
       check(VeilarkArgonNative.isAbiAvailable())
-      stage(session, "ARGON_PROFILE_STORE")
+      stage(session, "CORE_PROFILE_STORE")
       val profile = CoreArgonProfileStore.load(this)
       loadedProfile = profile
       // Validate policy before UDP admission. This does not establish a TUN or
@@ -332,7 +338,7 @@ class CoreBetaVpnService : VpnService() {
         publish(session, ConnectionState.Connecting)
         var ticket: CoreArgonHandleTicket? = null
         try {
-          stage(session, "ARGON_UDP_OPEN")
+          stage(session, "CORE_UDP_OPEN")
           val socket = CoreProtectedUdp.open(peer, profile.endpointPort, ::protect)
           originals += socket
           var secret: ByteArray? = null
@@ -342,7 +348,7 @@ class CoreBetaVpnService : VpnService() {
             pin = profile.serverStaticPublicCopy()
             val privateKey = checkNotNull(secret)
             val publicPin = checkNotNull(pin)
-            stage(session, "ARGON_BEGIN")
+            stage(session, "CORE_BEGIN")
             ticket = session.argonLifecycle.startBorrowed(
               begin = { VeilarkArgonNative.nativeBegin(socket.fd, peer.address,
                 profile.endpointPort, profile.mtu, privateKey, publicPin, nativeRoutingMode) },
@@ -352,19 +358,19 @@ class CoreBetaVpnService : VpnService() {
             secret?.fill(0); pin?.fill(0)
           }
           val admitted = checkNotNull(ticket)
-          stage(session, "ARGON_AUTHENTICATING")
+          stage(session, "CORE_AUTHENTICATING")
           val authenticated = session.argonLifecycle.awaitAuthenticated(admitted)
           currentCoroutineContext().ensureActive()
           if (nativeRoutingMode == 1) {
-            stage(session, "ARGON_RU_DNS_OPEN")
+            stage(session, "FAIRWAY_DNS_OPEN")
             val resolver = CoreProtectedUdp.open(ipv4("77.88.8.8") as Inet4Address, 53, ::protect)
             originals += resolver
-            stage(session, "ARGON_RU_DNS_ATTACH")
+            stage(session, "FAIRWAY_DNS_ATTACH")
             session.argonLifecycle.attachRuDnsBorrowed(admitted, resolver.fd) { closeTracked(originals, resolver) }
             currentCoroutineContext().ensureActive()
           }
           val builder = tunBuilder(session, authenticated.ipv4, authenticated.mtu, profile.dnsIpv4, routingSnapshot)
-          stage(session, "ARGON_TUN_ESTABLISH")
+          stage(session, "CORE_TUN_ESTABLISH")
           currentCoroutineContext().ensureActive()
           // Retain the previous Java TUN until the replacement has been established.
           // Across transient failures its routes remain in place with no native reader.
@@ -374,18 +380,18 @@ class CoreBetaVpnService : VpnService() {
           activeTun = replacement
           if (previous != null) closeTracked(tunnels, previous)
           currentCoroutineContext().ensureActive()
-          stage(session, "ARGON_TUN_ATTACH")
+          stage(session, "CORE_TUN_ATTACH")
           val borrowed = ParcelFileDescriptor.dup(replacement.fileDescriptor)
           originals += borrowed
           session.argonLifecycle.attachBorrowed(admitted, borrowed.fd) { closeTracked(originals, borrowed) }
-          stage(session, "ARGON_AWAIT_RUNNING")
+          stage(session, "CORE_AWAIT_RUNNING")
           session.argonLifecycle.awaitRunning(admitted)
           currentCoroutineContext().ensureActive()
-          stage(session, "ARGON_RUNNING")
+          stage(session, "CORE_RUNNING")
           publish(session, ConnectionState.Connected)
           while (true) {
             currentCoroutineContext().ensureActive()
-            val status = session.argonLifecycle.status() ?: error("Missing Argon session")
+            val status = session.argonLifecycle.status() ?: error("Missing Veilark Core session")
             if (status != VeilarkArgonNative.RUNNING) {
               throw CoreArgonFailure("status", status.toLong())
             }
@@ -405,12 +411,12 @@ class CoreBetaVpnService : VpnService() {
           val closed = closeTracked(originals)
           // A failed replacement close retains more than one Java TUN. End
           // this worker and hand every descriptor to final/late cleanup.
-          check(released && closed && tunnels.size <= 1) { "Argon cleanup did not complete" }
+          check(released && closed && tunnels.size <= 1) { "Veilark Core cleanup did not complete" }
         }
         currentCoroutineContext().ensureActive()
         consecutiveFailures = CoreBetaReconnectPolicy.nextFailureCount(consecutiveFailures, false)
         val backoff = CoreBetaReconnectPolicy.delayMillis(consecutiveFailures)
-        TechnicalLogStore.info("CORE", "reconnect_backoff_ms=$backoff")
+        coreInfo("reconnect_backoff_ms=$backoff")
         publish(session, ConnectionState.Connecting)
         delay(backoff)
       }
@@ -437,7 +443,7 @@ class CoreBetaVpnService : VpnService() {
       if (!released) CoreBetaLateCleanup(
         cleanup = { cleanup() },
         onReleased = { completeSession(session) },
-        event = { TechnicalLogStore.info("CORE", it) },
+        event = { coreInfo(it) },
       ).launchOnce()
     }
   }
@@ -465,13 +471,13 @@ class CoreBetaVpnService : VpnService() {
       preferenceString(routingSnapshot, "core_vpn_routes", ""), effectiveDns.resolvers)
     // Android blocks an address family absent from addresses/routes/DNS. Never
     // call allowFamily(AF_INET6), add IPv6 DNS/routes, or allowBypass here.
-    val builder = Builder().setSession("Veilark Core beta").setMtu(mtu).setBlocking(false)
+    val builder = Builder().setSession(getString(R.string.core_beta_title)).setMtu(mtu).setBlocking(false)
       .addAddress(clientIpv4, 32)
     routes.forEach { builder.addRoute(it.address, it.prefixLength) }
-    TechnicalLogStore.info("CORE", "routing_mode=$routingMode route_count=${routes.size}")
+    coreInfo("routing_mode=$routingMode route_count=${routes.size}")
     effectiveDns.resolvers.forEach { builder.addDnsServer(it) }
     if (effectiveDns.removed > 0) {
-      TechnicalLogStore.info("CORE", "dns_migration_removed_count=${effectiveDns.removed} " +
+      coreInfo("dns_migration_removed_count=${effectiveDns.removed} " +
         "effective_dns_count=${effectiveDns.resolvers.size}")
     }
     stage(session, "APPLICATION_RULES")
@@ -492,7 +498,7 @@ class CoreBetaVpnService : VpnService() {
         catch (_: NameNotFoundException) { false }
       },
     )
-    TechnicalLogStore.info("CORE", "application_mode=${applicationPolicy.mode.preferenceValue} " +
+    coreInfo("application_mode=${applicationPolicy.mode.preferenceValue} " +
       "included_count=${applicationCounts.acceptedIncluded} excluded_count=${applicationCounts.acceptedExcluded} " +
       "missing_count=${applicationCounts.missing}")
     if (Build.VERSION.SDK_INT >= 29) builder.setMetered(false)
@@ -507,7 +513,7 @@ class CoreBetaVpnService : VpnService() {
     val rejection = if (counts.size >= 10) " local_foreign_ipv4_dropped=${counts[5]} " +
       "last_reject_direction=${counts[6]} last_reject_family=${counts[7]} " +
       "last_reject_protocol=${counts[8]} last_reject_source_class=${counts[9]}" else ""
-    TechnicalLogStore.info("CORE", "tun_read_packets=${counts[0]} tun_read_bytes=${counts[1]} " +
+    coreInfo("tun_read_packets=${counts[0]} tun_read_bytes=${counts[1]} " +
       "tun_write_packets=${counts[2]} tun_write_bytes=${counts[3]} local_ipv6_dropped=${counts[4]}$rejection")
   }
 

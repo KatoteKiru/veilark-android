@@ -25,7 +25,7 @@ internal interface CoreArgonHandleApi {
 
 internal class CoreArgonHandleTicket internal constructor(val handle: Long)
 internal class CoreArgonFailure(val operation: String, val code: Long) :
-  IllegalStateException("Argon $operation failed ($code)")
+  IllegalStateException("Veilark Core $operation failed ($code)")
 internal data class CoreArgonAuthenticated(val ipv4: String, val mtu: Int)
 
 /** Owns duplicated native resources until successful join AND release. No readiness inference. */
@@ -47,7 +47,7 @@ internal class CoreArgonLifecycle(private val api: CoreArgonHandleApi) {
         ownershipMutex.withLock {
           try {
             caller.ensureActive()
-            check(owner == null) { "Previous Argon session has not been released" }
+            check(owner == null) { "Previous Veilark Core session has not been released" }
             val handle = begin()
             if (handle <= 0) throw CoreArgonFailure("begin", handle)
             // Admission precedes close: even a throwing close cannot lose native ownership.
@@ -68,7 +68,7 @@ internal class CoreArgonLifecycle(private val api: CoreArgonHandleApi) {
     try {
       waitNative(ticket) { api.awaitAuthenticated(ticket.handle, output) }
       check(output.take(4).all { it in 0..255 } && output[0] in 1..223 && output[0] != 127 &&
-        output[4] in 1280..1360) { "Invalid authenticated Argon configuration" }
+        output[4] in 1280..1360) { "Invalid authenticated Veilark Core configuration" }
       return CoreArgonAuthenticated(output.take(4).joinToString("."), output[4])
     } catch (failure: Throwable) {
       stopAndRelease(ticket)
@@ -115,7 +115,7 @@ internal class CoreArgonLifecycle(private val api: CoreArgonHandleApi) {
   }
 
   private fun requireOwner(ticket: CoreArgonHandleTicket): Owner =
-    checkNotNull(owner?.takeIf { it.ticket === ticket && !it.cleaning }) { "Argon session unavailable or replaced" }
+    checkNotNull(owner?.takeIf { it.ticket === ticket && !it.cleaning }) { "Veilark Core session unavailable or replaced" }
 
   /** Cancellable await sends stop BEFORE structured scope waits for blocking JNI to return. */
   private suspend fun waitNative(ticket: CoreArgonHandleTicket, wait: () -> Int) {

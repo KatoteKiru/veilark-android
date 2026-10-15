@@ -11,7 +11,7 @@ class CoreArgonProfileTest {
   private fun rejected(text: String) {
     try { CoreArgonProfile.parse(text).close(); fail("Must reject invalid profile") }
     catch (error: IllegalArgumentException) {
-      assertEquals("Invalid Veilark Argon profile.", error.message)
+      assertEquals("Invalid Veilark Core profile.", error.message)
       assertFalse(error.toString().contains(client)); assertFalse(error.toString().contains(server))
     }
   }
@@ -75,7 +75,7 @@ class CoreArgonProfileTest {
   @Test fun invalidUtf8AndOversizedInputAreRejectedWithoutSecretErrors() {
     for (bytes in listOf(byteArrayOf(0xc0.toByte(),0x80.toByte()),ByteArray(16385))) {
       try { CoreArgonProfile.parse(bytes).close();fail("Invalid input") }
-      catch (error: IllegalArgumentException) { assertEquals("Invalid Veilark Argon profile.",error.message) }
+      catch (error: IllegalArgumentException) { assertEquals("Invalid Veilark Core profile.",error.message) }
     }
     rejected(" ".repeat(16385))
   }

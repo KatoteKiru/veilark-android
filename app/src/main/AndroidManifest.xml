@@ -88,7 +88,7 @@
             </intent-filter>
             <meta-data android:name="android.net.VpnService.SUPPORTS_ALWAYS_ON" android:value="false" />
             <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="Maintains a user-requested Veilark Core beta VPN tunnel" />
+                android:value="Maintains a user-requested Veilark Core VPN tunnel with Fairway routing" />
         </service>
         <service
             android:name="com.example.veilark.vpn.VeilarkTileService"
