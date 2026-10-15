@@ -20,6 +20,10 @@ import com.example.veilark.R
 import com.example.veilark.diagnostics.TechnicalLogStore
 import com.example.veilark.lifecycle.LifecycleAttempt
 import com.example.veilark.profile.CoreBetaProfile
+import com.example.veilark.profile.CoreArgonProfile
+import com.example.veilark.profile.CoreArgonProfileStore
+import com.example.veilark.profile.CoreProfileKind
+import com.example.veilark.profile.CoreProfileStore
 import com.example.veilark.profile.ApplicationRoutingPolicy
 import com.example.veilark.profile.ApplicationRoutingUnavailableException
 import com.example.veilark.profile.ProfileSelection
@@ -36,6 +40,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import java.net.InetAddress
+import java.net.Inet4Address
 import java.net.InetSocketAddress
 
 /** IPv4-only beta: retained TUN blocks traffic during reconnect, never changes engine. */
@@ -50,6 +55,15 @@ class CoreBetaVpnService : VpnService() {
         catch (_: UnsatisfiedLinkError) { -4L }
       override fun stop(handle: Long) = VeilarkCoreRuntimeNative.nativeStop(handle)
       override fun release(handle: Long) = VeilarkCoreRuntimeNative.nativeRelease(handle)
+    })
+    val argonLifecycle = CoreArgonLifecycle(object : CoreArgonHandleApi {
+      override fun awaitAuthenticated(handle: Long, output: IntArray) = VeilarkArgonNative.nativeAwaitAuthenticated(handle, output)
+      override fun attachTun(handle: Long, borrowedTunFd: Int) = VeilarkArgonNative.nativeAttachTun(handle, borrowedTunFd)
+      override fun awaitRunning(handle: Long) = VeilarkArgonNative.nativeAwaitRunning(handle)
+      override fun status(handle: Long) = VeilarkArgonNative.nativeStatus(handle)
+      override fun stop(handle: Long) = VeilarkArgonNative.nativeStop(handle)
+      override fun join(handle: Long) = VeilarkArgonNative.nativeJoin(handle)
+      override fun release(handle: Long) = VeilarkArgonNative.nativeRelease(handle)
     })
     var diagnosticStage = "SERVICE"
     var lastFailureCode: String? = null
@@ -123,59 +137,53 @@ class CoreBetaVpnService : VpnService() {
   }
 
   private suspend fun runTunnel(session: Session) {
+    val selected: CoreProfileKind
+    val routingSnapshot: Map<String, *>
+    try {
+      currentCoroutineContext().ensureActive()
+      stage(session, "PROFILE_SELECTION")
+      // The selection facade serializes import/selection on this same monitor.
+      // Keep the support preflight and dispatched identity in one admission boundary.
+      val admission = synchronized(CoreProfileStore) {
+        CoreBetaManager.requireProfileSupported(this)
+        val snapshot = getSharedPreferences("profile_meta", MODE_PRIVATE).all.mapValues { (_, value) ->
+          if (value is Set<*>) value.toSet() else value
+        }
+        val kind = checkNotNull(CoreProfileKind.resolve(snapshot["core_profile_kind"],
+          CoreBetaProfileStore.exists(this), CoreArgonProfileStore.exists(this)))
+        kind to snapshot
+      }
+      selected = admission.first
+      routingSnapshot = admission.second
+      currentCoroutineContext().ensureActive()
+    } catch (failure: Throwable) {
+      if (failure !is CancellationException) {
+        recordFailure(session, failure)
+        publish(session, ConnectionState.Failed, getString(R.string.core_beta_connection_failed) + " [CORE-PROFILE_SELECTION]")
+      }
+      // Neither engine owns resources yet; the worker completion marks terminal.
+      sessions.resources(session, native = true, tun = true)
+      finishServiceEffects(session)
+      return
+    }
+    when (selected) {
+      CoreProfileKind.LEGACY_V1 -> runLegacyTunnel(session, routingSnapshot)
+      CoreProfileKind.ARGON_V1 -> runArgonTunnel(session, routingSnapshot)
+    }
+  }
+
+  private suspend fun runLegacyTunnel(session: Session, routingSnapshot: Map<String, *>) {
     var tun: ParcelFileDescriptor? = null
     var loadedProfile: CoreBetaProfile? = null
     try {
       currentCoroutineContext().ensureActive()
-      CoreBetaManager.requireProfileSupported(this)
       stage(session, "NATIVE_LOAD")
       check(VeilarkCoreRuntimeNative.loadCandidate())
       stage(session, "PROFILE_STORE")
       val profile = CoreBetaProfileStore.load(this)
       loadedProfile = profile
       currentCoroutineContext().ensureActive()
-      // One atomic preference snapshot: route and application policy are from
-      // the same generation, never a mixture of several getString/getStringSet calls.
-      val routingSnapshot = getSharedPreferences("profile_meta", MODE_PRIVATE).all
-      stage(session, "ROUTING_RULES")
-      val routingMode = preferenceString(routingSnapshot, "core_routing_mode", ProfileSelection.ROUTING_ALL)
-      val effectiveDns = CoreL3DnsPolicy.effective(profile.dnsIpv4)
-      val routes = CoreL3Routes.fromPreferences(routingMode,
-        preferenceString(routingSnapshot, "core_direct_routes", ""),
-        preferenceString(routingSnapshot, "core_vpn_routes", ""), effectiveDns.resolvers)
-      // Android blocks an address family absent from addresses/routes/DNS. Never
-      // call allowFamily(AF_INET6), add IPv6 DNS/routes, or allowBypass here.
-      val builder = Builder().setSession("Veilark Core beta").setMtu(1280).setBlocking(false)
-        .addAddress(profile.clientIpv4, 32)
-      routes.forEach { builder.addRoute(it.address, it.prefixLength) }
-      TechnicalLogStore.info("CORE", "routing_mode=$routingMode route_count=${routes.size}")
-      effectiveDns.resolvers.forEach { builder.addDnsServer(it) }
-      if (effectiveDns.removed > 0) {
-        TechnicalLogStore.info("CORE", "dns_migration_removed_count=${effectiveDns.removed} " +
-          "effective_dns_count=${effectiveDns.resolvers.size}")
-      }
-      stage(session, "APPLICATION_RULES")
-      val savedPackages = routingSnapshot["selected_applications"]
-      require(savedPackages == null || (savedPackages is Set<*> && savedPackages.all { it is String }))
-      val applicationPolicy = ApplicationRoutingPolicy.fromPreferences(
-        preferenceString(routingSnapshot, "application_mode", ProfileSelection.APPS_ALL),
-        (savedPackages as? Set<*>)?.filterIsInstance<String>()?.toSet().orEmpty(),
-      )
-      val applicationCounts = applicationPolicy.forAndroidVpn(packageName).applyInstalled(
-        vpnPackage = packageName,
-        addIncluded = { app ->
-          try { builder.addAllowedApplication(app); true }
-          catch (_: NameNotFoundException) { false }
-        },
-        addExcluded = { app ->
-          try { builder.addDisallowedApplication(app); true }
-          catch (_: NameNotFoundException) { false }
-        },
-      )
-      TechnicalLogStore.info("CORE", "application_mode=${applicationPolicy.mode.preferenceValue} " +
-        "included_count=${applicationCounts.acceptedIncluded} excluded_count=${applicationCounts.acceptedExcluded} " +
-        "missing_count=${applicationCounts.missing}")
-      if (Build.VERSION.SDK_INT >= 29) builder.setMetered(false)
+      val builder = tunBuilder(session, profile.clientIpv4, 1280, profile.dnsIpv4, routingSnapshot)
       stage(session, "TUN_ESTABLISH")
       currentCoroutineContext().ensureActive()
       val activeTun = checkNotNull(builder.establish())
@@ -279,6 +287,208 @@ class CoreBetaVpnService : VpnService() {
 
     }
   }
+
+  private fun recordArgonFailure(session: Session, failure: Throwable) {
+    session.lastFailureCode = "CORE-${session.diagnosticStage}"
+    val detail = when (failure) {
+      is CoreArgonFailure -> " argon_code=${failure.code}"
+      is ErrnoException -> " errno=${failure.errno}"
+      else -> " failure=1"
+    }
+    TechnicalLogStore.error("CORE", "stage=${session.diagnosticStage}$detail")
+  }
+
+  private suspend fun runArgonTunnel(session: Session, routingSnapshot: Map<String, *>) {
+    var loadedProfile: CoreArgonProfile? = null
+    val originals = mutableListOf<ParcelFileDescriptor>()
+    val tunnels = mutableListOf<ParcelFileDescriptor>()
+    var activeTun: ParcelFileDescriptor? = null
+    try {
+      currentCoroutineContext().ensureActive()
+      stage(session, "ARGON_NATIVE_LOAD")
+      check(VeilarkArgonNative.isAbiAvailable())
+      stage(session, "ARGON_PROFILE_STORE")
+      val profile = CoreArgonProfileStore.load(this)
+      loadedProfile = profile
+      // Validate policy before UDP admission. This does not establish a TUN or
+      // infer its address; only authenticated native output may supply that.
+      stage(session, "ROUTING_RULES")
+      val routingMode = preferenceString(routingSnapshot, "core_routing_mode", ProfileSelection.ROUTING_ALL)
+      val dns = CoreL3DnsPolicy.effective(profile.dnsIpv4)
+      CoreL3Routes.fromPreferences(routingMode,
+        preferenceString(routingSnapshot, "core_direct_routes", ""),
+        preferenceString(routingSnapshot, "core_vpn_routes", ""), dns.resolvers)
+      val nativeRoutingMode = when (routingMode) {
+        ProfileSelection.ROUTING_ALL -> 0
+        ProfileSelection.ROUTING_MANUAL -> 2
+        else -> error("Unsupported Core IPv4 routing mode")
+      }
+      val peer = ipv4(profile.endpointIpv4) as Inet4Address
+      var consecutiveFailures = 0
+      while (true) {
+        currentCoroutineContext().ensureActive()
+        publish(session, ConnectionState.Connecting)
+        var ticket: CoreArgonHandleTicket? = null
+        try {
+          stage(session, "ARGON_UDP_OPEN")
+          val socket = CoreProtectedUdp.open(peer, profile.endpointPort, ::protect)
+          originals += socket
+          var secret: ByteArray? = null
+          var pin: ByteArray? = null
+          try {
+            secret = profile.clientStaticPrivateCopy()
+            pin = profile.serverStaticPublicCopy()
+            val privateKey = checkNotNull(secret)
+            val publicPin = checkNotNull(pin)
+            stage(session, "ARGON_BEGIN")
+            ticket = session.argonLifecycle.startBorrowed(
+              begin = { VeilarkArgonNative.nativeBegin(socket.fd, peer.address,
+                profile.endpointPort, profile.mtu, privateKey, publicPin, nativeRoutingMode) },
+              closeOriginals = { closeTracked(originals, socket) },
+            )
+          } finally {
+            secret?.fill(0); pin?.fill(0)
+          }
+          val admitted = checkNotNull(ticket)
+          stage(session, "ARGON_AUTHENTICATING")
+          val authenticated = session.argonLifecycle.awaitAuthenticated(admitted)
+          currentCoroutineContext().ensureActive()
+          val builder = tunBuilder(session, authenticated.ipv4, authenticated.mtu, profile.dnsIpv4, routingSnapshot)
+          stage(session, "ARGON_TUN_ESTABLISH")
+          currentCoroutineContext().ensureActive()
+          // Retain the previous Java TUN until the replacement has been established.
+          // Across transient failures its routes remain in place with no native reader.
+          val replacement = checkNotNull(builder.establish())
+          tunnels += replacement
+          val previous = activeTun
+          activeTun = replacement
+          if (previous != null) closeTracked(tunnels, previous)
+          currentCoroutineContext().ensureActive()
+          stage(session, "ARGON_TUN_ATTACH")
+          val borrowed = ParcelFileDescriptor.dup(replacement.fileDescriptor)
+          originals += borrowed
+          session.argonLifecycle.attachBorrowed(admitted, borrowed.fd) { closeTracked(originals, borrowed) }
+          stage(session, "ARGON_AWAIT_RUNNING")
+          session.argonLifecycle.awaitRunning(admitted)
+          currentCoroutineContext().ensureActive()
+          stage(session, "ARGON_RUNNING")
+          publish(session, ConnectionState.Connected)
+          while (true) {
+            currentCoroutineContext().ensureActive()
+            val status = session.argonLifecycle.status() ?: error("Missing Argon session")
+            if (status != VeilarkArgonNative.RUNNING) {
+              throw CoreArgonFailure("status", status.toLong())
+            }
+            // Read local status only: no periodic packets, rotation or wake lock.
+            delay(250)
+          }
+        } catch (cancelled: CancellationException) { throw cancelled }
+        catch (failure: Throwable) {
+          // Saved application-policy/configuration errors cannot be repaired by
+          // reconnecting. Match the legacy builder's immediate failure behavior.
+          if (failure is ApplicationRoutingUnavailableException || failure is IllegalArgumentException) throw failure
+          recordArgonFailure(session, failure)
+        }
+        finally {
+          // Cleanup must succeed before another native owner can be admitted.
+          val released = runCatching { session.argonLifecycle.stopAndRelease(ticket) }.getOrDefault(false)
+          val closed = closeTracked(originals)
+          // A failed replacement close retains more than one Java TUN. End
+          // this worker and hand every descriptor to final/late cleanup.
+          check(released && closed && tunnels.size <= 1) { "Argon cleanup did not complete" }
+        }
+        currentCoroutineContext().ensureActive()
+        consecutiveFailures = CoreBetaReconnectPolicy.nextFailureCount(consecutiveFailures, false)
+        val backoff = CoreBetaReconnectPolicy.delayMillis(consecutiveFailures)
+        TechnicalLogStore.info("CORE", "reconnect_backoff_ms=$backoff")
+        publish(session, ConnectionState.Connecting)
+        delay(backoff)
+      }
+    } catch (_: CancellationException) {
+      // Stop/revoke completes only after native and Java descriptor cleanup.
+    } catch (failure: Throwable) {
+      if (session.lastFailureCode == null) recordArgonFailure(session, failure)
+      val message = if (failure is ApplicationRoutingUnavailableException)
+        getString(R.string.core_beta_apps_unavailable) else getString(R.string.core_beta_connection_failed)
+      publish(session, ConnectionState.Failed, message + " [${session.lastFailureCode ?: "CORE-UNKNOWN"}]")
+    } finally {
+      runCatching { loadedProfile?.close() }
+      suspend fun cleanup(): Boolean {
+        val native = runCatching { session.argonLifecycle.stopAndRelease() }.getOrDefault(false)
+        val originalsClosed = closeTracked(originals)
+        val tunnelsClosed = closeTracked(tunnels)
+        val descriptorsClosed = originalsClosed && tunnelsClosed
+        sessions.resources(session, native, descriptorsClosed)
+        return native && descriptorsClosed
+      }
+      val released = cleanup()
+      if (!released) publish(session, ConnectionState.Failed, getString(R.string.core_beta_cleanup_failed))
+      finishServiceEffects(session)
+      if (!released) CoreBetaLateCleanup(
+        cleanup = { cleanup() },
+        onReleased = { completeSession(session) },
+        event = { TechnicalLogStore.info("CORE", it) },
+      ).launchOnce()
+    }
+  }
+
+  /** Failed closes retain Java custody for the fenced late-cleanup worker. */
+  private fun closeTracked(descriptors: MutableList<ParcelFileDescriptor>, descriptor: ParcelFileDescriptor) {
+    descriptor.close()
+    descriptors.remove(descriptor)
+  }
+
+  private fun closeTracked(descriptors: MutableList<ParcelFileDescriptor>): Boolean {
+    descriptors.toList().forEach { descriptor -> runCatching { closeTracked(descriptors, descriptor) } }
+    return descriptors.isEmpty()
+  }
+
+  /** Both engines use identical saved IPv4, DNS and application policy limits. */
+  private fun tunBuilder(
+    session: Session, clientIpv4: String, mtu: Int, dnsIpv4: List<String>, routingSnapshot: Map<String, *>,
+  ): Builder {
+    stage(session, "ROUTING_RULES")
+    val routingMode = preferenceString(routingSnapshot, "core_routing_mode", ProfileSelection.ROUTING_ALL)
+    val effectiveDns = CoreL3DnsPolicy.effective(dnsIpv4)
+    val routes = CoreL3Routes.fromPreferences(routingMode,
+      preferenceString(routingSnapshot, "core_direct_routes", ""),
+      preferenceString(routingSnapshot, "core_vpn_routes", ""), effectiveDns.resolvers)
+    // Android blocks an address family absent from addresses/routes/DNS. Never
+    // call allowFamily(AF_INET6), add IPv6 DNS/routes, or allowBypass here.
+    val builder = Builder().setSession("Veilark Core beta").setMtu(mtu).setBlocking(false)
+      .addAddress(clientIpv4, 32)
+    routes.forEach { builder.addRoute(it.address, it.prefixLength) }
+    TechnicalLogStore.info("CORE", "routing_mode=$routingMode route_count=${routes.size}")
+    effectiveDns.resolvers.forEach { builder.addDnsServer(it) }
+    if (effectiveDns.removed > 0) {
+      TechnicalLogStore.info("CORE", "dns_migration_removed_count=${effectiveDns.removed} " +
+        "effective_dns_count=${effectiveDns.resolvers.size}")
+    }
+    stage(session, "APPLICATION_RULES")
+    val savedPackages = routingSnapshot["selected_applications"]
+    require(savedPackages == null || (savedPackages is Set<*> && savedPackages.all { it is String }))
+    val applicationPolicy = ApplicationRoutingPolicy.fromPreferences(
+      preferenceString(routingSnapshot, "application_mode", ProfileSelection.APPS_ALL),
+      savedPackages?.filterIsInstance<String>()?.toSet().orEmpty(),
+    )
+    val applicationCounts = applicationPolicy.forAndroidVpn(packageName).applyInstalled(
+      vpnPackage = packageName,
+      addIncluded = { app ->
+        try { builder.addAllowedApplication(app); true }
+        catch (_: NameNotFoundException) { false }
+      },
+      addExcluded = { app ->
+        try { builder.addDisallowedApplication(app); true }
+        catch (_: NameNotFoundException) { false }
+      },
+    )
+    TechnicalLogStore.info("CORE", "application_mode=${applicationPolicy.mode.preferenceValue} " +
+      "included_count=${applicationCounts.acceptedIncluded} excluded_count=${applicationCounts.acceptedExcluded} " +
+      "missing_count=${applicationCounts.missing}")
+    if (Build.VERSION.SDK_INT >= 29) builder.setMetered(false)
+    return builder
+  }
+
 
   private suspend fun recordProgress(session: Session) {
     val counts = session.lifecycle.progress() ?: return
