@@ -17,6 +17,7 @@ class CoreArgonLifecycleTest {
     val stops = AtomicInteger()
     val releases = AtomicInteger()
     val attaches = AtomicInteger()
+    val dnsAttaches = AtomicInteger()
     var joinCode = 0
     var releaseCode = 0
     override fun awaitAuthenticated(handle: Long, output: IntArray): Int {
@@ -24,6 +25,7 @@ class CoreArgonLifecycleTest {
       return 0
     }
     override fun attachTun(handle: Long, borrowedTunFd: Int): Int { attaches.incrementAndGet(); return 0 }
+    override fun attachRuDns(handle: Long, borrowedResolverFd: Int): Int { dnsAttaches.incrementAndGet(); return 0 }
     override fun awaitRunning(handle: Long) = 0
     override fun status(handle: Long) = 3
     override fun stop(handle: Long): Int { stops.incrementAndGet(); return 0 }
@@ -151,6 +153,40 @@ class CoreArgonLifecycleTest {
     val next = owner.startBorrowed({ 7L }, { })
     try { owner.awaitAuthenticated(next); fail("Loopback assignment rejected") }
     catch (_: IllegalStateException) { }
+    assertNull(owner.status())
+  }
+
+  @Test fun dnsInstallClosesBorrowedOriginalAndStaleTicketCannotReachReplacement() = runBlocking {
+    val fake = Fake()
+    val owner = CoreArgonLifecycle(fake)
+    val old = owner.startBorrowed({ 7L }, { })
+    assertTrue(owner.stopAndRelease(old))
+    val current = owner.startBorrowed({ 7L }, { })
+    val stops = fake.stops.get()
+    var closed = 0
+    try { owner.attachRuDnsBorrowed(old, 19) { closed++ }; fail("Stale DNS install") }
+    catch (_: IllegalStateException) { }
+    assertEquals(1, closed)
+    assertEquals(0, fake.dnsAttaches.get())
+    assertEquals(stops, fake.stops.get())
+    owner.attachRuDnsBorrowed(current, 20) { closed++ }
+    assertEquals(2, closed)
+    assertEquals(1, fake.dnsAttaches.get())
+    assertTrue(owner.stopAndRelease(current))
+  }
+
+  @Test fun failedDnsInstallClosesOriginalAndJoinsNativeBeforeRelease() = runBlocking {
+    val fake = object : Fake() {
+      override fun attachRuDns(handle: Long, borrowedResolverFd: Int) = -3
+    }
+    val owner = CoreArgonLifecycle(fake)
+    val ticket = owner.startBorrowed({ 7L }, { })
+    var closed = 0
+    try { owner.attachRuDnsBorrowed(ticket, 20) { closed++ }; fail("DNS install rejected") }
+    catch (failure: CoreArgonFailure) { assertEquals("attach_dns", failure.operation) }
+    assertEquals(1, closed)
+    assertEquals(1, fake.stops.get())
+    assertEquals(1, fake.releases.get())
     assertNull(owner.status())
   }
 }

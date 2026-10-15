@@ -59,6 +59,7 @@ class CoreBetaVpnService : VpnService() {
     val argonLifecycle = CoreArgonLifecycle(object : CoreArgonHandleApi {
       override fun awaitAuthenticated(handle: Long, output: IntArray) = VeilarkArgonNative.nativeAwaitAuthenticated(handle, output)
       override fun attachTun(handle: Long, borrowedTunFd: Int) = VeilarkArgonNative.nativeAttachTun(handle, borrowedTunFd)
+      override fun attachRuDns(handle: Long, borrowedResolverFd: Int) = VeilarkArgonNative.nativeAttachRuDns(handle, borrowedResolverFd)
       override fun awaitRunning(handle: Long) = VeilarkArgonNative.nativeAwaitRunning(handle)
       override fun status(handle: Long) = VeilarkArgonNative.nativeStatus(handle)
       override fun stop(handle: Long) = VeilarkArgonNative.nativeStop(handle)
@@ -321,6 +322,7 @@ class CoreBetaVpnService : VpnService() {
       val nativeRoutingMode = when (routingMode) {
         ProfileSelection.ROUTING_ALL -> 0
         ProfileSelection.ROUTING_MANUAL -> 2
+        ProfileSelection.ROUTING_RU_DIRECT -> 1
         else -> error("Unsupported Core IPv4 routing mode")
       }
       val peer = ipv4(profile.endpointIpv4) as Inet4Address
@@ -353,6 +355,14 @@ class CoreBetaVpnService : VpnService() {
           stage(session, "ARGON_AUTHENTICATING")
           val authenticated = session.argonLifecycle.awaitAuthenticated(admitted)
           currentCoroutineContext().ensureActive()
+          if (nativeRoutingMode == 1) {
+            stage(session, "ARGON_RU_DNS_OPEN")
+            val resolver = CoreProtectedUdp.open(ipv4("77.88.8.8") as Inet4Address, 53, ::protect)
+            originals += resolver
+            stage(session, "ARGON_RU_DNS_ATTACH")
+            session.argonLifecycle.attachRuDnsBorrowed(admitted, resolver.fd) { closeTracked(originals, resolver) }
+            currentCoroutineContext().ensureActive()
+          }
           val builder = tunBuilder(session, authenticated.ipv4, authenticated.mtu, profile.dnsIpv4, routingSnapshot)
           stage(session, "ARGON_TUN_ESTABLISH")
           currentCoroutineContext().ensureActive()

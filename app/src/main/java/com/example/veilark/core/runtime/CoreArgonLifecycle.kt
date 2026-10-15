@@ -15,6 +15,7 @@ import kotlinx.coroutines.withContext
 internal interface CoreArgonHandleApi {
   fun awaitAuthenticated(handle: Long, output: IntArray): Int
   fun attachTun(handle: Long, borrowedTunFd: Int): Int
+  fun attachRuDns(handle: Long, borrowedResolverFd: Int): Int
   fun awaitRunning(handle: Long): Int
   fun status(handle: Long): Int
   fun stop(handle: Long): Int
@@ -77,6 +78,18 @@ internal class CoreArgonLifecycle(private val api: CoreArgonHandleApi) {
 
   /** Only the temporary borrowed descriptor is closed; caller may retain a separate kill-switch TUN. */
   suspend fun attachBorrowed(ticket: CoreArgonHandleTicket, borrowedTunFd: Int, closeOriginals: () -> Unit) {
+    installBorrowed(ticket, borrowedTunFd, closeOriginals, "attach", api::attachTun)
+  }
+
+  /** Native enforces authenticated RU mode and exactly one pre-TUN installation. */
+  suspend fun attachRuDnsBorrowed(ticket: CoreArgonHandleTicket, borrowedResolverFd: Int, closeOriginals: () -> Unit) {
+    installBorrowed(ticket, borrowedResolverFd, closeOriginals, "attach_dns", api::attachRuDns)
+  }
+
+  private suspend fun installBorrowed(
+    ticket: CoreArgonHandleTicket, borrowedFd: Int, closeOriginals: () -> Unit,
+    operation: String, install: (Long, Int) -> Int,
+  ) {
     val caller = currentCoroutineContext()
     try {
       withContext(NonCancellable + Dispatchers.IO) {
@@ -84,8 +97,8 @@ internal class CoreArgonLifecycle(private val api: CoreArgonHandleApi) {
           try {
             caller.ensureActive()
             requireOwner(ticket)
-            val code = api.attachTun(ticket.handle, borrowedTunFd)
-            if (code != 0) throw CoreArgonFailure("attach", code.toLong())
+            val code = install(ticket.handle, borrowedFd)
+            if (code != 0) throw CoreArgonFailure(operation, code.toLong())
           } finally { closeOriginals() }
         }
       }

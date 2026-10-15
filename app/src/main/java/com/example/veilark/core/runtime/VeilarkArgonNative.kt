@@ -31,6 +31,8 @@ internal object VeilarkArgonNative {
    * Check return0 before consuming; no Java array is pinned during the wait.
    */
   @JvmStatic external fun nativeAwaitAuthenticated(handle: Long, output: IntArray): Int
+  /** RU-direct only, after authentication and before TUN; sync dup of protected 77.88.8.8:53. */
+  @JvmStatic external fun nativeAttachRuDns(handle: Long, borrowedResolverFd: Int): Int
   @JvmStatic external fun nativeAttachTun(handle: Long, borrowedTunFd: Int): Int
   @JvmStatic external fun nativeAwaitRunning(handle: Long): Int
   @JvmStatic external fun nativeStatus(handle: Long): Int

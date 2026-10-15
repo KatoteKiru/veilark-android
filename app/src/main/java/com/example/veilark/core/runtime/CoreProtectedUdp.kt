@@ -7,7 +7,7 @@ import java.net.Inet4Address
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 
-/** Argon carrier creation only; successful UDP connect is not handshake readiness.
+/** Protected Argon carrier/resolver creation; UDP connect is not authentication or DNS readiness.
  * Caller owns the result and must close it, including cancellation after return.
  * Native may borrow it only if it synchronously duplicates it before returning.
  * This helper sends no packets and is not connected to the legacy TCP JNI.
