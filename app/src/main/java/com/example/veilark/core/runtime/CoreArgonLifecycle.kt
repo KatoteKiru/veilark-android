@@ -1,0 +1,172 @@
+package com.example.veilark.core.runtime
+
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
+
+/** Matched Argon ABI only; injected implementations also support lifecycle mock tests. */
+internal interface CoreArgonHandleApi {
+  fun awaitAuthenticated(handle: Long, output: IntArray): Int
+  fun attachTun(handle: Long, borrowedTunFd: Int): Int
+  fun awaitRunning(handle: Long): Int
+  fun status(handle: Long): Int
+  fun stop(handle: Long): Int
+  fun join(handle: Long): Int
+  fun release(handle: Long): Int
+}
+
+internal class CoreArgonHandleTicket internal constructor(val handle: Long)
+internal class CoreArgonFailure(val operation: String, val code: Long) :
+  IllegalStateException("Argon $operation failed ($code)")
+internal data class CoreArgonAuthenticated(val ipv4: String, val mtu: Int)
+
+/** Owns duplicated native resources until successful join AND release. No readiness inference. */
+internal class CoreArgonLifecycle(private val api: CoreArgonHandleApi) {
+  private class Owner(val ticket: CoreArgonHandleTicket) {
+    var cleaning = false
+    var waiters = 0
+    var drained = CompletableDeferred<Unit>().apply { complete(Unit) }
+  }
+  private val ownershipMutex = Mutex()
+  private var owner: Owner? = null
+
+  /** begin synchronously duplicates borrowed UDP; closeOriginals always runs, even on rejection. */
+  suspend fun startBorrowed(begin: () -> Long, closeOriginals: () -> Unit): CoreArgonHandleTicket {
+    val caller = currentCoroutineContext()
+    var admitted: CoreArgonHandleTicket? = null
+    try {
+      val ticket = withContext(NonCancellable + Dispatchers.IO) {
+        ownershipMutex.withLock {
+          try {
+            caller.ensureActive()
+            check(owner == null) { "Previous Argon session has not been released" }
+            val handle = begin()
+            if (handle <= 0) throw CoreArgonFailure("begin", handle)
+            // Admission precedes close: even a throwing close cannot lose native ownership.
+            CoreArgonHandleTicket(handle).also { admitted = it; owner = Owner(it) }
+          } finally { closeOriginals() }
+        }
+      }
+      caller.ensureActive()
+      return ticket
+    } catch (failure: Throwable) {
+      admitted?.let { stopAndRelease(it) }
+      throw failure
+    }
+  }
+
+  suspend fun awaitAuthenticated(ticket: CoreArgonHandleTicket): CoreArgonAuthenticated {
+    val output = IntArray(5)
+    try {
+      waitNative(ticket) { api.awaitAuthenticated(ticket.handle, output) }
+      check(output.take(4).all { it in 0..255 } && output[0] in 1..223 && output[0] != 127 &&
+        output[4] in 1280..1360) { "Invalid authenticated Argon configuration" }
+      return CoreArgonAuthenticated(output.take(4).joinToString("."), output[4])
+    } catch (failure: Throwable) {
+      stopAndRelease(ticket)
+      throw failure
+    }
+  }
+
+  /** Only the temporary borrowed descriptor is closed; caller may retain a separate kill-switch TUN. */
+  suspend fun attachBorrowed(ticket: CoreArgonHandleTicket, borrowedTunFd: Int, closeOriginals: () -> Unit) {
+    val caller = currentCoroutineContext()
+    try {
+      withContext(NonCancellable + Dispatchers.IO) {
+        ownershipMutex.withLock {
+          try {
+            caller.ensureActive()
+            requireOwner(ticket)
+            val code = api.attachTun(ticket.handle, borrowedTunFd)
+            if (code != 0) throw CoreArgonFailure("attach", code.toLong())
+          } finally { closeOriginals() }
+        }
+      }
+      caller.ensureActive()
+    } catch (failure: Throwable) {
+      stopAndRelease(ticket)
+      throw failure
+    }
+  }
+
+  suspend fun awaitRunning(ticket: CoreArgonHandleTicket) {
+    try { waitNative(ticket) { api.awaitRunning(ticket.handle) } }
+    catch (failure: Throwable) { stopAndRelease(ticket); throw failure }
+  }
+
+  private fun requireOwner(ticket: CoreArgonHandleTicket): Owner =
+    checkNotNull(owner?.takeIf { it.ticket === ticket && !it.cleaning }) { "Argon session unavailable or replaced" }
+
+  /** Cancellable await sends stop BEFORE structured scope waits for blocking JNI to return. */
+  private suspend fun waitNative(ticket: CoreArgonHandleTicket, wait: () -> Int) {
+    val lease = ownershipMutex.withLock {
+      currentCoroutineContext().ensureActive()
+      requireOwner(ticket).also {
+        if (it.waiters++ == 0) it.drained = CompletableDeferred()
+      }
+    }
+    try {
+      coroutineScope {
+        val waiter = async(Dispatchers.IO) { wait() }
+        try {
+          val code = waiter.await()
+          if (code != 0) throw CoreArgonFailure("wait", code.toLong())
+          ownershipMutex.withLock { currentCoroutineContext().ensureActive(); requireOwner(ticket) }
+        } catch (failure: Throwable) {
+          withContext(NonCancellable + Dispatchers.IO) {
+            ownershipMutex.withLock {
+              if (owner === lease) api.stop(ticket.handle)
+            }
+          }
+          throw failure
+        } finally {
+          // Native wait must never outlive its owner, including cancellation during JNI.
+          withContext(NonCancellable) { waiter.join() }
+        }
+      }
+    } finally {
+      withContext(NonCancellable) {
+        ownershipMutex.withLock { if (--lease.waiters == 0) lease.drained.complete(Unit) }
+      }
+    }
+  }
+
+  suspend fun status(): Int? = withContext(Dispatchers.IO) {
+    ownershipMutex.withLock { owner?.let { api.status(it.ticket.handle) } }
+  }
+
+  /** Concurrent cleanup returns false. Failed join/release retains ownership for later retry. */
+  suspend fun stopAndRelease(expected: CoreArgonHandleTicket? = null): Boolean =
+    withContext(NonCancellable + Dispatchers.IO) {
+      val admitted = ownershipMutex.withLock {
+        val current = owner ?: return@withContext true
+        if (expected != null && current.ticket !== expected) return@withContext true
+        if (current.cleaning) return@withContext false
+        current.cleaning = true
+        current
+      }
+      var released = false
+      try {
+        if (api.stop(admitted.ticket.handle) != 0) return@withContext false
+        admitted.drained.await()
+        if (api.join(admitted.ticket.handle) != 0) return@withContext false
+        // Status reads are short but may not race disposal.
+        ownershipMutex.withLock {
+          if (api.release(admitted.ticket.handle) == 0) {
+            if (owner === admitted) owner = null
+            released = true
+          }
+        }
+        released
+      } finally {
+        ownershipMutex.withLock { if (owner === admitted) admitted.cleaning = false }
+      }
+    }
+}
