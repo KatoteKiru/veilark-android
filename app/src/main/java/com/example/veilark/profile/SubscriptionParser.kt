@@ -52,7 +52,26 @@ class SubscriptionParser {
   private fun createBaseConfig(
     tags: List<String>,
     outbounds: List<JSONObject>,
-  ): JSONObject = JSONObject()
+  ): JSONObject = createRoutingTemplate(
+    JSONArray()
+      .put(
+        JSONObject()
+          .put("type", "urltest")
+          .put("tag", "auto")
+          .put("outbounds", JSONArray(tags))
+          // Preserve the existing subscription selector and probe semantics.
+          .put("url", "https://cp.cloudflare.com/generate_204")
+          .put("interval", "10m")
+          .put("tolerance", 80)
+          .put("idle_timeout", "15m")
+          .put("interrupt_exist_connections", false),
+      )
+      .also { array -> outbounds.forEach(array::put) }
+      .put(JSONObject().put("type", "direct").put("tag", "direct")),
+  )
+
+  /** In-memory shared template; no URI import, store write or connection side effect. */
+  internal fun createRoutingTemplate(outbounds: JSONArray): JSONObject = JSONObject()
       .put("log", JSONObject().put("level", "warn").put("timestamp", true))
       .put(
         "dns",
@@ -102,22 +121,7 @@ class SubscriptionParser {
       )
       .put(
         "outbounds",
-        JSONArray()
-          .put(
-            JSONObject()
-              .put("type", "urltest")
-              .put("tag", "auto")
-              .put("outbounds", JSONArray(tags))
-              // Server selection must not depend on a service that can be selectively
-              // throttled or blocked. The probe is advisory and carries no user traffic.
-              .put("url", "https://cp.cloudflare.com/generate_204")
-              .put("interval", "10m")
-              .put("tolerance", 80)
-              .put("idle_timeout", "15m")
-              .put("interrupt_exist_connections", false),
-          )
-          .also { array -> outbounds.forEach(array::put) }
-          .put(JSONObject().put("type", "direct").put("tag", "direct")),
+        outbounds,
       )
       .put(
         "route",

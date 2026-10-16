@@ -6,6 +6,25 @@ import org.junit.Test
 
 class AndroidTunnelLifecycleCoordinatorTest {
   @Test
+  fun coreBetaSwitchWaitsForPreviousReleaseAndRejectsStaleCallbacks() {
+    val owner = coordinator(epoch = 31)
+    val previous = connectToConnected(owner, EngineId.TrustTunnel)
+    val switching = requireType<LifecycleAction.StopEngine>(owner.dispatch(LifecycleInput.Connect(EngineId.CoreBeta)).action)
+    assertEquals(previous, switching.stopFence.activeAttempt)
+    val permission = requireType<LifecycleAction.RequestVpnPermission>(
+      owner.dispatch(LifecycleInput.EngineStopped(switching.stopFence)).action,
+    )
+    assertEquals(EngineId.CoreBeta, permission.attempt.engine)
+    owner.dispatch(LifecycleInput.PermissionResult(permission.attempt, granted = true))
+    owner.dispatch(LifecycleInput.EngineStarted(permission.attempt))
+    assertEquals(LifecycleAction.Ignored(IgnoreReason.StaleOrIllegalEvent),
+      owner.dispatch(LifecycleInput.EngineFailed(previous)).action)
+    assertEquals(LifecycleState.Connected(permission.attempt), owner.state)
+    val stop = requireType<LifecycleAction.StopEngine>(owner.dispatch(LifecycleInput.Connect(EngineId.SingBox)).action)
+    assertEquals(permission.attempt, stop.stopFence.activeAttempt)
+  }
+
+  @Test
   fun startupSideEffectsRequireBothCurrentGenerationAndLifecycleAttempt() {
     val active = LifecycleAttempt(4L, 9L, EngineId.SingBox)
 

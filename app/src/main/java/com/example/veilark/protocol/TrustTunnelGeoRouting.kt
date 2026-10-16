@@ -2,6 +2,7 @@ package com.example.veilark.protocol
 
 import android.content.Context
 import com.example.veilark.profile.ProfileSelection
+import com.example.veilark.profile.GeoCategoryCatalog
 import org.json.JSONObject
 import java.security.MessageDigest
 
@@ -41,10 +42,11 @@ object TrustTunnelGeoRouting {
     val preferences = context.getSharedPreferences("profile_meta", Context.MODE_PRIVATE)
     return when (currentMode(preferences.getString("trust_routing_mode", null), preferences.getString("routing_mode", null))) {
       ProfileSelection.ROUTING_RU_DIRECT -> ruCidrs(context)
-      ProfileSelection.ROUTING_MANUAL -> manualExclusions(
-        preferences.getString("trust_direct_routes", "").orEmpty(),
-        preferences.getString("trust_vpn_routes", "").orEmpty(),
-      )
+      ProfileSelection.ROUTING_MANUAL -> {
+        val direct = preferences.getString("trust_direct_routes", "").orEmpty()
+        val vpn = preferences.getString("trust_vpn_routes", "").orEmpty()
+        (manualExclusions(direct, vpn) + GeoCategoryCatalog.fromContext(context).trustDirectExclusions(direct, vpn)).distinct()
+      }
       else -> emptyList()
     }
   }
@@ -80,9 +82,11 @@ object TrustTunnelGeoRouting {
   internal fun manualExclusions(directEntries: String, vpnEntries: String): List<String> {
     val direct = ProfileSelection.routingEntries(directEntries)
     val vpn = ProfileSelection.routingEntries(vpnEntries)
+    require(vpn.categories.isEmpty()) { "Категории VPN требуют sing-box; TrustTunnel поддерживает GEO-категории только напрямую" }
+    if (direct.categories.isNotEmpty()) require(vpnEntries.isBlank()) { "GEO напрямую вместе с исключениями VPN требует sing-box" }
     require(
       direct.domains.isNotEmpty() || direct.networks.isNotEmpty() ||
-        vpn.domains.isNotEmpty() || vpn.networks.isNotEmpty(),
+        vpn.domains.isNotEmpty() || vpn.networks.isNotEmpty() || direct.categories.isNotEmpty(),
     ) { "Добавьте хотя бы один домен или IP-диапазон" }
     val vpnOverrides = (vpn.domains + vpn.networks).toSet()
     return (

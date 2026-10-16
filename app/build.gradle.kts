@@ -1,4 +1,5 @@
 import java.net.URI
+import java.security.MessageDigest
 import java.util.Base64
 import java.util.Properties
 import org.gradle.api.DefaultTask
@@ -76,6 +77,23 @@ val veilarkCoreCanaryRequested = providers.gradleProperty("veilarkCoreCanary")
   }
   .orElse(false)
 
+// Private candidate only; production/OSS builds do not pick up lab artifacts.
+val bundleCoreBetaRuntime = providers.gradleProperty("bundleVeilarkCoreBetaRuntime")
+  .map { it.toBooleanStrict() }.orElse(false).get()
+val coreBetaRuntimeDirectory = rootProject.file("build/core-beta-runtime")
+if (bundleCoreBetaRuntime) {
+  val runtime = coreBetaRuntimeDirectory.resolve("arm64-v8a/libveilark_core_runtime.so")
+  require(runtime.isFile && runtime.length() == 4_401_056L) { "Verified Core beta ARM64 runtime missing" }
+  val digest = MessageDigest.getInstance("SHA-256").digest(runtime.readBytes())
+    .joinToString("") { "%02x".format(it) }
+  require(digest == "5963189c372f8561ee53581552adc86b7e71c26c366131af3f2993bdd8bb8ddc") {
+    "Core beta runtime hash does not match reviewed artifact"
+  }
+  require(coreBetaRuntimeDirectory.walkTopDown().filter { it.isFile }.toList() == listOf(runtime)) {
+    "Unexpected Core beta artifacts in staging directory"
+  }
+}
+
 val privatePropertiesFile = rootProject.file("private.properties")
 val privateProperties = Properties().apply {
   if (privatePropertiesFile.isFile) {
@@ -98,7 +116,7 @@ val privateSubscriptionHost = privateProperty("subscriptionHost").orEmpty()
 val privateSubscriptionPort = privateProperty("subscriptionPort")?.toIntOrNull() ?: -1
 val telegramBotUrl = privateProperty("telegramBotUrl")
   ?: "https://t.me/senyavpn_bot?start=client_android"
-val webAccountUrl = "https://sub.senyasenyavski.uk/tma/"
+val webAccountUrl = "https://senyasenyavski.uk/tma/portal/"
 
 val ossKeystorePath = providers.environmentVariable("VEILARK_OSS_KEYSTORE").orNull
 val ossKeystorePassword = providers.environmentVariable("VEILARK_OSS_STORE_PASSWORD").orNull
@@ -134,9 +152,10 @@ android {
     defaultConfig {
         minSdk = 29
         targetSdk = 36
-        versionCode = 70
-        versionName = "0.8.0-rc42"
+        versionCode = 80
+        versionName = "0.9.0-beta10"
         buildConfigField("boolean", "VEILARK_CORE_ENABLED", "false")
+        buildConfigField("boolean", "CORE_BETA_RUNTIME_BUNDLED", "false")
         buildConfigField("String", "TELEGRAM_BOT_URL", quotedBuildConfig(telegramBotUrl))
         buildConfigField("String", "WEB_ACCOUNT_URL", quotedBuildConfig(webAccountUrl))
         ndk {
@@ -166,6 +185,7 @@ android {
         dimension = "distribution"
         applicationId = privateApplicationId
         buildConfigField("boolean", "SELF_UPDATE_ENABLED", "true")
+        buildConfigField("boolean", "CORE_BETA_RUNTIME_BUNDLED", bundleCoreBetaRuntime.toString())
         buildConfigField("String", "OTA_MANIFEST_URL", quotedBuildConfig(privateOtaManifestUrl))
         buildConfigField("String", "OTA_HOST", quotedBuildConfig(privateOtaHost))
         buildConfigField("int", "OTA_PORT", privateOtaPort.toString())
@@ -189,6 +209,9 @@ android {
         }
       }
     }
+    if (bundleCoreBetaRuntime) {
+      sourceSets.getByName("private").jniLibs.directories.add(coreBetaRuntimeDirectory.absolutePath)
+    }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
@@ -201,6 +224,8 @@ android {
     }
 
     packaging {
+      // Compress identical native payloads; Android extracts the selected ABI on install.
+      jniLibs.useLegacyPackaging = true
       resources {
         excludes += "/META-INF/{AL2.0,LGPL2.1}"
       }
@@ -273,6 +298,8 @@ dependencies {
   implementation("androidx.camera:camera-view:1.6.1")
   implementation("com.google.zxing:core:3.5.3")
   implementation("org.yaml:snakeyaml:2.6")
+  // Ed25519 is not supplied by Android's JCA before API33 (minSdk29).
+  implementation("com.google.crypto.tink:tink-android:1.23.0")
   // Tooling
   debugImplementation(libs.androidx.compose.ui.tooling)
   // Instrumented tests

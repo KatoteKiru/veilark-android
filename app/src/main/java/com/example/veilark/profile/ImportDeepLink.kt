@@ -4,6 +4,8 @@ import android.content.Intent
 import java.net.URI
 import java.net.URLDecoder
 import java.nio.charset.StandardCharsets
+import java.nio.ByteBuffer
+import java.util.Base64
 
 /**
  * Validates Veilark-owned import intents before they reach the subscription parser.
@@ -23,7 +25,12 @@ internal object ImportDeepLink {
 
   fun parse(intent: Intent?): String? {
     if (intent?.action != Intent.ACTION_VIEW) return null
-    return intent.data?.toString()?.let(::parseUri)
+    return intent.data?.toString()?.let { raw ->
+      parseUri(raw)?.let { target ->
+        // Keep the opaque representation in the import form; dispatch unwraps it later.
+        if (URI(raw).rawQuery?.startsWith("code=") == true) raw else target
+      }
+    }
   }
 
   /** Pure URI boundary used by the Android intent adapter and local regression tests. */
@@ -44,18 +51,29 @@ internal object ImportDeepLink {
       return null
     }
     val query = uri.rawQuery ?: return null
-    val values = query.split('&')
-      .filter(String::isNotEmpty)
-      .mapNotNull { item ->
-        val equal = item.indexOf('=')
-        if (equal < 0) return@mapNotNull null
-        val key = decode(item.substring(0, equal))
-        if (key != PARAM) return@mapNotNull null
-        decode(item.substring(equal + 1))
-      }
-    if (values.size != 1 || query.split('&').count(String::isNotEmpty) != 1) return null
-    return values.single()
+    val items = query.split('&').filter(String::isNotEmpty)
+    if (items.size != 1) return null
+    val item = items.single()
+    val equal = item.indexOf('=')
+    if (equal < 0) return null
+    return when (decode(item.substring(0, equal))) {
+      PARAM -> decode(item.substring(equal + 1))
+      "code" -> decodeImportCode(item.substring(equal + 1))
+      else -> null
+    }
   }
+
+  // A display-safe code, not encryption or network anonymity. Keep HTTPS validation
+  // after decoding; the code must never authorize a new protocol or arbitrary input.
+  private fun decodeImportCode(code: String): String? = runCatching {
+    require(code.isNotEmpty() && code.all { it in 'a'..'z' || it in 'A'..'Z' || it in '0'..'9' || it == '-' || it == '_' })
+    val bytes = Base64.getUrlDecoder().decode(code)
+    require(bytes.size <= MAX_PAYLOAD_LENGTH)
+    require(Base64.getUrlEncoder().withoutPadding().encodeToString(bytes) == code)
+    val decoded = Charsets.UTF_8.newDecoder().decode(ByteBuffer.wrap(bytes)).toString()
+    require(URI(decoded).scheme.equals("https", ignoreCase = true))
+    decoded
+  }.getOrNull()
 
   internal fun validatePayload(value: String): String? {
     if (value.isEmpty() || value.length > MAX_PAYLOAD_LENGTH ||

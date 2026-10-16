@@ -83,6 +83,7 @@ object NetworkProfileMigration {
       vpnPackage = context.packageName,
       dpiMode = dpiMode,
       geoRuleSets = geoRuleSets,
+      categoryRuleSets = if (routingMode == ProfileSelection.ROUTING_MANUAL) GeoCategoryCatalog.fromContext(context).localPaths(directRoutes, vpnRoutes) else emptyMap(),
     )
     if (reconciled != current) {
       SecureProfileStore.save(context, SecureProfileStore.SING_BOX, reconciled)
@@ -104,6 +105,7 @@ object NetworkProfileMigration {
     vpnPackage: String,
     dpiMode: String,
     geoRuleSets: ProfileSelection.GeoRuleSets? = null,
+    categoryRuleSets: Map<String, String> = emptyMap(),
   ): String {
     var reconciled = ProfileSelection.applyRouting(
       config,
@@ -111,6 +113,7 @@ object NetworkProfileMigration {
       directRoutes,
       vpnRoutes,
       geoRuleSets,
+      categoryRuleSets,
     )
     reconciled = ProfileSelection.applyApplications(
       reconciled,
@@ -124,6 +127,16 @@ object NetworkProfileMigration {
   fun recoverStableDefaults(context: Context) {
     val preferences = context.getSharedPreferences("profile_meta", Context.MODE_PRIVATE)
     if (preferences.getBoolean(RECOVERY_KEY, false)) return
+    // This historical recovery predates user category strategies. Never reset
+    // a newer explicit strategy merely because the old migration marker is absent.
+    val mode = preferences.getString("sing_routing_mode", preferences.getString("routing_mode", ProfileSelection.ROUTING_ALL))
+    if (mode == ProfileSelection.ROUTING_MANUAL && GeoCategoryCatalog.selected(
+        preferences.getString("direct_routes", "").orEmpty(),
+        preferences.getString("vpn_routes", "").orEmpty(),
+      ).isNotEmpty()) {
+      preferences.edit().putBoolean(RECOVERY_KEY, true).apply()
+      return
+    }
     if (SecureProfileStore.exists(context, SecureProfileStore.SING_BOX)) {
       val current = SecureProfileStore.load(context, SecureProfileStore.SING_BOX)
       SecureProfileStore.save(context, SecureProfileStore.SING_BOX, recoverStableDefaults(current))
