@@ -659,7 +659,7 @@ fun MainScreen(
       }
       item {
         RoutingCard(
-          routingMode = if (coreBetaActive) ProfileSelection.ROUTING_ALL else routingMode,
+          routingMode = routingMode,
           applicationMode = applicationMode,
           dpiMode = if (coreBetaActive) ProfileSelection.DPI_OFF else dpiMode,
           selectedApplicationCount = selectedApplications.size,
@@ -2240,7 +2240,7 @@ private fun RoutingCard(
         if (available) {
           InfoRow(
             stringResource(R.string.traffic),
-            if (coreBetaActive) stringResource(R.string.core_ipv4_mode) else when (routingMode) {
+            if (coreBetaActive && routingMode == ProfileSelection.ROUTING_ALL) stringResource(R.string.core_ipv4_mode) else when (routingMode) {
               ProfileSelection.ROUTING_RU_DIRECT -> stringResource(R.string.russia_direct)
               ProfileSelection.ROUTING_MANUAL -> stringResource(R.string.custom_rules)
               else -> stringResource(R.string.all_traffic_vpn)
@@ -2614,6 +2614,13 @@ private fun RoutingSettingsDialog(
                 SettingChoice(title = stringResource(R.string.all_traffic_vpn),
                   selected = route == ProfileSelection.ROUTING_ALL,
                   onClick = { route = ProfileSelection.ROUTING_ALL })
+              }
+              item {
+                SettingChoice(title = stringResource(R.string.russia_direct),
+                  subtitle = stringResource(if (android.os.Build.VERSION.SDK_INT >= 33)
+                    R.string.fairway_ru_exact_description else R.string.fairway_ru_partial_description),
+                  selected = route == ProfileSelection.ROUTING_RU_DIRECT,
+                  onClick = { route = ProfileSelection.ROUTING_RU_DIRECT })
               }
               item {
                 SettingChoice(title = stringResource(R.string.core_l3_manual),

@@ -17,4 +17,6 @@
     <string name="core_beta_add_profile">Import a Core test profile, then select this mode.</string>
     <string name="core_beta_imported">Core profile saved. Select Veilark Core (маршрут: Fairway) to connect.</string>
     <string name="core_beta_connection_failed">Veilark Core connection failed. Check the test profile and server availability.</string>
+    <string name="fairway_ru_exact_description">Russian IPv4 ranges go directly. A Russian domain hosted abroad stays in the VPN. IPv6 is blocked.</string>
+    <string name="fairway_ru_partial_description" formatted="false">Partial bypass on Android 10–12: about 80% of Russian IPv4 addresses go directly; the rest stay in the VPN. IPv6 is blocked.</string>
 </resources>

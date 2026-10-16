@@ -57,7 +57,7 @@ import com.example.veilark.io.readAtMost
 import com.example.veilark.profile.CoreProfileStore
 import com.example.veilark.core.runtime.CoreBetaManager
 import com.example.veilark.core.runtime.CoreL3DnsPolicy
-import com.example.veilark.core.runtime.CoreL3Routes
+import com.example.veilark.core.runtime.CoreRoutingPlan
 import com.example.veilark.core.runtime.VeilarkCoreRuntimeNative
 import com.example.veilark.protocol.ProfileEngine
 import com.example.veilark.protocol.TrustTunnelManager
@@ -1578,11 +1578,13 @@ class MainActivity : ComponentActivity() {
                 packages,
               )
               if (profileEngine == ProfileEngine.CORE_BETA) {
-                require(newRoutingMode in setOf(ProfileSelection.ROUTING_ALL, ProfileSelection.ROUTING_MANUAL) &&
+                require(newRoutingMode in setOf(ProfileSelection.ROUTING_ALL, ProfileSelection.ROUTING_MANUAL,
+                  ProfileSelection.ROUTING_RU_DIRECT) &&
                   newDpiMode == ProfileSelection.DPI_OFF) { getString(R.string.core_l3_cidr_only) }
                 val coreMetadata = CoreProfileStore.loadMetadata(this)
-                CoreL3Routes.fromPreferences(newRoutingMode, newDirectRoutes, newVpnRoutes,
-                  CoreL3DnsPolicy.effective(coreMetadata.dnsIpv4).resolvers)
+                CoreRoutingPlan.prepare(newRoutingMode, newDirectRoutes, newVpnRoutes,
+                  CoreL3DnsPolicy.effective(coreMetadata.dnsIpv4).resolvers, android.os.Build.VERSION.SDK_INT,
+                ) { path -> assets.open(path).use { it.readBytes() } }
                 val plan = applicationPolicy.forAndroidVpn(packageName)
                 val installed: (String) -> Boolean = { app ->
                   try { packageManager.getApplicationInfo(app, 0); true }

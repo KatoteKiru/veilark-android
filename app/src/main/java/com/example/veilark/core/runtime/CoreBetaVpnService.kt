@@ -190,7 +190,8 @@ class CoreBetaVpnService : VpnService() {
       val profile = CoreBetaProfileStore.load(this)
       loadedProfile = profile
       currentCoroutineContext().ensureActive()
-      val builder = tunBuilder(session, profile.clientIpv4, 1280, profile.dnsIpv4, routingSnapshot)
+      val routePlan = prepareRouting(routingSnapshot, CoreL3DnsPolicy.effective(profile.dnsIpv4).resolvers)
+      val builder = tunBuilder(session, profile.clientIpv4, 1280, profile.dnsIpv4, routingSnapshot, routePlan)
       stage(session, "TUN_ESTABLISH")
       currentCoroutineContext().ensureActive()
       val activeTun = checkNotNull(builder.establish())
@@ -320,17 +321,9 @@ class CoreBetaVpnService : VpnService() {
       // Validate policy before UDP admission. This does not establish a TUN or
       // infer its address; only authenticated native output may supply that.
       stage(session, "ROUTING_RULES")
-      val routingMode = preferenceString(routingSnapshot, "core_routing_mode", ProfileSelection.ROUTING_ALL)
       val dns = CoreL3DnsPolicy.effective(profile.dnsIpv4)
-      CoreL3Routes.fromPreferences(routingMode,
-        preferenceString(routingSnapshot, "core_direct_routes", ""),
-        preferenceString(routingSnapshot, "core_vpn_routes", ""), dns.resolvers)
-      val nativeRoutingMode = when (routingMode) {
-        ProfileSelection.ROUTING_ALL -> 0
-        ProfileSelection.ROUTING_MANUAL -> 2
-        ProfileSelection.ROUTING_RU_DIRECT -> 1
-        else -> error("Unsupported Core IPv4 routing mode")
-      }
+      val routePlan = prepareRouting(routingSnapshot, dns.resolvers)
+      val nativeRoutingMode = routePlan.nativeMode
       val peer = ipv4(profile.endpointIpv4) as Inet4Address
       var consecutiveFailures = 0
       while (true) {
@@ -369,7 +362,7 @@ class CoreBetaVpnService : VpnService() {
             session.argonLifecycle.attachRuDnsBorrowed(admitted, resolver.fd) { closeTracked(originals, resolver) }
             currentCoroutineContext().ensureActive()
           }
-          val builder = tunBuilder(session, authenticated.ipv4, authenticated.mtu, profile.dnsIpv4, routingSnapshot)
+          val builder = tunBuilder(session, authenticated.ipv4, authenticated.mtu, profile.dnsIpv4, routingSnapshot, routePlan)
           stage(session, "CORE_TUN_ESTABLISH")
           currentCoroutineContext().ensureActive()
           // Retain the previous Java TUN until the replacement has been established.
@@ -459,22 +452,35 @@ class CoreBetaVpnService : VpnService() {
     return descriptors.isEmpty()
   }
 
-  /** Both engines use identical saved IPv4, DNS and application policy limits. */
+  private fun prepareRouting(snapshot: Map<String, *>, dns: List<String>): CoreRoutingPlan =
+    CoreRoutingPlan.prepare(
+      preferenceString(snapshot, "core_routing_mode", ProfileSelection.ROUTING_ALL),
+      preferenceString(snapshot, "core_direct_routes", ""),
+      preferenceString(snapshot, "core_vpn_routes", ""), dns, Build.VERSION.SDK_INT,
+    ) { path -> assets.open(path).use { it.readBytes() } }
+
+  /** Apply the same preflight snapshot; do not reload assets during reconnect. */
   private fun tunBuilder(
     session: Session, clientIpv4: String, mtu: Int, dnsIpv4: List<String>, routingSnapshot: Map<String, *>,
+    routePlan: CoreRoutingPlan,
   ): Builder {
     stage(session, "ROUTING_RULES")
     val routingMode = preferenceString(routingSnapshot, "core_routing_mode", ProfileSelection.ROUTING_ALL)
     val effectiveDns = CoreL3DnsPolicy.effective(dnsIpv4)
-    val routes = CoreL3Routes.fromPreferences(routingMode,
-      preferenceString(routingSnapshot, "core_direct_routes", ""),
-      preferenceString(routingSnapshot, "core_vpn_routes", ""), effectiveDns.resolvers)
     // Android blocks an address family absent from addresses/routes/DNS. Never
     // call allowFamily(AF_INET6), add IPv6 DNS/routes, or allowBypass here.
     val builder = Builder().setSession(getString(R.string.core_beta_title)).setMtu(mtu).setBlocking(false)
       .addAddress(clientIpv4, 32)
-    routes.forEach { builder.addRoute(it.address, it.prefixLength) }
-    coreInfo("routing_mode=$routingMode route_count=${routes.size}")
+    routePlan.included.forEach { builder.addRoute(it.address, it.prefixLength) }
+    if (routePlan.excluded.isNotEmpty()) {
+      check(Build.VERSION.SDK_INT >= 33) { "Fairway route exclusions require Android 13" }
+      routePlan.excluded.forEach {
+        builder.excludeRoute(android.net.IpPrefix(ipv4(it.address), it.prefixLength))
+      }
+    }
+    coreInfo("routing_mode=$routingMode route_count=${routePlan.included.size} " +
+      "excluded_count=${routePlan.excluded.size} partial_ru=${routePlan.partialRu} " +
+      "direct_ru_ipv4=${routePlan.directRuIpv4}")
     effectiveDns.resolvers.forEach { builder.addDnsServer(it) }
     if (effectiveDns.removed > 0) {
       coreInfo("dns_migration_removed_count=${effectiveDns.removed} " +
