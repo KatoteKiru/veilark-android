@@ -472,11 +472,12 @@ class CoreBetaVpnService : VpnService() {
     val builder = Builder().setSession(getString(R.string.core_beta_title)).setMtu(mtu).setBlocking(false)
       .addAddress(clientIpv4, 32)
     routePlan.included.forEach { builder.addRoute(it.address, it.prefixLength) }
-    if (routePlan.excluded.isNotEmpty()) {
-      check(Build.VERSION.SDK_INT >= 33) { "Fairway route exclusions require Android 13" }
+    if (Build.VERSION.SDK_INT >= 33) {
       routePlan.excluded.forEach {
         builder.excludeRoute(android.net.IpPrefix(ipv4(it.address), it.prefixLength))
       }
+    } else {
+      check(routePlan.excluded.isEmpty()) { "Fairway route exclusions require Android 13" }
     }
     coreInfo("routing_mode=$routingMode route_count=${routePlan.included.size} " +
       "excluded_count=${routePlan.excluded.size} partial_ru=${routePlan.partialRu} " +
