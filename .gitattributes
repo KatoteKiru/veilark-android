@@ -14,3 +14,5 @@ app/src/main/assets/rules/geoip-ru.json text eol=lf
 vendor/trusttunnel-android/patches/0003-post-close-terminal-fence.patch text eol=lf
 # Immutable upstream GEO blobs must retain their Git hash bytes on Windows.
 app/src/main/assets/geo-categories/*.json -text
+# Fairway assets are byte-pinned by the Kotlin route-plan verifier.
+app/src/main/assets/fairway/*.txt text eol=lf
