@@ -34,16 +34,31 @@ object CoreBetaManager {
     AndroidTunnelLifecycleOwner.startCoreBeta(context)
   }
 
-  /** Recheck at every admission boundary. Argon must never enter old PSK JNI.
-   * Replace this explicit unsupported path only with the implemented new ABI.
-   */
-  fun requireProfileSupported(context: Context) {
+  /** Recheck before owner handover. Service dispatches each kind to its own JNI. */
+  fun requireProfileSupported(context: Context): Unit = synchronized(CoreProfileStore) {
     // Validate decrypted data before any caller stops an existing VPN. File
     // existence alone cannot detect a missing Keystore key or corrupt profile.
     val metadata = CoreProfileStore.loadMetadata(context)
-    check(metadata.kind == CoreProfileKind.LEGACY_V1) {
-      context.getString(R.string.core_argon_runtime_unavailable)
-    }
+    check(isAvailable()) { context.getString(R.string.core_beta_unavailable) }
+    val snapshot = context.getSharedPreferences("profile_meta", Context.MODE_PRIVATE).all
+      .mapValues { (_, value) -> if (value is Set<*>) value.toSet() else value }
+    CoreConnectionPreflight.prepare(metadata.kind, metadata.dnsIpv4, snapshot,
+      Build.VERSION.SDK_INT, context.packageName,
+      runtimeAvailable = { kind ->
+        val available = when (kind) {
+          CoreProfileKind.LEGACY_V1 -> VeilarkCoreRuntimeNative.loadCandidate()
+          CoreProfileKind.ARGON_V1 -> VeilarkArgonNative.isAbiAvailable()
+        }
+        check(available) { context.getString(R.string.core_beta_unavailable) }
+        true
+      },
+      installed = { app ->
+        try { context.packageManager.getApplicationInfo(app, 0); true }
+        catch (_: android.content.pm.PackageManager.NameNotFoundException) { false }
+      },
+      readAsset = { path -> context.assets.open(path).use { it.readBytes() } },
+    )
+    Unit
   }
 
   @Synchronized internal fun startEngine(context: Context, attempt: LifecycleAttempt) {
