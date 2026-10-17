@@ -342,7 +342,7 @@ fun MainScreen(
     singBoxSubscriptions,
   ) {
     if (coreBetaActive) {
-      listOfNotNull(coreBetaProfileName?.let { SubscriptionUiItem(id = "core-beta", name = it, nodeCount = 1, refreshable = false, deletable = false) })
+      listOfNotNull(coreBetaProfileName?.let { SubscriptionUiItem(id = "core-beta", name = it, nodeCount = 1, refreshable = false, deletable = true) })
     } else if (trustTunnelActive) {
       trustSubscriptions
     } else {
@@ -3216,6 +3216,12 @@ private fun ImportDialog(
           OutlinedTextField(
             value = subscriptionUrl,
             onValueChange = onUrlChange,
+            // Import material may be raw JSON, protocol credentials or a bearer URL.
+            // Mask every family rather than trying to guess where its secrets begin.
+            visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
+            keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+              keyboardType = androidx.compose.ui.text.input.KeyboardType.Password,
+            ),
             modifier = Modifier.fillMaxWidth(),
             label = { Text(stringResource(R.string.subscription_or_profile_link)) },
             minLines = 1,
@@ -3251,7 +3257,8 @@ private fun ImportDialog(
             confirmIcon = Icons.Rounded.FileDownload,
             confirmEnabled = !importing && (subscriptionUrl.contains("://") ||
               (subscriptionUrl.trimStart().startsWith("{") &&
-                subscriptionUrl.contains("veilark-core-beta-profile-v1"))),
+                (subscriptionUrl.contains("veilark-core-beta-profile-v1") ||
+                  subscriptionUrl.contains("veilark-argon-profile-v1")))),
             loading = importing,
             onConfirm = onImportUrl,
           )

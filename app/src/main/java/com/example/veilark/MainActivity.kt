@@ -465,11 +465,11 @@ class MainActivity : ComponentActivity() {
       ) { result ->
         if (result.resultCode == Activity.RESULT_OK && pendingPermissionEngine == profileEngine) {
           if (pendingCoreConnection && profileEngine == ProfileEngine.CORE_BETA) {
-            runCatching {
-              CoreBetaManager.requireProfileSupported(this@MainActivity)
-              stopTunnelsAfterProfileCommit()
-              CoreBetaManager.start(this@MainActivity)
-            }.onFailure { importError = it.message ?: getString(R.string.core_beta_unavailable) }
+            coroutineScope.launch {
+              runCatching {
+                CoreBetaManager.start(this@MainActivity)
+              }.onFailure { importError = it.message ?: getString(R.string.core_beta_unavailable) }
+            }
           }
           pendingConfigPath?.let {
             if (trustTunnelConnectionState != ConnectionState.Disconnected) {
@@ -522,10 +522,8 @@ class MainActivity : ComponentActivity() {
         runCatching {
           if (profileEngine == ProfileEngine.CORE_BETA) {
             check(coreRuntimeAvailable && coreProfileName != null) { getString(R.string.core_beta_unavailable) }
-            CoreBetaManager.requireProfileSupported(this@MainActivity)
             val permissionIntent = VpnService.prepare(this@MainActivity)
             if (permissionIntent == null) {
-              stopTunnelsAfterProfileCommit()
               CoreBetaManager.start(this@MainActivity)
             } else {
               pendingCoreConnection = true
@@ -580,7 +578,7 @@ class MainActivity : ComponentActivity() {
         }
       }
 
-      fun importCorePayload(payload: ByteArray): Boolean {
+      suspend fun importCorePayload(payload: ByteArray): Boolean {
         val text = payload.toString(Charsets.UTF_8)
         if (!text.contains("veilark-core-beta-profile-v1") && !text.contains("veilark-argon-profile-v1")) return false
         check(coreConnectionState == ConnectionState.Disconnected || coreConnectionState == ConnectionState.Failed) {
@@ -588,11 +586,13 @@ class MainActivity : ComponentActivity() {
         }
         check(CoreBetaManager.stopped.value) { getString(R.string.core_beta_cleanup_failed) }
         try {
-          CoreProfileStore.import(this@MainActivity, payload)
+          CoreBetaManager.importProfileWhenStopped(this@MainActivity, payload)
         } finally {
           // A disk error while saving selection may follow a successful profile
           // replacement. Reflect the actual selected source even on failure.
-          coreProfileName = runCatching { CoreProfileStore.loadMetadata(this@MainActivity).name }.getOrNull()
+          coreProfileName = withContext(Dispatchers.IO) {
+            runCatching { CoreProfileStore.loadMetadata(this@MainActivity).name }.getOrNull()
+          }
           if (profileEngine == ProfileEngine.CORE_BETA) profileName = coreProfileName
         }
         // Import is intentionally separate from selecting or starting the engine.
@@ -604,47 +604,64 @@ class MainActivity : ComponentActivity() {
         ActivityResultContracts.OpenDocument(),
       ) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
-        runCatching {
-          val config = contentResolver.openInputStream(uri)?.use { input ->
-            input.readAtMost(MAX_CONFIG_SIZE + 1)
-          } ?: error(getString(R.string.profile_read_failed))
-          require(config.size <= MAX_CONFIG_SIZE) { getString(R.string.profile_too_large) }
-          if (importCorePayload(config)) return@runCatching
-          val configText = config.toString(Charsets.UTF_8)
-          Libbox.checkConfig(configText)
-          val importedName =
-            uri.lastPathSegment?.substringAfterLast('/') ?: "Imported profile"
-          val entry = SingBoxCatalog.create(
-            config = configText,
-            nodes = emptyList(),
-            selectedNodeTag = ProfileSelection.AUTOMATIC_TAG,
-            sourceUrl = null,
-            suggestedName = importedName,
-          )
-          singBoxProfiles = SingBoxCatalog.upsert(this, entry)
-          SingBoxCatalog.activate(this, entry)
-          stopTunnelsAfterProfileCommit()
-          selectedSingBoxId = entry.id
-          profileName = entry.name
-          profileEngine = ProfileEngine.SING_BOX
-          connectionNodes = emptyList()
-          selectedNodeTag = ProfileSelection.AUTOMATIC_TAG
-          profilePreferences.edit()
-            .putString("display_name", profileName)
-            .putString("sing_display_name", profileName)
-            .putString("selected_sing_profile", entry.id)
-            .putString("profile_engine", profileEngine)
-            .remove("nodes")
-            .putString("selected_node", selectedNodeTag)
-            .apply()
-          subscriptionRefreshAvailable = false
-          importError = null
-        }.onFailure {
-          importError = it.userMessage(R.string.invalid_configuration)
-          TechnicalLogStore.error("IMPORT", "JSON configuration import rejected")
+        if (importing) return@rememberLauncherForActivityResult
+        importing = true
+        importError = null
+        coroutineScope.launch {
+          try {
+            runCatching {
+              val config = withContext(Dispatchers.IO) {
+                contentResolver.openInputStream(uri)?.use { input ->
+                  input.readAtMost(MAX_CONFIG_SIZE + 1)
+                } ?: error(getString(R.string.profile_read_failed))
+              }
+              require(config.size <= MAX_CONFIG_SIZE) { getString(R.string.profile_too_large) }
+              if (importCorePayload(config)) return@runCatching
+              val configText = config.toString(Charsets.UTF_8)
+              // Exported import-code .txt files are links, not sing-box JSON.
+              // Route them through the same validated, one-shot link importer as QR.
+              ImportDeepLink.parseQrPayload(configText)?.let { link ->
+                externalImportRequests.value = link
+                return@runCatching
+              }
+              withContext(Dispatchers.Default) { Libbox.checkConfig(configText) }
+              val importedName =
+                uri.lastPathSegment?.substringAfterLast('/') ?: "Imported profile"
+              val entry = SingBoxCatalog.create(
+                config = configText,
+                nodes = emptyList(),
+                selectedNodeTag = ProfileSelection.AUTOMATIC_TAG,
+                sourceUrl = null,
+                suggestedName = importedName,
+              )
+              singBoxProfiles = SingBoxCatalog.upsert(this@MainActivity, entry)
+              SingBoxCatalog.activate(this@MainActivity, entry)
+              stopTunnelsAfterProfileCommit()
+              selectedSingBoxId = entry.id
+              profileName = entry.name
+              profileEngine = ProfileEngine.SING_BOX
+              connectionNodes = emptyList()
+              selectedNodeTag = ProfileSelection.AUTOMATIC_TAG
+              profilePreferences.edit()
+                .putString("display_name", profileName)
+                .putString("sing_display_name", profileName)
+                .putString("selected_sing_profile", entry.id)
+                .putString("profile_engine", profileEngine)
+                .remove("nodes")
+                .putString("selected_node", selectedNodeTag)
+                .apply()
+              subscriptionRefreshAvailable = false
+              importError = null
+            }.onFailure {
+              // Provider/native exceptions can contain input or paths: never display them.
+              importError = getString(R.string.invalid_configuration)
+              TechnicalLogStore.error("IMPORT", "Configuration file import rejected")
+            }
+          } finally {
+            importing = false
+          }
         }
       }
-
       var pendingQrConsumer by remember {
         mutableStateOf<((String) -> Unit)?>(null)
       }
@@ -1334,8 +1351,27 @@ class MainActivity : ComponentActivity() {
             }
           },
           onDeleteSubscription = { sourceId ->
-            runCatching {
-              check(profileEngine != ProfileEngine.CORE_BETA) { getString(R.string.core_beta_scope) }
+            if (profileEngine == ProfileEngine.CORE_BETA) {
+              coroutineScope.launch {
+                runCatching {
+                  require(sourceId == "core-beta") { getString(R.string.subscription_missing) }
+                  check(coreConnectionState == ConnectionState.Disconnected || coreConnectionState == ConnectionState.Failed) {
+                    getString(R.string.engine_switch_disconnect_first)
+                  }
+                  check(CoreBetaManager.stopped.value) { getString(R.string.core_beta_cleanup_failed) }
+                  CoreBetaManager.deleteProfileWhenStopped(this@MainActivity)
+                  coreProfileName = null
+                  profileName = null
+                  connectionNodes = emptyList()
+                  subscriptionRefreshAvailable = false
+                  profilePreferences.edit().remove("display_name").apply()
+                  importError = null
+                }.onFailure {
+                  importError = getString(R.string.subscription_delete_failed)
+                  TechnicalLogStore.error("PROFILE", "Core profile deletion rejected")
+                }
+              }
+            } else runCatching {
               if (profileEngine == ProfileEngine.TRUST_TUNNEL) {
                 val removed = trustProfiles.filter { it.sourceId == sourceId }
                 require(removed.isNotEmpty()) { getString(R.string.trust_subscription_missing) }
@@ -1737,16 +1773,17 @@ class MainActivity : ComponentActivity() {
             }
           },
           onConnect = {
+            coroutineScope.launch {
             runCatching {
               if (coreStopAvailable || connectionState == ConnectionState.Connected ||
                 connectionState == ConnectionState.Connecting
               ) {
                 if (profileEngine == ProfileEngine.CORE_BETA) {
-                  CoreBetaManager.stop(this)
+                  CoreBetaManager.stop(this@MainActivity)
                 } else if (profileEngine == ProfileEngine.TRUST_TUNNEL) {
-                  TrustTunnelManager.stop(this)
+                  TrustTunnelManager.stop(this@MainActivity)
                 } else {
-                  VeilarkVpnService.stop(this)
+                  VeilarkVpnService.stop(this@MainActivity)
                 }
               } else if (shouldRequestNotificationPermission()) {
                 markNotificationPermissionRequested()
@@ -1756,11 +1793,9 @@ class MainActivity : ComponentActivity() {
               } else {
                 if (profileEngine == ProfileEngine.CORE_BETA) {
                   check(coreRuntimeAvailable && coreProfileName != null) { getString(R.string.core_beta_unavailable) }
-                  CoreBetaManager.requireProfileSupported(this)
-                  val permissionIntent = VpnService.prepare(this)
+                  val permissionIntent = VpnService.prepare(this@MainActivity)
                   if (permissionIntent == null) {
-                    stopTunnelsAfterProfileCommit()
-                    CoreBetaManager.start(this)
+                    CoreBetaManager.start(this@MainActivity)
                   } else {
                     pendingCoreConnection = true
                     pendingPermissionEngine = profileEngine
@@ -1768,15 +1803,15 @@ class MainActivity : ComponentActivity() {
                   }
                 } else if (profileEngine == ProfileEngine.TRUST_TUNNEL) {
                   if (singBoxConnectionState != ConnectionState.Disconnected) {
-                    VeilarkVpnService.stop(this)
+                    VeilarkVpnService.stop(this@MainActivity)
                   }
-                  check(SecureProfileStore.exists(this, SecureProfileStore.TRUST_TUNNEL)) {
+                  check(SecureProfileStore.exists(this@MainActivity, SecureProfileStore.TRUST_TUNNEL)) {
                     getString(R.string.trust_profile_not_found)
                   }
-                  val config = SecureProfileStore.load(this, SecureProfileStore.TRUST_TUNNEL)
-                  val permissionIntent: Intent? = VpnService.prepare(this)
+                  val config = SecureProfileStore.load(this@MainActivity, SecureProfileStore.TRUST_TUNNEL)
+                  val permissionIntent: Intent? = VpnService.prepare(this@MainActivity)
                   if (permissionIntent == null) {
-                    TrustTunnelManager.start(this, config)
+                    TrustTunnelManager.start(this@MainActivity, config)
                   } else {
                     pendingTrustConfig = config
                     pendingPermissionEngine = profileEngine
@@ -1784,14 +1819,14 @@ class MainActivity : ComponentActivity() {
                   }
                 } else {
                   if (trustTunnelConnectionState != ConnectionState.Disconnected) {
-                    TrustTunnelManager.stop(this)
+                    TrustTunnelManager.stop(this@MainActivity)
                   }
-                  check(SecureProfileStore.exists(this, SecureProfileStore.SING_BOX)) {
+                  check(SecureProfileStore.exists(this@MainActivity, SecureProfileStore.SING_BOX)) {
                     getString(R.string.main_profile_not_found)
                   }
-                  val permissionIntent: Intent? = VpnService.prepare(this)
+                  val permissionIntent: Intent? = VpnService.prepare(this@MainActivity)
                   if (permissionIntent == null) {
-                    VeilarkVpnService.start(this)
+                    VeilarkVpnService.start(this@MainActivity)
                   } else {
                     pendingConfigPath = SecureProfileStore.SING_BOX
                     pendingPermissionEngine = profileEngine
@@ -1802,6 +1837,7 @@ class MainActivity : ComponentActivity() {
             }.onFailure {
               importError = it.userMessage(R.string.vpn_start_failed)
               TechnicalLogStore.error("APP", "Connection command failed")
+            }
             }
           },
         )

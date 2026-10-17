@@ -5,8 +5,34 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import org.junit.Assert.*
 import org.junit.Test
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.Executors
 
 class CoreBetaSessionGateTest {
+  @Test fun blockingAndroidEffectsDoNotBlockServiceCallbacksOrReleaseAdmissionEarly() {
+    val gate = CoreBetaSessionGate<Any>()
+    val lease = Any()
+    gate.admit(lease); gate.resources(lease, native = true, tun = true); gate.terminal(lease)
+    val entered = CountDownLatch(1)
+    val proceed = CountDownLatch(1)
+    val pool = Executors.newFixedThreadPool(2)
+    val effects = pool.submit { gate.finishServiceEffects(lease) {
+      entered.countDown(); check(proceed.await(5, TimeUnit.SECONDS))
+    } }
+    try {
+      assertTrue(entered.await(2, TimeUnit.SECONDS))
+      val callback = pool.submit<Boolean> {
+        assertSame(lease, gate.current())
+        assertFalse(gate.takeReleased(lease))
+        assertFalse(gate.admit(Any()))
+        gate.finishServiceEffects(lease) { fail("Duplicate Android effects") }
+        true
+      }
+      assertTrue(callback.get(2, TimeUnit.SECONDS))
+    } finally { proceed.countDown(); effects.get(2, TimeUnit.SECONDS); pool.shutdownNow() }
+    assertTrue(gate.takeReleased(lease))
+  }
   private class Lease {
     val job = SupervisorJob()
     val scope = CoroutineScope(job)

@@ -491,9 +491,9 @@ object AndroidTunnelLifecycleOwner {
     )
   }
 
-  fun startCoreBeta(context: Context) {
+  fun startCoreBeta(context: Context, commandId: Long) {
     // Secret profile remains in encrypted storage, never lifecycle command payloads.
-    submit(context, OwnerCommand.Start(EngineId.CoreBeta, ""))
+    submit(context, OwnerCommand.Start(EngineId.CoreBeta, commandId.toString()))
   }
 
   fun stop(context: Context) {
@@ -585,7 +585,7 @@ object AndroidTunnelLifecycleOwner {
               action.attempt,
             )
             EngineId.VeilarkCoreCanary -> error("Veilark Core canary is not an Android engine")
-            EngineId.CoreBeta -> CoreBetaManager.startEngine(context, action.attempt)
+            EngineId.CoreBeta -> CoreBetaManager.startEngine(context, action.attempt, command.payload.toLong())
           }
         }
         if (launched.isFailure) {

@@ -6,6 +6,27 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 
 class ImportDeepLinkTest {
+  @Test fun compactTokenUsesOnlyPinnedProfileOriginAndRetainsLegacyImport() {
+    val bytes = ByteArray(32) { it.toByte() }
+    val token = java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(bytes)
+    val link = "veilark://import?t=$token"
+    val expected = "https://nl2.senyasenyavski.uk:2096/veilark/" +
+      bytes.joinToString("") { "%02x".format(it.toInt() and 0xff) } + ".json"
+    assertEquals(62, link.length)
+    assertEquals(expected, ImportDeepLink.parseUri(link))
+    assertEquals(expected, ImportDeepLink.parseQrPayload(link))
+    assertFalse(link.contains("senyasenyavski"))
+  }
+
+  @Test fun compactTokenRejectsNonCanonicalLengthsPaddingAndMixedParameters() {
+    val canonical = java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(ByteArray(32))
+    for (value in listOf("", canonical.dropLast(1), canonical + "=", canonical + "A",
+      canonical.dropLast(1) + "B", canonical.dropLast(1) + "%", "https://example.com")) {
+      assertNull(ImportDeepLink.parseUri("veilark://import?t=$value"))
+    }
+    assertNull(ImportDeepLink.parseUri("veilark://import?t=$canonical&url=https://example.com"))
+    assertNull(ImportDeepLink.parseUri("veilark://import?t=$canonical#fragment"))
+  }
   @Test fun opaqueCodeImportsThroughQrAndIntentWithoutReadableDomain() {
     val target = "https://provider.example/sub/random-token"
     val code = java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(target.toByteArray())

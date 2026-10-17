@@ -14,6 +14,9 @@ import com.example.veilark.R
 import com.example.veilark.vpn.ConnectionState
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.CancellationException
 
 /** Import and selection are separate from this explicit user-requested start. */
 object CoreBetaManager {
@@ -25,13 +28,51 @@ object CoreBetaManager {
   val stopped = mutableStopped.asStateFlow()
   @Volatile private var activeAttempt: LifecycleAttempt? = null
   private var serviceAttached = false
+  private val startCommands = CoreBetaStartCommands()
 
   fun isAvailable(): Boolean = BuildConfig.CORE_BETA_RUNTIME_BUNDLED &&
     Build.SUPPORTED_ABIS.firstOrNull() == "arm64-v8a"
 
-  fun start(context: Context) {
+  suspend fun start(context: Context) {
+    val command = startCommands.begin()
+    startCommands.ifCurrent(command) {
+      mutableFailure.value = null
+      mutableState.value = ConnectionState.Connecting
+    }
+    try {
+      requireProfileSupportedAsync(context)
+      startCommands.ifCurrent(command) { AndroidTunnelLifecycleOwner.startCoreBeta(context, command) }
+    } catch (failure: Throwable) {
+      startCommands.ifCurrent(command) {
+        mutableState.value = if (failure is CancellationException) ConnectionState.Disconnected else ConnectionState.Failed
+        mutableFailure.value = if (failure is CancellationException) null else context.getString(R.string.core_beta_unavailable)
+      }
+      throw failure
+    }
+  }
+
+  suspend fun requireProfileSupportedAsync(context: Context) = withContext(Dispatchers.IO) {
     requireProfileSupported(context)
-    AndroidTunnelLifecycleOwner.startCoreBeta(context)
+  }
+
+  suspend fun deleteProfileWhenStopped(context: Context) = withContext(Dispatchers.IO) {
+    startCommands.pauseWhen { mutableStopped.value }
+    try {
+      mutableState.value = ConnectionState.Disconnected
+      mutableFailure.value = null
+      CoreProfileStore.deleteSelected(context)
+    }
+    finally { startCommands.resume() }
+  }
+
+  suspend fun importProfileWhenStopped(context: Context, payload: ByteArray) = withContext(Dispatchers.IO) {
+    startCommands.pauseWhen { mutableStopped.value }
+    try {
+      mutableState.value = ConnectionState.Disconnected
+      mutableFailure.value = null
+      CoreProfileStore.import(context, payload)
+    }
+    finally { startCommands.resume() }
   }
 
   /** Recheck before owner handover. Service dispatches each kind to its own JNI. */
@@ -61,15 +102,19 @@ object CoreBetaManager {
     Unit
   }
 
-  @Synchronized internal fun startEngine(context: Context, attempt: LifecycleAttempt) {
+  internal fun startEngine(context: Context, attempt: LifecycleAttempt, command: Long) {
     check(isAvailable()) { "Veilark Core is unavailable in this build or on this device." }
     check(VpnService.prepare(context) == null) { "VPN permission is required." }
     requireProfileSupported(context)
-    check(mutableStopped.value) { "Previous Core beta session has not stopped." }
-    activeAttempt = attempt
-    serviceAttached = false
-    publish(attempt, ConnectionState.Connecting)
-    mutableStopped.value = false
+    check(startCommands.ifCurrent(command) {
+      synchronized(this) {
+        check(mutableStopped.value) { "Previous Core beta session has not stopped." }
+        activeAttempt = attempt
+        serviceAttached = false
+        publish(attempt, ConnectionState.Connecting)
+        mutableStopped.value = false
+      }
+    }) { "Core start was superseded." }
     try {
       ContextCompat.startForegroundService(context, Intent(context, CoreBetaVpnService::class.java)
         .putExtra("attempt", attempt.attemptId).putExtra("epoch", attempt.engineEpoch))
@@ -86,27 +131,37 @@ object CoreBetaManager {
     val current = synchronized(this) { activeAttempt }
     requestCoreStop(
       current,
-      submitOwnerStop = { AndroidTunnelLifecycleOwner.stop(context) },
+      submitOwnerStop = { startCommands.stop {
+        AndroidTunnelLifecycleOwner.stop(context)
+        if (current == null) {
+          mutableState.value = ConnectionState.Disconnected
+          mutableFailure.value = null
+        }
+      } },
       stopCapturedService = { stopEngine(context, it) },
     )
   }
 
-  @Synchronized internal fun stopEngine(context: Context, attempt: LifecycleAttempt? = null) {
-    val current = activeAttempt ?: return
-    if (attempt != null && current != attempt) return
+  internal fun stopEngine(context: Context, attempt: LifecycleAttempt? = null) {
+    val (current, attached) = synchronized(this) {
+      val current = activeAttempt ?: return
+      if (attempt != null && current != attempt) return
+      if (!serviceAttached) {
+        // Invalidate before a queued onStartCommand can attach. Do not issue a
+        // global stopService after opening admission to a replacement lease.
+        released(current)
+        return
+      }
+      current to serviceAttached
+    }
     com.example.veilark.diagnostics.TechnicalLogStore.info("CORE", "${context.getString(R.string.core_beta_title)} stop_requested")
-    if (serviceAttached) {
+    if (attached) {
       // stopService alone cannot stop a still-bound VPN service's worker. Send
       // an explicit, fenced command to cancel it while the service is alive.
       context.startService(Intent(context, CoreBetaVpnService::class.java)
         .setAction(CoreBetaVpnService.ACTION_STOP)
         .putExtra("attempt", current.attemptId).putExtra("epoch", current.engineEpoch))
-    } else {
-      context.stopService(Intent(context, CoreBetaVpnService::class.java))
     }
-    // A queued service start cannot own JNI/TUN until attachAttempt succeeds.
-    // Invalidate its token even when Android reports a pending service existed.
-    if (!serviceAttached) released(current)
   }
 
   @Synchronized internal fun attachAttempt(id: Long, epoch: Long): LifecycleAttempt? = activeAttempt?.takeIf {

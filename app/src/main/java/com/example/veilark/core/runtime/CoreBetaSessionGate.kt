@@ -7,12 +7,14 @@ internal class CoreBetaSessionGate<T : Any> {
   private var tunClosed = false
   private var jobTerminal = false
   private var serviceEffectsDone = false
+  private var serviceEffectsRunning = false
 
   @Synchronized fun current(): T? = active
   @Synchronized fun admit(session: T): Boolean {
     if (active != null) return false
     active = session
     nativeReleased = false; tunClosed = false; jobTerminal = false; serviceEffectsDone = false
+    serviceEffectsRunning = false
     return true
   }
   @Synchronized fun resources(session: T, native: Boolean, tun: Boolean) {
@@ -22,10 +24,24 @@ internal class CoreBetaSessionGate<T : Any> {
   }
   @Synchronized fun terminal(session: T) { if (active === session) jobTerminal = true }
   /** Global service side effects happen before removing the admission fence. */
-  @Synchronized fun finishServiceEffects(session: T, effects: () -> Unit) {
-    if (active !== session || serviceEffectsDone) return
-    effects()
-    serviceEffectsDone = true
+  fun finishServiceEffects(session: T, effects: () -> Unit) {
+    synchronized(this) {
+      if (active !== session || serviceEffectsDone || serviceEffectsRunning) return
+      serviceEffectsRunning = true
+    }
+    var finished = false
+    try {
+      // Android Binder calls must not hold the gate used by main-thread service callbacks.
+      effects()
+      finished = true
+    } finally {
+      synchronized(this) {
+        if (active === session) {
+          serviceEffectsRunning = false
+          serviceEffectsDone = finished
+        }
+      }
+    }
   }
   @Synchronized fun takeReleased(session: T): Boolean {
     if (active !== session || !nativeReleased || !tunClosed || !jobTerminal || !serviceEffectsDone) return false

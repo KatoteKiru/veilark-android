@@ -20,6 +20,7 @@ internal object ImportDeepLink {
   private const val SCHEME = "veilark"
   private const val HOST = "import"
   private const val PARAM = "url"
+  private const val OPERATOR_PROFILE_ORIGIN = "https://nl2.senyasenyavski.uk:2096/veilark/"
   private const val MAX_INTENT_URI_LENGTH = 32 * 1024 // a fully percent-encoded 8192-char payload is ~24 KiB
   internal const val MAX_PAYLOAD_LENGTH = 8192 // matches the Mini App isVeilarkImportTarget limit; tt://? payloads may embed certificates
 
@@ -28,7 +29,7 @@ internal object ImportDeepLink {
     return intent.data?.toString()?.let { raw ->
       parseUri(raw)?.let { target ->
         // Keep the opaque representation in the import form; dispatch unwraps it later.
-        if (URI(raw).rawQuery?.startsWith("code=") == true) raw else target
+        if (URI(raw).rawQuery?.let { it.startsWith("code=") || it.startsWith("t=") } == true) raw else target
       }
     }
   }
@@ -59,6 +60,7 @@ internal object ImportDeepLink {
     return when (decode(item.substring(0, equal))) {
       PARAM -> decode(item.substring(equal + 1))
       "code" -> decodeImportCode(item.substring(equal + 1))
+      "t" -> decodeCompactToken(item.substring(equal + 1))
       else -> null
     }
   }
@@ -73,6 +75,17 @@ internal object ImportDeepLink {
     val decoded = Charsets.UTF_8.newDecoder().decode(ByteBuffer.wrap(bytes)).toString()
     require(URI(decoded).scheme.equals("https", ignoreCase = true))
     decoded
+  }.getOrNull()
+
+  // An opaque lookup token, NOT encryption. Restrict expansion to the existing
+  // operator origin; input cannot choose a host, path, port or protocol.
+  private fun decodeCompactToken(token: String): String? = runCatching {
+    require(token.length == 43 && token.all {
+      it in 'a'..'z' || it in 'A'..'Z' || it in '0'..'9' || it == '-' || it == '_'
+    })
+    val bytes = Base64.getUrlDecoder().decode(token)
+    require(bytes.size == 32 && Base64.getUrlEncoder().withoutPadding().encodeToString(bytes) == token)
+    OPERATOR_PROFILE_ORIGIN + bytes.joinToString("") { "%02x".format(it.toInt() and 0xff) } + ".json"
   }.getOrNull()
 
   internal fun validatePayload(value: String): String? {

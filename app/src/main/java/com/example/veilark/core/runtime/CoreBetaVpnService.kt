@@ -279,8 +279,8 @@ class CoreBetaVpnService : VpnService() {
       val tunClosed = runCatching { tun?.close(); true }.getOrDefault(false)
       sessions.resources(session, native = released, tun = tunClosed)
       if (!released || !tunClosed) publish(session, ConnectionState.Failed, getString(R.string.core_beta_cleanup_failed))
-      finishServiceEffects(session)
-      if (!released || !tunClosed) {
+      if (released && tunClosed) finishServiceEffects(session)
+      else {
         CoreBetaLateCleanup(
           cleanup = {
             val native = session.lifecycle.stopAndRelease()
@@ -288,7 +288,7 @@ class CoreBetaVpnService : VpnService() {
             sessions.resources(session, native, closed)
             native && closed
           },
-          onReleased = { completeSession(session) },
+          onReleased = { finishServiceEffects(session); completeSession(session) },
           event = { coreInfo(it) },
         ).launchOnce()
       }
@@ -432,10 +432,10 @@ class CoreBetaVpnService : VpnService() {
       }
       val released = cleanup()
       if (!released) publish(session, ConnectionState.Failed, getString(R.string.core_beta_cleanup_failed))
-      finishServiceEffects(session)
-      if (!released) CoreBetaLateCleanup(
+      if (released) finishServiceEffects(session)
+      else CoreBetaLateCleanup(
         cleanup = { cleanup() },
-        onReleased = { completeSession(session) },
+        onReleased = { finishServiceEffects(session); completeSession(session) },
         event = { coreInfo(it) },
       ).launchOnce()
     }

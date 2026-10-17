@@ -27,6 +27,23 @@ object CoreProfileStore {
 
   @Synchronized fun exists(context: Context): Boolean = selectedKind(context) != null
 
+  /** Delete only the selected identity; keep the explicit selection as a tombstone.
+   * Removing the preference would silently select another retained Core identity.
+   * Caller must first establish that the Core service has stopped.
+   */
+  @Synchronized fun deleteSelected(context: Context) {
+    val kind = selectedKind(context) ?: return
+    // Migrated legacy selections may not have an explicit marker yet. Persist it
+    // before deletion so a retained profile can never become selected implicitly.
+    check(context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE).edit()
+      .putString(KIND_KEY, kind.preferenceValue).commit()) { SELECTION_ERROR }
+    val removed = when (kind) {
+      CoreProfileKind.LEGACY_V1 -> CoreBetaProfileStore.delete(context)
+      CoreProfileKind.ARGON_V1 -> CoreArgonProfileStore.delete(context)
+    }
+    check(removed) { "Unable to delete selected Veilark Core profile." }
+  }
+
   @Synchronized fun loadMetadata(context: Context): CoreProfileMetadata {
     try {
       return when (selectedKind(context)) {

@@ -10,7 +10,7 @@ import com.example.veilark.MainActivity
 import com.example.veilark.R
 import com.example.veilark.lifecycle.AndroidTunnelLifecycleOwner
 import com.example.veilark.profile.SecureProfileStore
-import com.example.veilark.profile.CoreBetaProfileStore
+import com.example.veilark.profile.CoreProfileStore
 import com.example.veilark.core.runtime.CoreBetaManager
 import com.example.veilark.protocol.ProfileEngine
 import com.example.veilark.protocol.TrustTunnelManager
@@ -21,6 +21,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class VeilarkTileService : TileService() {
   private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
@@ -53,19 +54,21 @@ class VeilarkTileService : TileService() {
   override fun onClick() {
     super.onClick()
     unlockAndRun {
+      scope.launch {
       runCatching { toggleConnection() }
         .onFailure {
       updateTile(Tile.STATE_INACTIVE, getString(R.string.tile_open_app))
           openApp(connect = false)
         }
+      }
     }
   }
 
-  private fun toggleConnection() {
+  private suspend fun toggleConnection() {
     val singBoxState = VeilarkVpnService.state.value
     val trustState = TrustTunnelManager.state.value
     if (singBoxState.isRunning() || trustState.isRunning() || CoreBetaManager.state.value.isRunning()) {
-      AndroidTunnelLifecycleOwner.stop(this)
+      CoreBetaManager.stop(this)
       updateTile(Tile.STATE_INACTIVE, getString(R.string.tile_disconnected))
       return
     }
@@ -74,7 +77,7 @@ class VeilarkTileService : TileService() {
     val engine = preferences.getString("profile_engine", ProfileEngine.SING_BOX)
       ?: ProfileEngine.SING_BOX
     if (engine == ProfileEngine.CORE_BETA) {
-      if (!CoreBetaManager.isAvailable() || !CoreBetaProfileStore.exists(this)) {
+      if (!CoreBetaManager.isAvailable() || !withContext(Dispatchers.IO) { CoreProfileStore.exists(this@VeilarkTileService) }) {
         openApp(connect = false)
       } else if (android.net.VpnService.prepare(this) != null) {
         openApp(connect = true)
