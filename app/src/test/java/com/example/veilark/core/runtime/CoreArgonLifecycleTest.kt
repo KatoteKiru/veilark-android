@@ -27,6 +27,7 @@ class CoreArgonLifecycleTest {
     override fun attachTun(handle: Long, borrowedTunFd: Int): Int { attaches.incrementAndGet(); return 0 }
     override fun attachRuDns(handle: Long, borrowedResolverFd: Int): Int { dnsAttaches.incrementAndGet(); return 0 }
     override fun awaitRunning(handle: Long) = 0
+    override fun awaitTerminal(handle: Long) = 6
     override fun status(handle: Long) = 3
     override fun stop(handle: Long): Int { stops.incrementAndGet(); return 0 }
     override fun join(handle: Long) = joinCode
@@ -58,6 +59,111 @@ class CoreArgonLifecycleTest {
       assertFalse(job.isCompleted)
       assertEquals(0, fake.releases.get())
     } finally { permit.countDown(); job.join() }
+    assertEquals(1, fake.releases.get())
+    assertNull(owner.status())
+  }
+
+  @Test fun cancellationInTerminalWaitStopsBeforeJoiningAndReleasing() = runBlocking {
+    val entered = CompletableDeferred<Unit>()
+    val stopped = CompletableDeferred<Unit>()
+    val permit = CountDownLatch(1)
+    val exited = AtomicInteger()
+    val fake = object : Fake() {
+      override fun awaitTerminal(handle: Long): Int {
+        entered.complete(Unit)
+        check(permit.await(5, TimeUnit.SECONDS))
+        exited.incrementAndGet()
+        return 4
+      }
+      override fun stop(handle: Long): Int { stopped.complete(Unit); return super.stop(handle) }
+      override fun join(handle: Long): Int { assertEquals(1, exited.get()); return super.join(handle) }
+      override fun release(handle: Long): Int { assertEquals(1, exited.get()); return super.release(handle) }
+    }
+    val owner = CoreArgonLifecycle(fake)
+    val ticket = owner.startBorrowed({ 7L }, { })
+    val job = launch(Dispatchers.Default) {
+      try { owner.awaitTerminal(ticket); fail("Cancelled terminal must not reach reconnect") }
+      finally { owner.stopAndRelease(ticket) }
+    }
+    try {
+      withTimeout(2000) { entered.await() }
+      job.cancel()
+      withTimeout(2000) { stopped.await() }
+      assertFalse(job.isCompleted)
+      assertEquals(0, fake.releases.get())
+    } finally { permit.countDown(); job.join() }
+    assertEquals(1, fake.releases.get())
+    assertNull(owner.status())
+  }
+
+  @Test fun terminalWaitAcceptsOnlyLatchedStopOrWorkerEnd() = runBlocking {
+    for (result in listOf(4, 6, 0, 3, 5, -3, -90)) {
+      val fake = object : Fake() { override fun awaitTerminal(handle: Long) = result }
+      val owner = CoreArgonLifecycle(fake)
+      val ticket = owner.startBorrowed({ 7L }, { })
+      try {
+        try {
+          assertEquals(result, withTimeout(2000) { owner.awaitTerminal(ticket) })
+          assertTrue("Unexpected nonterminal success $result", result == 4 || result == 6)
+        } catch (failure: CoreArgonFailure) {
+          assertFalse(result == 4 || result == 6)
+          assertEquals(result.toLong(), failure.code)
+        }
+        assertEquals(0, fake.releases.get())
+      } finally { assertTrue(owner.stopAndRelease(ticket)) }
+    }
+  }
+
+  @Test fun terminalWaitCannotObserveReplacementWithReusedNumericHandle() = runBlocking {
+    val calls = AtomicInteger()
+    val fake = object : Fake() {
+      override fun awaitTerminal(handle: Long): Int { calls.incrementAndGet(); return 6 }
+    }
+    val owner = CoreArgonLifecycle(fake)
+    val old = owner.startBorrowed({ 7L }, { })
+    assertTrue(owner.stopAndRelease(old))
+    val current = owner.startBorrowed({ 7L }, { })
+    val stops = fake.stops.get()
+    try { owner.awaitTerminal(old); fail("Stale wait") }
+    catch (_: IllegalStateException) { }
+    assertEquals(0, calls.get())
+    assertEquals(stops, fake.stops.get())
+    assertEquals(6, owner.awaitTerminal(current))
+    assertTrue(owner.stopAndRelease(current))
+  }
+
+  @Test fun concurrentCleanupDrainsTerminalLeaseBeforeDisposingNativeHandle() = runBlocking {
+    val entered = CompletableDeferred<Unit>()
+    val stop = CountDownLatch(1)
+    val exited = AtomicInteger()
+    val fake = object : Fake() {
+      override fun awaitTerminal(handle: Long): Int {
+        entered.complete(Unit)
+        check(stop.await(5, TimeUnit.SECONDS))
+        exited.incrementAndGet()
+        return 4
+      }
+      override fun stop(handle: Long): Int { stop.countDown(); return super.stop(handle) }
+      override fun join(handle: Long): Int { assertEquals(1, exited.get()); return super.join(handle) }
+      override fun release(handle: Long): Int { assertEquals(1, exited.get()); return super.release(handle) }
+    }
+    val owner = CoreArgonLifecycle(fake)
+    val ticket = owner.startBorrowed({ 7L }, { })
+    val waiter = launch(Dispatchers.Default) {
+      try { owner.awaitTerminal(ticket); fail("Cleaning owner cannot publish terminal") }
+      catch (_: IllegalStateException) { /* Cleanup owns the ticket now. */ }
+    }
+    try {
+      withTimeout(2000) {
+        entered.await()
+        assertTrue(owner.stopAndRelease(ticket))
+        waiter.join()
+      }
+    } finally {
+      stop.countDown()
+      waiter.cancel()
+      waiter.join()
+    }
     assertEquals(1, fake.releases.get())
     assertNull(owner.status())
   }

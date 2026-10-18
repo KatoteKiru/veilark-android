@@ -63,6 +63,7 @@ class CoreBetaVpnService : VpnService() {
       override fun attachTun(handle: Long, borrowedTunFd: Int) = VeilarkArgonNative.nativeAttachTun(handle, borrowedTunFd)
       override fun attachRuDns(handle: Long, borrowedResolverFd: Int) = VeilarkArgonNative.nativeAttachRuDns(handle, borrowedResolverFd)
       override fun awaitRunning(handle: Long) = VeilarkArgonNative.nativeAwaitRunning(handle)
+      override fun awaitTerminal(handle: Long) = VeilarkArgonNative.nativeAwaitTerminal(handle)
       override fun status(handle: Long) = VeilarkArgonNative.nativeStatus(handle)
       override fun stop(handle: Long) = VeilarkArgonNative.nativeStop(handle)
       override fun join(handle: Long) = VeilarkArgonNative.nativeJoin(handle)
@@ -393,15 +394,11 @@ class CoreBetaVpnService : VpnService() {
           currentCoroutineContext().ensureActive()
           stage(session, "CORE_RUNNING")
           publish(session, ConnectionState.Connected)
-          while (true) {
-            currentCoroutineContext().ensureActive()
-            val status = session.argonLifecycle.status() ?: error("Missing Veilark Core session")
-            if (status != VeilarkArgonNative.RUNNING) {
-              throw CoreArgonFailure("status", status.toLong())
-            }
-            // Read local status only: no periodic packets, rotation or wake lock.
-            delay(250)
-          }
+          val terminal = session.argonLifecycle.awaitTerminal(admitted)
+          currentCoroutineContext().ensureActive()
+          // A terminal result in a live owner means the connection ended. User
+          // Stop cancels this owner and is handled by the cancellation path.
+          throw CoreArgonFailure("status", terminal.toLong())
         } catch (cancelled: CancellationException) { throw cancelled }
         catch (failure: Throwable) {
           // Saved application-policy/configuration errors cannot be repaired by

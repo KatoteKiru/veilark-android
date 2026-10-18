@@ -1,6 +1,9 @@
 package com.example.veilark.core.runtime
 
 import java.io.File
+import java.util.concurrent.Callable
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 import org.junit.Assert.*
 import org.junit.Test
 
@@ -89,6 +92,58 @@ class FairwayRuRoutePlanTest {
     assertEquals(snapshot, plan.excluded)
     assertThrows(UnsupportedOperationException::class.java) { (plan.excluded as MutableList<CoreIpv4Route>).clear() }
     assertThrows(UnsupportedOperationException::class.java) { (plan.included as MutableList<CoreIpv4Route>).clear() }
+  }
+
+  @Test fun warmCacheStillRejectsMutatedAssetsAndDoesNotRetainInputArrays() {
+    val suppliedExact = exact.copyOf()
+    val suppliedLegacy = legacy.copyOf()
+    val prepared = FairwayRuRoutePlan.prepare(33, suppliedExact, suppliedLegacy, dns)
+    val before = prepared.excluded.toList()
+    suppliedExact[0] = (suppliedExact[0].toInt() xor 1).toByte()
+    suppliedLegacy[0] = (suppliedLegacy[0].toInt() xor 1).toByte()
+    assertThrows(IllegalArgumentException::class.java) {
+      FairwayRuRoutePlan.prepare(33, suppliedExact, legacy, dns)
+    }
+    assertThrows(IllegalArgumentException::class.java) {
+      FairwayRuRoutePlan.prepare(33, exact, suppliedLegacy, dns)
+    }
+    assertEquals(before, prepared.excluded)
+    assertEquals(before, FairwayRuRoutePlan.prepare(33, exact, legacy, dns).excluded)
+  }
+
+  @Test fun warmCacheStillChecksSizeAndEncodingOfBothAssets() {
+    FairwayRuRoutePlan.prepare(33, exact, legacy, dns)
+    val invalidEncoding = exact.copyOf().also { it[0] = 0xff.toByte() }
+    val invalidLegacyEncoding = legacy.copyOf().also { it[0] = 0xff.toByte() }
+    for ((badExact, badLegacy) in listOf(
+      invalidEncoding to legacy, exact to invalidLegacyEncoding,
+      ByteArray(200_001) to legacy, exact to ByteArray(200_001),
+    )) {
+      assertThrows(IllegalArgumentException::class.java) {
+        FairwayRuRoutePlan.prepare(33, badExact, badLegacy, dns)
+      }
+    }
+  }
+
+  @Test fun concurrentPlansKeepDnsAndApiIsolated() {
+    val pool = Executors.newFixedThreadPool(4)
+    try {
+      val jobs = (0 until 12).map { index -> Callable {
+        val api = if (index % 2 == 0) 29 else 37
+        val host = selectedRanges[index].first + 1
+        val other = selectedRanges[(index + 1) % 12].first + 1
+        val plan = FairwayRuRoutePlan.prepare(api, exact, legacy, listOf(address(host)))
+        val vpn = if (api >= 33) gaps(ranges(plan.excluded)) else ranges(plan.included)
+        assertTrue(contains(vpn, host))
+        assertFalse(contains(vpn, other))
+        assertEquals(27_492_351L, plan.directRuIpv4)
+        assertEquals(api < 33, plan.excluded.isEmpty())
+      } }
+      val futures = jobs.map { pool.submit(it) }
+      futures.forEach { it.get(10, TimeUnit.SECONDS) }
+    } finally {
+      pool.shutdownNow()
+    }
   }
 
   private fun asset(path: String): ByteArray {

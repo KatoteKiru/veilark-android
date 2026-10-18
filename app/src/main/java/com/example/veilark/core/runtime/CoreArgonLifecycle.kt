@@ -17,6 +17,7 @@ internal interface CoreArgonHandleApi {
   fun attachTun(handle: Long, borrowedTunFd: Int): Int
   fun attachRuDns(handle: Long, borrowedResolverFd: Int): Int
   fun awaitRunning(handle: Long): Int
+  fun awaitTerminal(handle: Long): Int
   fun status(handle: Long): Int
   fun stop(handle: Long): Int
   fun join(handle: Long): Int
@@ -114,11 +115,17 @@ internal class CoreArgonLifecycle(private val api: CoreArgonHandleApi) {
     catch (failure: Throwable) { stopAndRelease(ticket); throw failure }
   }
 
+  /** Matched native ABI: latched Stop=4 or worker End=6, without periodic polling. */
+  suspend fun awaitTerminal(ticket: CoreArgonHandleTicket): Int =
+    waitNative(ticket, accepts = { it == 4 || it == 6 }) { api.awaitTerminal(ticket.handle) }
+
   private fun requireOwner(ticket: CoreArgonHandleTicket): Owner =
     checkNotNull(owner?.takeIf { it.ticket === ticket && !it.cleaning }) { "Veilark Core session unavailable or replaced" }
 
   /** Cancellable await sends stop BEFORE structured scope waits for blocking JNI to return. */
-  private suspend fun waitNative(ticket: CoreArgonHandleTicket, wait: () -> Int) {
+  private suspend fun waitNative(
+    ticket: CoreArgonHandleTicket, accepts: (Int) -> Boolean = { it == 0 }, wait: () -> Int,
+  ): Int {
     val lease = ownershipMutex.withLock {
       currentCoroutineContext().ensureActive()
       requireOwner(ticket).also {
@@ -126,12 +133,13 @@ internal class CoreArgonLifecycle(private val api: CoreArgonHandleApi) {
       }
     }
     try {
-      coroutineScope {
+      return coroutineScope {
         val waiter = async(Dispatchers.IO) { wait() }
         try {
           val code = waiter.await()
-          if (code != 0) throw CoreArgonFailure("wait", code.toLong())
+          if (!accepts(code)) throw CoreArgonFailure("wait", code.toLong())
           ownershipMutex.withLock { currentCoroutineContext().ensureActive(); requireOwner(ticket) }
+          code
         } catch (failure: Throwable) {
           withContext(NonCancellable + Dispatchers.IO) {
             ownershipMutex.withLock {

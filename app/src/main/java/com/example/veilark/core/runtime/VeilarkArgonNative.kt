@@ -19,7 +19,9 @@ internal object VeilarkArgonNative {
 
   /** A symbol/ABI probe, not authentication or data-plane acceptance. */
   fun isAbiAvailable(): Boolean = VeilarkCoreRuntimeNative.loadCandidate() && try {
-    nativeAbiVersion() == ABI_VERSION
+    // The additive event symbol is required even though the base ABI is still1.
+    // JNI rejects handle0 synchronously before entering Rust or admitting a session.
+    nativeAbiVersion() == ABI_VERSION && nativeAwaitTerminal(0L) == -3
   } catch (_: UnsatisfiedLinkError) { false }
 
   @JvmStatic external fun nativeAbiVersion(): Int
@@ -35,6 +37,8 @@ internal object VeilarkArgonNative {
   @JvmStatic external fun nativeAttachRuDns(handle: Long, borrowedResolverFd: Int): Int
   @JvmStatic external fun nativeAttachTun(handle: Long, borrowedTunFd: Int): Int
   @JvmStatic external fun nativeAwaitRunning(handle: Long): Int
+  /** Blocking event wait: Stop=4, worker End=6, negative ABI errors. No timer. */
+  @JvmStatic external fun nativeAwaitTerminal(handle: Long): Int
   @JvmStatic external fun nativeStatus(handle: Long): Int
   @JvmStatic external fun nativeStop(handle: Long): Int
   @JvmStatic external fun nativeJoin(handle: Long): Int

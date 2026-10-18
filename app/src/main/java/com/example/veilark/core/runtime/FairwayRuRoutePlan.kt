@@ -23,6 +23,8 @@ internal class FairwayRuRoutePlan private constructor(
     private const val MAX_DIRECT_PREFIXES = 512
     private const val LAST = 0xffff_ffffL
     private data class Range(val first: Long, val last: Long)
+    private val assetCacheLock = Any()
+    @Volatile private var cachedDirectRanges: List<Range>? = null
 
     /**
      * Both assets are pinned independently of mutable GEO generations. DNS stays
@@ -34,13 +36,7 @@ internal class FairwayRuRoutePlan private constructor(
     fun prepare(api: Int, exactBytes: ByteArray, legacyBytes: ByteArray, dns: Collection<String>): FairwayRuRoutePlan {
       require(api >= 29) { "Fairway requires Android API 29 or later" }
       require(dns.isNotEmpty() && dns.size <= 3) { "Fairway requires one to three IPv4 DNS servers" }
-      val exact = parseAsset(exactBytes, EXACT_SHA, 8662)
-      val legacy = parseAsset(legacyBytes, LEGACY_SHA, 1562)
-      require(legacy.all(exact.toHashSet()::contains)) { "Fairway legacy routes exceed the exact RU set" }
-      // Keep callback parcels bounded; ties are stable across all Android APIs.
-      val selected = legacy.sortedWith(compareBy<CoreIpv4Route> { it.prefixLength }
-        .thenBy { ipv4(it.address) }).take(MAX_DIRECT_PREFIXES).sortedBy { ipv4(it.address) }
-      var direct = selected.map(::range)
+      var direct = preparedDirectRanges(exactBytes, legacyBytes)
       for (host in dns.map(::ipv4).distinct()) {
         direct = direct.flatMap { block ->
           if (host !in block.first..block.last) listOf(block)
@@ -62,10 +58,36 @@ internal class FairwayRuRoutePlan private constructor(
     private fun immutable(routes: List<CoreIpv4Route>): List<CoreIpv4Route> =
       Collections.unmodifiableList(ArrayList(routes))
 
-    private fun parseAsset(bytes: ByteArray, expectedSha: String, count: Int): List<CoreIpv4Route> {
-      require(bytes.size <= 200_000 && bytes.all { it.toInt() in 0..127 }) { "Invalid Fairway asset size or encoding" }
-      val digest = MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it.toInt() and 255) }
+    private fun validatedSnapshot(bytes: ByteArray, expectedSha: String): ByteArray {
+      require(bytes.size <= 200_000) { "Invalid Fairway asset size or encoding" }
+      // Never retain caller-owned arrays or parse different bytes from those hashed.
+      val snapshot = bytes.copyOf()
+      require(snapshot.all { it.toInt() in 0..127 }) { "Invalid Fairway asset size or encoding" }
+      val digest = MessageDigest.getInstance("SHA-256").digest(snapshot).joinToString("") { "%02x".format(it.toInt() and 255) }
       require(digest == expectedSha) { "Fairway asset digest mismatch" }
+      return snapshot
+    }
+
+    private fun preparedDirectRanges(exactBytes: ByteArray, legacyBytes: ByteArray): List<Range> {
+      // Validate BOTH inputs on every call, including cache hits. The only cache
+      // entry belongs to this fixed pair of pinned assets, never to DNS or API.
+      val exactSnapshot = validatedSnapshot(exactBytes, EXACT_SHA)
+      val legacySnapshot = validatedSnapshot(legacyBytes, LEGACY_SHA)
+      cachedDirectRanges?.let { return it }
+      return synchronized(assetCacheLock) {
+        cachedDirectRanges ?: run {
+          val exact = parseAsset(exactSnapshot, 8662).toHashSet()
+          val legacy = parseAsset(legacySnapshot, 1562)
+          require(legacy.all(exact::contains)) { "Fairway legacy routes exceed the exact RU set" }
+          // Keep the same bounded subset and deterministic ordering on every API.
+          val selected = legacy.sortedWith(compareBy<CoreIpv4Route> { it.prefixLength }
+            .thenBy { ipv4(it.address) }).take(MAX_DIRECT_PREFIXES).sortedBy { ipv4(it.address) }
+          Collections.unmodifiableList(ArrayList(selected.map(::range))).also { cachedDirectRanges = it }
+        }
+      }
+    }
+
+    private fun parseAsset(bytes: ByteArray, count: Int): List<CoreIpv4Route> {
       val lines = bytes.toString(Charsets.US_ASCII).split('\n').filter(String::isNotEmpty)
       require(lines.size == count) { "Fairway asset count mismatch" }
       val parsed = lines.map { line ->
