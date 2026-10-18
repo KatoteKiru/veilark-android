@@ -17,6 +17,5 @@
     <string name="core_beta_add_profile">Импортируйте тестовый профиль Core, затем выберите этот режим.</string>
     <string name="core_beta_imported">Профиль Core сохранён. Выберите Veilark Core (маршрут: Fairway) для подключения.</string>
     <string name="core_beta_connection_failed">Не удалось подключить Veilark Core. Проверьте тестовый профиль и доступность сервера.</string>
-    <string name="fairway_ru_exact_description">Российские диапазоны IPv4 идут напрямую. Российский домен на зарубежном IP остаётся в VPN. IPv6 заблокирован.</string>
-    <string name="fairway_ru_partial_description" formatted="false">Частичный обход на Android 10–12: около 80% российских адресов IPv4 идут напрямую, остальные остаются в VPN. IPv6 заблокирован.</string>
+    <string name="fairway_ru_partial_description" formatted="false">Частичный обход: около 80% российских адресов IPv4 идут напрямую, остальные остаются в VPN. IPv6 заблокирован.</string>
 </resources>

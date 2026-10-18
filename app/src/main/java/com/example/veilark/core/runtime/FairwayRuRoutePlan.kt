@@ -19,14 +19,16 @@ internal class FairwayRuRoutePlan private constructor(
     private const val EXACT_SHA = "fd0fdb390680c4a6a18a02542205b766e345b6caa34de717a2d9c776dd063cd5"
     private const val LEGACY_SHA = "81d0875333d06aa342a73831d3030b685097d25890fb73ca709447cf7b536055"
     private const val TOTAL_RU_IPV4 = 45_223_232L
-    private const val MAX_LEGACY_ROUTES = 4096
+    private const val MAX_ROUTES = 4096
     private const val LAST = 0xffff_ffffL
     private data class Range(val first: Long, val last: Long)
 
     /**
      * Both assets are pinned independently of mutable GEO generations. DNS stays
      * in the VPN by removing its addresses from the direct set before routing.
-     * Legacy API support is deliberately partial: residual RU remains in VPN.
+     * The bounded RU subset is deliberately partial on every supported Android
+     * version: residual RU remains in the VPN. The exact set cannot fit the
+     * platform Binder route parcel budget, even with API 33 exclusions.
      */
     fun prepare(api: Int, exactBytes: ByteArray, legacyBytes: ByteArray, dns: Collection<String>): FairwayRuRoutePlan {
       require(api >= 29) { "Fairway requires Android API 29 or later" }
@@ -34,7 +36,7 @@ internal class FairwayRuRoutePlan private constructor(
       val exact = parseAsset(exactBytes, EXACT_SHA, 8662)
       val legacy = parseAsset(legacyBytes, LEGACY_SHA, 1562)
       require(legacy.all(exact.toHashSet()::contains)) { "Fairway legacy routes exceed the exact RU set" }
-      val selected = if (api >= 33) exact else legacy
+      val selected = legacy
       var direct = selected.map(::range)
       for (host in dns.map(::ipv4).distinct()) {
         direct = direct.flatMap { block ->
@@ -48,9 +50,9 @@ internal class FairwayRuRoutePlan private constructor(
       val covered = direct.sumOf { it.last - it.first + 1 }
       val exclusions = if (api >= 33) cidrs(direct) else emptyList()
       val includes = if (api >= 33) listOf(CoreIpv4Route("0.0.0.0", 0)) else cidrs(complement(direct))
-      require(api >= 33 || includes.size <= MAX_LEGACY_ROUTES) { "Fairway legacy route budget exceeded" }
+      require(includes.size + exclusions.size <= MAX_ROUTES) { "Fairway route budget exceeded" }
       return FairwayRuRoutePlan(
-        immutable(includes), immutable(exclusions), covered, TOTAL_RU_IPV4 - covered, api < 33,
+        immutable(includes), immutable(exclusions), covered, TOTAL_RU_IPV4 - covered, true,
       )
     }
 

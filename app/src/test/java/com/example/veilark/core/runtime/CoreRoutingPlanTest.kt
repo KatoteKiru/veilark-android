@@ -20,7 +20,7 @@ class CoreRoutingPlanTest {
   }
 
   @Test fun ruPlanLoadsEachPinnedAssetOnceAndIgnoresInactiveManualRules() {
-    for (api in listOf(29, 33)) {
+    for (api in listOf(29, 33, 37)) {
       val reads = mutableListOf<String>()
       val plan = CoreRoutingPlan.prepare(ProfileSelection.ROUTING_RU_DIRECT, "invalid", "invalid",
         listOf("1.1.1.1"), api) { path ->
@@ -30,7 +30,7 @@ class CoreRoutingPlanTest {
       }
       assertEquals(listOf(FairwayRuRoutePlan.EXACT_ASSET, FairwayRuRoutePlan.LEGACY_ASSET), reads)
       assertEquals(1, plan.nativeMode)
-      assertEquals(api < 33, plan.partialRu)
+      assertTrue(plan.partialRu)
       assertTrue(plan.directRuIpv4 > 0)
       assertEquals(api >= 33, plan.excluded.isNotEmpty())
     }

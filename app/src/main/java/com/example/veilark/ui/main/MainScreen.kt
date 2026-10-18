@@ -2617,8 +2617,7 @@ private fun RoutingSettingsDialog(
               }
               item {
                 SettingChoice(title = stringResource(R.string.russia_direct),
-                  subtitle = stringResource(if (android.os.Build.VERSION.SDK_INT >= 33)
-                    R.string.fairway_ru_exact_description else R.string.fairway_ru_partial_description),
+                  subtitle = stringResource(R.string.fairway_ru_partial_description),
                   selected = route == ProfileSelection.ROUTING_RU_DIRECT,
                   onClick = { route = ProfileSelection.ROUTING_RU_DIRECT })
               }

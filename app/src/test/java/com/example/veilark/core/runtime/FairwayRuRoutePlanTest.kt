@@ -11,28 +11,40 @@ class FairwayRuRoutePlanTest {
   // Deliberately inside three different selected RU blocks, not public DNS.
   private val dns = parseRanges(legacy).take(3).map { address(it.first + 1) }
 
-  @Test fun api33UsesExactExclusionsAndDnsAlwaysStaysInVpn() {
-    val plan = FairwayRuRoutePlan.prepare(33, exact, legacy, dns)
+  @Test fun api37UsesBoundedPartialPolicyWithoutForeignDirectExpansion() {
+    val plan = FairwayRuRoutePlan.prepare(37, exact, legacy, dns)
+    assertTrue(plan.partial)
     assertEquals(listOf(CoreIpv4Route("0.0.0.0", 0)), plan.included)
-    assertFalse(plan.partial)
-    val direct = ranges(plan.excluded)
+    assertEquals(1609, plan.included.size + plan.excluded.size)
     assertCanonicalDisjoint(plan.excluded)
+    val direct = ranges(plan.excluded)
+    val vpn = gaps(direct)
     assertSubsetOfExact(direct)
-    assertEquals(45_223_229L, size(direct))
-    assertEquals(45_223_229L, plan.directRuIpv4)
-    assertEquals(3L, plan.residualRuIpv4)
-    dns.forEach { assertFalse(contains(direct, ip(it))) }
+    assertEquals(36_345_853L, plan.directRuIpv4)
+    assertEquals(8_877_379L, plan.residualRuIpv4)
+    dns.forEach { assertTrue(contains(vpn, ip(it))) }
+    assertExactSubsetPolicyAtEveryBoundary(vpn)
   }
 
-  @Test fun legacyExactSubsetLeavesResidualInVpnWithinBudgetIncludingThreeDnsOverrides() {
-    for (api in listOf(29, 32)) {
+  @Test fun everySupportedApiUsesSameBoundedSubsetIncludingThreeDnsOverrides() {
+    for (api in listOf(29, 32, 33, 37)) {
       val plan = FairwayRuRoutePlan.prepare(api, exact, legacy, dns)
       assertTrue(plan.partial)
-      assertTrue(plan.excluded.isEmpty())
-      assertEquals(4096, plan.included.size)
-      assertCanonicalDisjoint(plan.included)
-      val vpn = ranges(plan.included)
-      val direct = gaps(vpn)
+      val direct: List<LongRange>
+      val vpn: List<LongRange>
+      if (api >= 33) {
+        assertEquals(listOf(CoreIpv4Route("0.0.0.0", 0)), plan.included)
+        assertEquals(1609, plan.included.size + plan.excluded.size)
+        assertCanonicalDisjoint(plan.excluded)
+        direct = ranges(plan.excluded)
+        vpn = gaps(direct)
+      } else {
+        assertTrue(plan.excluded.isEmpty())
+        assertEquals(4096, plan.included.size)
+        assertCanonicalDisjoint(plan.included)
+        vpn = ranges(plan.included)
+        direct = gaps(vpn)
+      }
       assertSubsetOfExact(direct)
       assertEquals(36_345_853L, size(direct))
       assertEquals(size(direct), plan.directRuIpv4)
@@ -101,6 +113,28 @@ class FairwayRuRoutePlanTest {
       }
     }
   }
+  // Every input/output CIDR and DNS boundary partitions IPv4 into intervals
+  // where both policies are constant. Checking both endpoints is exhaustive,
+  // without enumerating the four-billion-address space.
+  private fun assertExactSubsetPolicyAtEveryBoundary(vpn: List<LongRange>) {
+    val selected = parseRanges(legacy)
+    val dnsHosts = dns.map(::ip).toSet()
+    val boundaries = sortedSetOf(0L, 1L shl 32)
+    (selected + vpn).forEach { boundaries.add(it.first); boundaries.add(it.last + 1) }
+    dnsHosts.forEach { boundaries.add(it); boundaries.add(it + 1) }
+    var selectedIndex = 0
+    var vpnIndex = 0
+    for ((first, limit) in boundaries.zipWithNext()) {
+      for (host in setOf(first, limit - 1)) {
+        while (selectedIndex < selected.size && selected[selectedIndex].last < host) selectedIndex++
+        while (vpnIndex < vpn.size && vpn[vpnIndex].last < host) vpnIndex++
+        val expectedDirect = selectedIndex < selected.size && host in selected[selectedIndex] && host !in dnsHosts
+        val actualVpn = vpnIndex < vpn.size && host in vpn[vpnIndex]
+        assertEquals("Routing mismatch at $host", !expectedDirect, actualVpn)
+      }
+    }
+  }
+
   private fun gaps(vpn: List<LongRange>): List<LongRange> = buildList {
     var cursor = 0L
     for (range in vpn) {
