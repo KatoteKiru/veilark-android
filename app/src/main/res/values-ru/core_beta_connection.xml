@@ -17,5 +17,5 @@
     <string name="core_beta_add_profile">Импортируйте тестовый профиль Core, затем выберите этот режим.</string>
     <string name="core_beta_imported">Профиль Core сохранён. Выберите Veilark Core (маршрут: Fairway) для подключения.</string>
     <string name="core_beta_connection_failed">Не удалось подключить Veilark Core. Проверьте тестовый профиль и доступность сервера.</string>
-    <string name="fairway_ru_partial_description" formatted="false">Частичный обход: около 80% российских адресов IPv4 идут напрямую, остальные остаются в VPN. IPv6 заблокирован.</string>
+    <string name="fairway_ru_partial_description">Частичный обход российских IP-диапазонов. Остальной трафик через VPN.</string>
 </resources>

@@ -20,6 +20,7 @@ internal class FairwayRuRoutePlan private constructor(
     private const val LEGACY_SHA = "81d0875333d06aa342a73831d3030b685097d25890fb73ca709447cf7b536055"
     private const val TOTAL_RU_IPV4 = 45_223_232L
     private const val MAX_ROUTES = 4096
+    private const val MAX_DIRECT_PREFIXES = 512
     private const val LAST = 0xffff_ffffL
     private data class Range(val first: Long, val last: Long)
 
@@ -36,7 +37,9 @@ internal class FairwayRuRoutePlan private constructor(
       val exact = parseAsset(exactBytes, EXACT_SHA, 8662)
       val legacy = parseAsset(legacyBytes, LEGACY_SHA, 1562)
       require(legacy.all(exact.toHashSet()::contains)) { "Fairway legacy routes exceed the exact RU set" }
-      val selected = legacy
+      // Keep callback parcels bounded; ties are stable across all Android APIs.
+      val selected = legacy.sortedWith(compareBy<CoreIpv4Route> { it.prefixLength }
+        .thenBy { ipv4(it.address) }).take(MAX_DIRECT_PREFIXES).sortedBy { ipv4(it.address) }
       var direct = selected.map(::range)
       for (host in dns.map(::ipv4).distinct()) {
         direct = direct.flatMap { block ->

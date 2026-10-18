@@ -8,20 +8,23 @@ class FairwayRuRoutePlanTest {
   private val exact = asset(FairwayRuRoutePlan.EXACT_ASSET)
   private val legacy = asset(FairwayRuRoutePlan.LEGACY_ASSET)
   private val exactRanges = parseRanges(exact)
+  private val selectedRanges = parseRanges(legacy)
+    .sortedWith(compareByDescending<LongRange> { it.last - it.first + 1 }.thenBy { it.first })
+    .take(512).sortedBy { it.first }
   // Deliberately inside three different selected RU blocks, not public DNS.
-  private val dns = parseRanges(legacy).take(3).map { address(it.first + 1) }
+  private val dns = selectedRanges.take(3).map { address(it.first + 1) }
 
   @Test fun api37UsesBoundedPartialPolicyWithoutForeignDirectExpansion() {
     val plan = FairwayRuRoutePlan.prepare(37, exact, legacy, dns)
     assertTrue(plan.partial)
     assertEquals(listOf(CoreIpv4Route("0.0.0.0", 0)), plan.included)
-    assertEquals(1609, plan.included.size + plan.excluded.size)
+    assertEquals(562, plan.included.size + plan.excluded.size)
     assertCanonicalDisjoint(plan.excluded)
     val direct = ranges(plan.excluded)
     val vpn = gaps(direct)
     assertSubsetOfExact(direct)
-    assertEquals(36_345_853L, plan.directRuIpv4)
-    assertEquals(8_877_379L, plan.residualRuIpv4)
+    assertEquals(27_492_349L, plan.directRuIpv4)
+    assertEquals(17_730_883L, plan.residualRuIpv4)
     dns.forEach { assertTrue(contains(vpn, ip(it))) }
     assertExactSubsetPolicyAtEveryBoundary(vpn)
   }
@@ -34,23 +37,39 @@ class FairwayRuRoutePlanTest {
       val vpn: List<LongRange>
       if (api >= 33) {
         assertEquals(listOf(CoreIpv4Route("0.0.0.0", 0)), plan.included)
-        assertEquals(1609, plan.included.size + plan.excluded.size)
+        assertEquals(562, plan.included.size + plan.excluded.size)
         assertCanonicalDisjoint(plan.excluded)
         direct = ranges(plan.excluded)
         vpn = gaps(direct)
       } else {
         assertTrue(plan.excluded.isEmpty())
-        assertEquals(4096, plan.included.size)
+        assertEquals(1686, plan.included.size)
         assertCanonicalDisjoint(plan.included)
         vpn = ranges(plan.included)
         direct = gaps(vpn)
       }
       assertSubsetOfExact(direct)
-      assertEquals(36_345_853L, size(direct))
+      assertEquals(27_492_349L, size(direct))
       assertEquals(size(direct), plan.directRuIpv4)
-      assertEquals(8_877_379L, plan.residualRuIpv4)
+      assertEquals(17_730_883L, plan.residualRuIpv4)
       assertEquals(1L shl 32, size(vpn) + size(direct))
       dns.forEach { assertTrue(contains(vpn, ip(it))) }
+      assertExactSubsetPolicyAtEveryBoundary(vpn)
+    }
+  }
+
+  @Test fun publicResolversStayInVpnWithinSmallerRouteBudget() {
+    for (api in listOf(29, 37)) {
+      val resolvers = listOf("1.1.1.1", "77.88.8.8")
+      val plan = FairwayRuRoutePlan.prepare(api, exact, legacy, resolvers)
+      assertTrue(plan.partial)
+      assertEquals(27_492_351L, plan.directRuIpv4)
+      assertEquals(17_730_881L, plan.residualRuIpv4)
+      assertEquals(if (api >= 33) 526 else 1684, plan.included.size + plan.excluded.size)
+      val vpn = if (api >= 33) gaps(ranges(plan.excluded)) else ranges(plan.included)
+      resolvers.forEach { assertTrue(contains(vpn, ip(it))) }
+      assertSubsetOfExact(gaps(vpn))
+      assertExactSubsetPolicyAtEveryBoundary(vpn, resolvers)
     }
   }
 
@@ -116,9 +135,9 @@ class FairwayRuRoutePlanTest {
   // Every input/output CIDR and DNS boundary partitions IPv4 into intervals
   // where both policies are constant. Checking both endpoints is exhaustive,
   // without enumerating the four-billion-address space.
-  private fun assertExactSubsetPolicyAtEveryBoundary(vpn: List<LongRange>) {
-    val selected = parseRanges(legacy)
-    val dnsHosts = dns.map(::ip).toSet()
+  private fun assertExactSubsetPolicyAtEveryBoundary(vpn: List<LongRange>, resolvers: List<String> = dns) {
+    val selected = selectedRanges
+    val dnsHosts = resolvers.map(::ip).toSet()
     val boundaries = sortedSetOf(0L, 1L shl 32)
     (selected + vpn).forEach { boundaries.add(it.first); boundaries.add(it.last + 1) }
     dnsHosts.forEach { boundaries.add(it); boundaries.add(it + 1) }
