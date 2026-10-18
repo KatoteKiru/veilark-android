@@ -3,6 +3,7 @@ package com.example.veilark.lifecycle
 import android.content.Context
 import com.example.veilark.diagnostics.TechnicalLogStore
 import com.example.veilark.protocol.TrustTunnelManager
+import com.example.veilark.core.runtime.CoreBetaManager
 import com.example.veilark.vpn.ConnectionState
 import com.example.veilark.vpn.VeilarkVpnService
 import java.util.concurrent.atomic.AtomicLong
@@ -10,6 +11,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -280,6 +282,7 @@ class AndroidTunnelLifecycleCoordinator internal constructor(
 enum class EngineId {
   SingBox,
   TrustTunnel,
+  CoreBeta,
   VeilarkCoreCanary,
   ;
 
@@ -437,6 +440,24 @@ internal fun startupSideEffectAllowed(
     expectedLifecycleAttempt != null &&
     expectedLifecycleAttempt == activeLifecycleAttempt
 
+/** Bounded initial startup observation; explicit commands can interrupt it. */
+internal suspend fun awaitInitialEngineState(
+  engine: EngineId,
+  states: Flow<ConnectionState>,
+  commands: Flow<Long>,
+  sequence: Long,
+  legacyTimeoutMillis: Long = 48_000L,
+): Pair<ConnectionState, Long>? {
+  suspend fun awaitResult() = combine(states, commands) { state, version -> state to version }
+    .first { (state, version) ->
+      version != sequence || state == ConnectionState.Connected ||
+        state == ConnectionState.Failed || state == ConnectionState.Disconnected
+    }
+  // All initial starts are bounded. Core cancellation also directly stops its
+  // captured service lease, independently of this serialized owner's wait.
+  return withTimeoutOrNull(legacyTimeoutMillis) { awaitResult() }
+}
+
 /**
  * Process-wide Android adapter for [AndroidTunnelLifecycleCoordinator].
  *
@@ -468,6 +489,11 @@ object AndroidTunnelLifecycleOwner {
       context = context,
       command = OwnerCommand.Start(EngineId.TrustTunnel, config),
     )
+  }
+
+  fun startCoreBeta(context: Context, commandId: Long) {
+    // Secret profile remains in encrypted storage, never lifecycle command payloads.
+    submit(context, OwnerCommand.Start(EngineId.CoreBeta, commandId.toString()))
   }
 
   fun stop(context: Context) {
@@ -559,6 +585,7 @@ object AndroidTunnelLifecycleOwner {
               action.attempt,
             )
             EngineId.VeilarkCoreCanary -> error("Veilark Core canary is not an Android engine")
+            EngineId.CoreBeta -> CoreBetaManager.startEngine(context, action.attempt, command.payload.toLong())
           }
         }
         if (launched.isFailure) {
@@ -604,13 +631,9 @@ object AndroidTunnelLifecycleOwner {
     attempt: LifecycleAttempt,
     sequence: Long,
   ) {
-    val result = withTimeoutOrNull(START_TIMEOUT_MS) {
-      combine(stateFor(attempt.engine), commandVersion) { state, version -> state to version }
-        .first { (state, version) ->
-          version != sequence || state == ConnectionState.Connected ||
-            state == ConnectionState.Failed || state == ConnectionState.Disconnected
-        }
-    }
+    val result = awaitInitialEngineState(
+      attempt.engine, stateFor(attempt.engine), commandVersion, sequence, START_TIMEOUT_MS,
+    )
     val superseded = commandSequence.get() != sequence
     val state = result?.first
     val action = when {
@@ -649,6 +672,10 @@ object AndroidTunnelLifecycleOwner {
       TrustTunnelManager.stopEngine(context)
       if (!awaitStopped(EngineId.TrustTunnel)) return false
     }
+    if (keep != EngineId.CoreBeta && !CoreBetaManager.stopped.value) {
+      CoreBetaManager.stopEngine(context)
+      if (!awaitStopped(EngineId.CoreBeta)) return false
+    }
     return true
   }
 
@@ -657,6 +684,7 @@ object AndroidTunnelLifecycleOwner {
       EngineId.SingBox -> VeilarkVpnService.stopEngine(context, attempt)
       EngineId.TrustTunnel -> TrustTunnelManager.stopEngine(context, attempt)
       EngineId.VeilarkCoreCanary -> Unit
+      EngineId.CoreBeta -> CoreBetaManager.stopEngine(context, attempt)
     }
   }
 
@@ -666,6 +694,7 @@ object AndroidTunnelLifecycleOwner {
         EngineId.SingBox -> VeilarkVpnService.stopped.first { it }
         EngineId.TrustTunnel -> TrustTunnelManager.stopped.first { it }
         EngineId.VeilarkCoreCanary -> stateFor(engine).first { state -> !state.isActive() }
+        EngineId.CoreBeta -> CoreBetaManager.stopped.first { it }
       }
       true
     } ?: false
@@ -682,6 +711,7 @@ object AndroidTunnelLifecycleOwner {
     EngineId.SingBox -> VeilarkVpnService.state
     EngineId.TrustTunnel -> TrustTunnelManager.state
     EngineId.VeilarkCoreCanary -> VeilarkVpnService.state
+    EngineId.CoreBeta -> CoreBetaManager.state
   }
 
   private fun ConnectionState.isActive(): Boolean =

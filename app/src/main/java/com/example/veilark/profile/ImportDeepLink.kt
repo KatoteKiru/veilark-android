@@ -4,6 +4,8 @@ import android.content.Intent
 import java.net.URI
 import java.net.URLDecoder
 import java.nio.charset.StandardCharsets
+import java.nio.ByteBuffer
+import java.util.Base64
 
 /**
  * Validates Veilark-owned import intents before they reach the subscription parser.
@@ -18,12 +20,18 @@ internal object ImportDeepLink {
   private const val SCHEME = "veilark"
   private const val HOST = "import"
   private const val PARAM = "url"
+  private const val OPERATOR_PROFILE_ORIGIN = "https://nl2.senyasenyavski.uk:2096/veilark/"
   private const val MAX_INTENT_URI_LENGTH = 32 * 1024 // a fully percent-encoded 8192-char payload is ~24 KiB
   internal const val MAX_PAYLOAD_LENGTH = 8192 // matches the Mini App isVeilarkImportTarget limit; tt://? payloads may embed certificates
 
   fun parse(intent: Intent?): String? {
     if (intent?.action != Intent.ACTION_VIEW) return null
-    return intent.data?.toString()?.let(::parseUri)
+    return intent.data?.toString()?.let { raw ->
+      parseUri(raw)?.let { target ->
+        // Keep the opaque representation in the import form; dispatch unwraps it later.
+        if (URI(raw).rawQuery?.let { it.startsWith("code=") || it.startsWith("t=") } == true) raw else target
+      }
+    }
   }
 
   /** Pure URI boundary used by the Android intent adapter and local regression tests. */
@@ -44,18 +52,41 @@ internal object ImportDeepLink {
       return null
     }
     val query = uri.rawQuery ?: return null
-    val values = query.split('&')
-      .filter(String::isNotEmpty)
-      .mapNotNull { item ->
-        val equal = item.indexOf('=')
-        if (equal < 0) return@mapNotNull null
-        val key = decode(item.substring(0, equal))
-        if (key != PARAM) return@mapNotNull null
-        decode(item.substring(equal + 1))
-      }
-    if (values.size != 1 || query.split('&').count(String::isNotEmpty) != 1) return null
-    return values.single()
+    val items = query.split('&').filter(String::isNotEmpty)
+    if (items.size != 1) return null
+    val item = items.single()
+    val equal = item.indexOf('=')
+    if (equal < 0) return null
+    return when (decode(item.substring(0, equal))) {
+      PARAM -> decode(item.substring(equal + 1))
+      "code" -> decodeImportCode(item.substring(equal + 1))
+      "t" -> decodeCompactToken(item.substring(equal + 1))
+      else -> null
+    }
   }
+
+  // A display-safe code, not encryption or network anonymity. Keep HTTPS validation
+  // after decoding; the code must never authorize a new protocol or arbitrary input.
+  private fun decodeImportCode(code: String): String? = runCatching {
+    require(code.isNotEmpty() && code.all { it in 'a'..'z' || it in 'A'..'Z' || it in '0'..'9' || it == '-' || it == '_' })
+    val bytes = Base64.getUrlDecoder().decode(code)
+    require(bytes.size <= MAX_PAYLOAD_LENGTH)
+    require(Base64.getUrlEncoder().withoutPadding().encodeToString(bytes) == code)
+    val decoded = Charsets.UTF_8.newDecoder().decode(ByteBuffer.wrap(bytes)).toString()
+    require(URI(decoded).scheme.equals("https", ignoreCase = true))
+    decoded
+  }.getOrNull()
+
+  // An opaque lookup token, NOT encryption. Restrict expansion to the existing
+  // operator origin; input cannot choose a host, path, port or protocol.
+  private fun decodeCompactToken(token: String): String? = runCatching {
+    require(token.length == 43 && token.all {
+      it in 'a'..'z' || it in 'A'..'Z' || it in '0'..'9' || it == '-' || it == '_'
+    })
+    val bytes = Base64.getUrlDecoder().decode(token)
+    require(bytes.size == 32 && Base64.getUrlEncoder().withoutPadding().encodeToString(bytes) == token)
+    OPERATOR_PROFILE_ORIGIN + bytes.joinToString("") { "%02x".format(it.toInt() and 0xff) } + ".json"
+  }.getOrNull()
 
   internal fun validatePayload(value: String): String? {
     if (value.isEmpty() || value.length > MAX_PAYLOAD_LENGTH ||

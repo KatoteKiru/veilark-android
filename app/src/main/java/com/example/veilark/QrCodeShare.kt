@@ -20,7 +20,7 @@ internal object QrCodeShare {
       BarcodeFormat.QR_CODE,
       size,
       size,
-      mapOf(EncodeHintType.MARGIN to 2),
+      mapOf(EncodeHintType.MARGIN to 4),
     )
     val pixels = IntArray(size * size) { index ->
       if (matrix[index % size, index / size]) 0xff000000.toInt() else 0xffffffff.toInt()

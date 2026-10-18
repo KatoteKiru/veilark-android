@@ -82,6 +82,7 @@ object ProfileSelection {
     directEntries: String = "",
     vpnEntries: String = "",
     geoRuleSets: GeoRuleSets? = null,
+    categoryRuleSets: Map<String, String> = emptyMap(),
   ): String {
     require(mode in setOf(ROUTING_ALL, ROUTING_MANUAL, ROUTING_RU_DIRECT))
     val root = JSONObject(config)
@@ -102,11 +103,26 @@ object ProfileSelection {
         val vpn = routingEntries(vpnEntries)
         require(
           direct.domains.isNotEmpty() || direct.networks.isNotEmpty() ||
-            vpn.domains.isNotEmpty() || vpn.networks.isNotEmpty(),
+            vpn.domains.isNotEmpty() || vpn.networks.isNotEmpty() || direct.categories.isNotEmpty() || vpn.categories.isNotEmpty(),
         ) {
           "Добавьте хотя бы один домен или IP-диапазон"
         }
         val rules = JSONArray().put(JSONObject().put("action", "sniff"))
+        val categories = (direct.categories + vpn.categories).distinct()
+        require(direct.categories.intersect(vpn.categories.toSet()).isEmpty()) { "Категория указана одновременно для direct и VPN" }
+        if (categories.isNotEmpty()) {
+          route.put("rule_set", JSONArray().apply {
+            categories.forEach { id ->
+              val path = categoryRuleSets[id]
+              require(!path.isNullOrBlank()) { "Категория $id не загружена" }
+              put(localRuleSet(id, path).put("format", "source"))
+            }
+          })
+          dns?.put("final", "secure-dns")
+          val directSites = direct.categories.filter { it.startsWith("geosite:") }
+          if (directSites.isNotEmpty()) dns?.put("rules", JSONArray().put(JSONObject()
+            .put("rule_set", JSONArray(directSites)).put("action", "route").put("server", "bootstrap-dns")))
+        }
         addRule(rules, vpn, finalOutbound)
         addRule(rules, direct, "direct")
         route.put("rules", rules)
@@ -210,6 +226,7 @@ object ProfileSelection {
   }
 
   private fun addRule(rules: JSONArray, entries: RoutingEntries, outbound: String) {
+    if (entries.categories.isNotEmpty()) rules.put(JSONObject().put("rule_set", JSONArray(entries.categories)).put("outbound", outbound))
     if (entries.domains.isNotEmpty()) {
       rules.put(
         JSONObject()
@@ -229,12 +246,16 @@ object ProfileSelection {
   fun routingEntries(value: String): RoutingEntries {
     val domains = linkedSetOf<String>()
     val networks = linkedSetOf<String>()
+    val categories = linkedSetOf<String>()
     value.split(Regex("""[\s,;]+"""))
       .map(String::trim)
       .filter(String::isNotEmpty)
       .forEach { raw ->
         val candidate = raw.trim()
-        if (candidate.contains('/') && !candidate.startsWith("http", ignoreCase = true)) {
+        if (candidate.startsWith("geosite:") || candidate.startsWith("geoip:")) {
+          require(GeoCategoryCatalog.isCategory(candidate)) { "Некорректная категория GEO" }
+          categories += candidate
+        } else if (candidate.contains('/') && !candidate.startsWith("http", ignoreCase = true)) {
           networks += normalizeNetwork(candidate)
         } else {
           val entry = candidate
@@ -259,7 +280,7 @@ object ProfileSelection {
           }
         }
       }
-    return RoutingEntries(domains.toList(), networks.toList())
+    return RoutingEntries(domains.toList(), networks.toList(), categories.toList())
   }
 
   private fun normalizeNetwork(value: String): String {
@@ -284,6 +305,7 @@ object ProfileSelection {
   data class RoutingEntries(
     val domains: List<String>,
     val networks: List<String>,
+    val categories: List<String> = emptyList(),
   )
 
   private val DOMAIN =

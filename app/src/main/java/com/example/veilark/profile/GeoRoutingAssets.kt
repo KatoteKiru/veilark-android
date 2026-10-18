@@ -2,6 +2,7 @@ package com.example.veilark.profile
 
 import android.content.Context
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -54,6 +55,21 @@ object GeoRoutingAssets {
   private val SHA256_PATTERN = Regex("[0-9a-f]{64}")
   private val lock = Any()
   private val updateMutex = Mutex()
+  private var updateInProgress = false
+
+  /** Reads local metadata only; call [prepare] separately to install/verify rule sets. */
+  fun status(context: Context): GeoUpdateStatus = synchronized(lock) {
+    val directory = root(context)
+    val manifest = readLocalManifest(File(directory, MANIFEST))
+    val saved = GeoUpdateStatusStore(File(directory, "update-status.properties")).read()
+    val publishedAt = manifest?.updatedAtMillis
+    // The success timestamp is committed with the active generation itself. A
+    // secondary metadata-write failure must not misreport a published update.
+    saved.observed(updateInProgress, publishedAt).copy(
+      activeGeneration = manifest?.generation,
+      sourceGeneratedAt = manifest?.sourceGeneratedAt,
+    )
+  }
 
   data class UpdateResult(
     val geoIpSha256: String,
@@ -70,48 +86,67 @@ object GeoRoutingAssets {
   ): UpdateResult = withContext(Dispatchers.IO) {
     updateMutex.withLock {
       val root = root(context)
-      val active = synchronized(lock) {
-        val ruleSets = prepare(context)
-        val local = readLocalManifest(File(root, MANIFEST))
-        local?.sourceGeneratedAt?.let { timestamp ->
-          GeoUpdateManifest(
-            timestamp,
-            GeoUpdateAsset(local.geoIpSha256, File(ruleSets.geoIpRuPath).length()),
-            GeoUpdateAsset(local.geoSiteSha256, File(ruleSets.geoSiteRuPath).length()),
-          )
-        }
+      val statusStore = GeoUpdateStatusStore(File(root, "update-status.properties"))
+      synchronized(lock) {
+        val previous = statusStore.read()
+        val publishedAt = readLocalManifest(File(root, MANIFEST))?.updatedAtMillis ?: 0L
+        statusStore.write(previous.started(maxOf(System.currentTimeMillis(), publishedAt + 1)))
+        updateInProgress = true
       }
-      val generations = File(root, GENERATIONS).also {
-        check(it.isDirectory || it.mkdirs()) { "Не удалось создать хранилище геоданных" }
-      }
-      val generation = UUID.randomUUID().toString().replace("-", "")
-      val staging = File(generations, ".staging-$generation")
-      val completed = File(generations, generation)
-      check(staging.mkdir()) { "Не удалось подготовить обновление геоданных" }
       try {
-        val geoIp = File(staging, GEOIP_FILE)
-        val geoSite = File(staging, GEOSITE_FILE)
-        val remote = GeoUpdateCandidateSelector.select(
-          REMOTE_MANIFEST_URLS,
-          active,
-          loadManifest = { url ->
-            GeoUpdateManifest.parse(downloadTextOne(url, MAX_MANIFEST_BYTES), MAX_RULE_SET_BYTES)
-          },
-          validateCandidate = { manifest ->
-            download(GEOIP_URLS, geoIp, manifest.geoIp)
-            download(GEOSITE_URLS, geoSite, manifest.geoSite)
-            validator(ProfileSelection.GeoRuleSets(geoIp.absolutePath, geoSite.absolutePath))
-          },
-        )
-        val result = UpdateResult(sha256(geoIp), sha256(geoSite))
-        synchronized(lock) {
-          writeManifest(File(staging, GENERATION_MANIFEST), generation, result, remote.generatedAt)
-          move(staging, completed)
-          publish(root, generation, result, remote.generatedAt)
+        val active = synchronized(lock) {
+          val ruleSets = prepare(context)
+          val local = readLocalManifest(File(root, MANIFEST))
+          local?.sourceGeneratedAt?.let { timestamp ->
+            GeoUpdateManifest(
+              timestamp,
+              GeoUpdateAsset(local.geoIpSha256, File(ruleSets.geoIpRuPath).length()),
+              GeoUpdateAsset(local.geoSiteSha256, File(ruleSets.geoSiteRuPath).length()),
+            )
+          }
         }
-        result
+        val generations = File(root, GENERATIONS).also {
+          check(it.isDirectory || it.mkdirs()) { "Не удалось создать хранилище геоданных" }
+        }
+        val generation = UUID.randomUUID().toString().replace("-", "")
+        val staging = File(generations, ".staging-$generation")
+        val completed = File(generations, generation)
+        check(staging.mkdir()) { "Не удалось подготовить обновление геоданных" }
+        try {
+          val geoIp = File(staging, GEOIP_FILE)
+          val geoSite = File(staging, GEOSITE_FILE)
+          val remote = GeoUpdateCandidateSelector.select(
+            REMOTE_MANIFEST_URLS,
+            active,
+            loadManifest = { url ->
+              GeoUpdateManifest.parse(downloadTextOne(url, MAX_MANIFEST_BYTES), MAX_RULE_SET_BYTES)
+            },
+            validateCandidate = { manifest ->
+              download(GEOIP_URLS, geoIp, manifest.geoIp)
+              download(GEOSITE_URLS, geoSite, manifest.geoSite)
+              validator(ProfileSelection.GeoRuleSets(geoIp.absolutePath, geoSite.absolutePath))
+            },
+          )
+          val result = UpdateResult(sha256(geoIp), sha256(geoSite))
+          synchronized(lock) {
+            val updatedAt = maxOf(System.currentTimeMillis(), statusStore.read().lastAttemptAtMillis ?: 0L)
+            writeManifest(File(staging, GENERATION_MANIFEST), generation, result, remote.generatedAt, updatedAt)
+            move(staging, completed)
+            publish(root, generation, result, remote.generatedAt, updatedAt)
+            runCatching { statusStore.write(statusStore.read().succeeded(updatedAt)) }
+          }
+          result
+        } finally {
+          staging.deleteRecursively()
+        }
+      } catch (failure: Exception) {
+        synchronized(lock) {
+          // Preserve the original failure and the last verified active generation.
+          runCatching { statusStore.write(statusStore.read().failed(failure is CancellationException)) }
+        }
+        throw failure
       } finally {
-        staging.deleteRecursively()
+        synchronized(lock) { updateInProgress = false }
       }
     }
   }
@@ -139,6 +174,7 @@ object GeoRoutingAssets {
           manifest.generation,
           UpdateResult(manifest.geoIpSha256, manifest.geoSiteSha256),
           manifest.sourceGeneratedAt,
+          manifest.updatedAtMillis,
         )
         ruleSets
       }.getOrNull()
@@ -285,9 +321,10 @@ object GeoRoutingAssets {
     generation: String,
     result: UpdateResult,
     sourceGeneratedAt: String?,
+    updatedAtMillis: Long? = null,
   ) {
     val temporary = File(root, "$MANIFEST.tmp")
-    writeManifest(temporary, generation, result, sourceGeneratedAt)
+    writeManifest(temporary, generation, result, sourceGeneratedAt, updatedAtMillis)
     move(temporary, File(root, MANIFEST), replace = true)
   }
 
@@ -296,6 +333,7 @@ object GeoRoutingAssets {
     generation: String,
     result: UpdateResult,
     sourceGeneratedAt: String?,
+    updatedAtMillis: Long? = null,
   ) {
     val manifest = JSONObject()
       .put("version", MANIFEST_VERSION)
@@ -303,6 +341,7 @@ object GeoRoutingAssets {
       .put("geoip_sha256", result.geoIpSha256)
       .put("geosite_sha256", result.geoSiteSha256)
     if (sourceGeneratedAt != null) manifest.put("source_generated_at", sourceGeneratedAt)
+    if (updatedAtMillis != null) manifest.put("updated_at_millis", updatedAtMillis)
     destination.writeText(manifest.toString())
   }
 
@@ -316,6 +355,7 @@ object GeoRoutingAssets {
       geoSiteSha256 = manifest.getString("geosite_sha256").also { check(it.matches(SHA256_PATTERN)) },
       sourceGeneratedAt = manifest.optString("source_generated_at")
         .takeIf(String::isNotBlank),
+      updatedAtMillis = manifest.optLong("updated_at_millis", 0L).takeIf { it > 0 },
     )
   }.getOrNull()
 
@@ -362,5 +402,6 @@ object GeoRoutingAssets {
     val geoIpSha256: String,
     val geoSiteSha256: String,
     val sourceGeneratedAt: String?,
+    val updatedAtMillis: Long?,
   )
 }

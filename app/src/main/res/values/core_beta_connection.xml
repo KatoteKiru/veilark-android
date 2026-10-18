@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="core_l3_manual">Manual IP ranges</string>
+    <string name="core_l3_cidr_only">Core accepts IPv4 CIDR ranges. Domain GEO is not available yet.</string>
+    <string name="core_l3_direct_cidrs">IP ranges through your network</string>
+    <string name="core_l3_vpn_cidrs">IP ranges through Core</string>
+    <string name="core_l3_cidr_hint">For example 203.0.113.0/24. Separate ranges with lines, spaces or commas.</string>
+    <string name="core_l3_vpn_priority">Core ranges take priority over direct ranges. Configured DNS stays routed through Core.</string>
+    <string name="core_beta_apps_unavailable">Selected applications are no longer available. Select at least one installed application for Only mode. VPN was not started.</string>
+    <string name="core_authenticated_title">@string/core_beta_title</string>
+    <string name="core_authenticated_hint">The tunnel is authenticated. Internet access has not been verified by the app.</string>
+    <string name="core_beta_notification_text">Veilark Core (маршрут: Fairway)</string>
+    <string name="core_beta_cleanup_failed">Veilark Core could not finish stopping. Force-stop Veilark in Android app settings, then open it again before connecting.</string>
+    <string name="core_beta_scope">Choose apps and IP ranges. Routing by domain is not available yet.</string>
+    <string name="core_beta_unavailable">Veilark Core requires an ARM64 build with the native runtime.</string>
+    <string name="core_argon_runtime_unavailable">Core profile saved. This build does not support connecting with this profile yet.</string>
+    <string name="core_beta_add_profile">Import a Core test profile, then select this mode.</string>
+    <string name="core_beta_imported">Core profile saved. Select Veilark Core (маршрут: Fairway) to connect.</string>
+    <string name="core_beta_connection_failed">Veilark Core connection failed. Check the test profile and server availability.</string>
+    <string name="fairway_ru_partial_description">Partial bypass of Russian IP ranges. All other traffic goes through the VPN.</string>
+</resources>

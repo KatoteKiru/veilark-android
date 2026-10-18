@@ -1,0 +1,33 @@
+<resources>
+    <string name="geo_scenario_title">Стратегии GEO</string>
+    <string name="geo_scenario_default_name">Моя стратегия</string>
+    <string name="geo_scenario_name">Название стратегии</string>
+    <string name="geo_scenario_back">Вернуться к маршрутизации</string>
+    <string name="geo_scenario_categories">Категории</string>
+    <string name="geo_scenario_saved">Сохранённые</string>
+    <string name="geo_scenario_custom">Свои правила</string>
+    <string name="geo_scenario_selection_summary">Напрямую: %1$d · VPN: %2$d</string>
+    <string name="geo_scenario_remaining">Остальной трафик идёт через VPN. Выбор и сохранение меняют только черновик; для включения нажмите «Применить» в разделе маршрутизации.</string>
+    <string name="geo_scenario_edit">Выбрать категории и изменить стратегию</string>
+    <string name="geo_scenario_catalog_description">Найдите сервис или страну и выберите «Напрямую» либо «VPN». Список категорий доступен без сети. Недостающие файлы правил загрузятся при выборе стратегии.</string>
+    <string name="geo_scenario_trust_categories">В TrustTunnel категории можно отправить «Напрямую», если они содержат домены и IP-сети. Совмещать их с правилами VPN нельзя. Сложные категории проверяются перед выбором; неподдерживаемые правила не меняют прежнюю маршрутизацию.</string>
+    <string name="geo_scenario_download_catalog">Обновить список категорий</string>
+    <string name="geo_scenario_search">Поиск сервиса, страны или категории</string>
+    <string name="geo_scenario_selected_only">Только выбранные</string>
+    <string name="geo_scenario_catalog_empty">Загрузите список категорий, чтобы выбрать нужные правила.</string>
+    <string name="geo_scenario_no_results">Подходящих категорий нет. Попробуйте название сервиса, например telegram, либо очистите поиск и фильтр «Только выбранные».</string>
+    <string name="geo_scenario_off">Не выбрано</string>
+    <string name="geo_scenario_direct">Напрямую</string>
+    <string name="geo_scenario_vpn">VPN</string>
+    <string name="geo_scenario_saved_empty">Сохранённых стратегий пока нет. Выберите категории, задайте название и сохраните стратегию.</string>
+    <string name="geo_scenario_open">Открыть стратегию</string>
+    <string name="geo_scenario_custom_description">Дополнительные домены, IP-сети или коды категорий. Эти правила сохраняются вместе с категориями из списка.</string>
+    <string name="geo_scenario_import_description">При необходимости импортируйте свой JSON-сценарий или файл правил с GitHub.</string>
+    <string name="geo_scenario_save">Сохранить стратегию</string>
+    <string name="geo_scenario_choose">Выбрать стратегию</string>
+    <string name="geo_scenario_operation_failed">Не удалось загрузить или сохранить стратегию. Прежняя маршрутизация сохранена.</string>
+    <string name="core_application_rules_note">Core применяет фильтры приложений Android. Сам Veilark остаётся вне туннеля; маршрутизация GEO ещё интегрируется.</string>
+    <string name="core_ipv4_mode">IPv4 через Core</string>
+    <string name="core_profile_dns">DNS профиля через туннель</string>
+    <string name="core_ipv6_blocked">IPv6 блокируется для приложений в VPN</string>
+</resources>

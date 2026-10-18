@@ -22,6 +22,10 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import com.example.veilark.profile.FileImportRequest
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.veilark.theme.VeilarkTheme
@@ -38,7 +42,10 @@ import com.example.veilark.profile.SubscriptionDeletionPolicy
 import com.example.veilark.profile.SubscriptionSelectionPolicy
 import com.example.veilark.profile.SubscriptionRefreshPolicy
 import com.example.veilark.profile.ApplicationRoutingPolicy
+import com.example.veilark.profile.ApplicationRoutingUnavailableException
 import com.example.veilark.profile.GeoRoutingAssets
+import com.example.veilark.profile.GeoCategoryCatalog
+import com.example.veilark.profile.GeoUpdateStatus
 import com.example.veilark.profile.ProfileSelection
 import com.example.veilark.profile.InstalledApp
 import com.example.veilark.profile.InstalledAppLoader
@@ -51,6 +58,11 @@ import com.example.veilark.update.UpdateManager
 import com.example.veilark.vpn.LatencyMonitor
 import com.example.veilark.vpn.EndpointLatencyProbe
 import com.example.veilark.io.readAtMost
+import com.example.veilark.profile.CoreProfileStore
+import com.example.veilark.core.runtime.CoreBetaManager
+import com.example.veilark.core.runtime.CoreL3DnsPolicy
+import com.example.veilark.core.runtime.CoreRoutingPlan
+import com.example.veilark.core.runtime.VeilarkCoreRuntimeNative
 import com.example.veilark.protocol.ProfileEngine
 import com.example.veilark.protocol.TrustTunnelManager
 import com.example.veilark.protocol.TrustTunnelGeoRouting
@@ -66,9 +78,12 @@ import java.io.File
 class MainActivity : ComponentActivity() {
   private var pendingConfigPath: String? = null
   private var pendingTrustConfig: String? = null
+  private var pendingCoreConnection = false
+  private var pendingPermissionEngine: String? = null
   private var pendingUpdateApk: File? = null
   private val tileConnectRequests = MutableStateFlow(0)
   private val externalImportRequests = MutableStateFlow<String?>(null)
+  private val externalFileRequests = MutableStateFlow<Uri?>(null)
   private val updateNoticeRequests = MutableStateFlow(0L)
 
   override fun onCreate(savedInstanceState: Bundle?) {
@@ -76,6 +91,7 @@ class MainActivity : ComponentActivity() {
     consumeTileConnectIntent(intent)
     consumeUpdateNoticeIntent(intent)
     externalImportRequests.value = ImportDeepLink.parse(intent)
+    consumeFileImportIntent(intent)
     SecureProfileStore.migrateLegacy(this)
     val initialProfilePreferences = getSharedPreferences("profile_meta", MODE_PRIVATE)
     TrustTunnelCatalog.migrateSingle(
@@ -110,10 +126,13 @@ class MainActivity : ComponentActivity() {
             ?: ProfileEngine.SING_BOX,
         )
       }
+      var coreProfileName by remember { mutableStateOf(runCatching { CoreProfileStore.loadMetadata(this).name }.getOrNull()) }
+      val coreRuntimeAvailable = remember { VeilarkCoreRuntimeNative.loadCandidate() }
       var trustProfiles by remember {
         mutableStateOf(TrustTunnelCatalog.load(this))
       }
       val externalImportUrl by externalImportRequests.collectAsStateWithLifecycle()
+      val externalFileUri by externalFileRequests.collectAsStateWithLifecycle()
       val updateNoticeRequest by updateNoticeRequests.collectAsStateWithLifecycle()
       var singBoxProfiles by remember {
         mutableStateOf(SingBoxCatalog.load(this))
@@ -134,7 +153,9 @@ class MainActivity : ComponentActivity() {
       }
       var profileName by remember {
         mutableStateOf(
-          if (
+          if (profileEngine == ProfileEngine.CORE_BETA) {
+            coreProfileName
+          } else if (
             (profileEngine == ProfileEngine.SING_BOX &&
               SecureProfileStore.exists(this, SecureProfileStore.SING_BOX)) ||
             (profileEngine == ProfileEngine.TRUST_TUNNEL &&
@@ -160,9 +181,15 @@ class MainActivity : ComponentActivity() {
       var refreshingSubscription by remember { mutableStateOf(false) }
       var geoUpdating by remember { mutableStateOf(false) }
       var geoUpdateMessage by remember { mutableStateOf<String?>(null) }
+      var geoStatus by remember { mutableStateOf(GeoUpdateStatus()) }
+      LaunchedEffect(Unit) {
+        geoStatus = withContext(Dispatchers.IO) { GeoRoutingAssets.status(this@MainActivity) }
+      }
       var subscriptionRefreshAvailable by remember {
         mutableStateOf(
-          if (profileEngine == ProfileEngine.TRUST_TUNNEL) {
+          if (profileEngine == ProfileEngine.CORE_BETA) {
+            false
+          } else if (profileEngine == ProfileEngine.TRUST_TUNNEL) {
             trustProfiles.firstOrNull { it.id == selectedTrustId }?.sourceUrl != null
           } else {
             singBoxProfiles.firstOrNull { it.id == selectedSingBoxId }?.sourceUrl != null
@@ -179,7 +206,9 @@ class MainActivity : ComponentActivity() {
       var updateProgress by remember { mutableStateOf<Float?>(null) }
       var connectionNodes by remember {
         mutableStateOf(
-          if (profileEngine == ProfileEngine.TRUST_TUNNEL) {
+          if (profileEngine == ProfileEngine.CORE_BETA) {
+            emptyList()
+          } else if (profileEngine == ProfileEngine.TRUST_TUNNEL) {
             TrustTunnelCatalog.nodes(trustProfiles)
           } else {
             singBoxProfiles.firstOrNull { it.id == selectedSingBoxId }?.nodes
@@ -206,12 +235,13 @@ class MainActivity : ComponentActivity() {
           "routing_mode",
           ProfileSelection.ROUTING_ALL,
         ) ?: ProfileSelection.ROUTING_ALL
-        val key = if (profileEngine == ProfileEngine.TRUST_TUNNEL) {
-          "trust_routing_mode"
-        } else {
-          "sing_routing_mode"
+        val key = when (profileEngine) {
+          ProfileEngine.CORE_BETA -> "core_routing_mode"
+          ProfileEngine.TRUST_TUNNEL -> "trust_routing_mode"
+          else -> "sing_routing_mode"
         }
-        val storedMode = profilePreferences.getString(key, legacyMode)
+        val storedMode = profilePreferences.getString(key,
+          if (profileEngine == ProfileEngine.CORE_BETA) ProfileSelection.ROUTING_ALL else legacyMode)
         mutableStateOf(
           storedMode.takeIf {
             it in setOf(
@@ -223,18 +253,18 @@ class MainActivity : ComponentActivity() {
         )
       }
       var directRoutes by remember {
-        val key = if (profileEngine == ProfileEngine.TRUST_TUNNEL) {
-          "trust_direct_routes"
-        } else {
-          "direct_routes"
+        val key = when (profileEngine) {
+          ProfileEngine.CORE_BETA -> "core_direct_routes"
+          ProfileEngine.TRUST_TUNNEL -> "trust_direct_routes"
+          else -> "direct_routes"
         }
         mutableStateOf(profilePreferences.getString(key, "").orEmpty())
       }
       var vpnRoutes by remember {
-        val key = if (profileEngine == ProfileEngine.TRUST_TUNNEL) {
-          "trust_vpn_routes"
-        } else {
-          "vpn_routes"
+        val key = when (profileEngine) {
+          ProfileEngine.CORE_BETA -> "core_vpn_routes"
+          ProfileEngine.TRUST_TUNNEL -> "trust_vpn_routes"
+          else -> "vpn_routes"
         }
         mutableStateOf(profilePreferences.getString(key, "").orEmpty())
       }
@@ -259,12 +289,13 @@ class MainActivity : ComponentActivity() {
       var installedApplications by remember { mutableStateOf<List<InstalledApp>>(emptyList()) }
       val coroutineScope = rememberCoroutineScope()
       fun storedRoutingModeFor(engine: String, fallback: String): String {
-        val key = if (engine == ProfileEngine.TRUST_TUNNEL) {
-          "trust_routing_mode"
-        } else {
-          "sing_routing_mode"
+        val key = when (engine) {
+          ProfileEngine.CORE_BETA -> "core_routing_mode"
+          ProfileEngine.TRUST_TUNNEL -> "trust_routing_mode"
+          else -> "sing_routing_mode"
         }
-        return profilePreferences.getString(key, fallback).takeIf {
+        return profilePreferences.getString(key,
+          if (engine == ProfileEngine.CORE_BETA) ProfileSelection.ROUTING_ALL else fallback).takeIf {
           it in setOf(
             ProfileSelection.ROUTING_ALL,
             ProfileSelection.ROUTING_MANUAL,
@@ -274,7 +305,13 @@ class MainActivity : ComponentActivity() {
       }
       val singBoxConnectionState by VeilarkVpnService.state.collectAsStateWithLifecycle()
       val trustTunnelConnectionState by TrustTunnelManager.state.collectAsStateWithLifecycle()
-      val connectionState = if (profileEngine == ProfileEngine.TRUST_TUNNEL) {
+      val coreConnectionState by CoreBetaManager.state.collectAsStateWithLifecycle()
+      val coreStopped by CoreBetaManager.stopped.collectAsStateWithLifecycle()
+      val coreStopAvailable = profileEngine == ProfileEngine.CORE_BETA && !coreStopped
+      val coreConnectionError by CoreBetaManager.failureMessage.collectAsStateWithLifecycle()
+      val connectionState = if (profileEngine == ProfileEngine.CORE_BETA) {
+        coreConnectionState
+      } else if (profileEngine == ProfileEngine.TRUST_TUNNEL) {
         trustTunnelConnectionState
       } else {
         singBoxConnectionState
@@ -283,6 +320,7 @@ class MainActivity : ComponentActivity() {
       // first, then stop every running engine immediately before switching the active profile.
       // This avoids a failed import needlessly dropping an otherwise healthy tunnel.
       val stopTunnelsAfterProfileCommit: () -> Unit = {
+        if (coreConnectionState != ConnectionState.Disconnected) CoreBetaManager.stop(this@MainActivity)
         if (trustTunnelConnectionState != ConnectionState.Disconnected) {
           TrustTunnelManager.stop(this@MainActivity)
         }
@@ -297,7 +335,7 @@ class MainActivity : ComponentActivity() {
       val failureCode by VeilarkVpnService.failureCode.collectAsStateWithLifecycle()
       val singBoxStartupStage by VeilarkVpnService.startupStage.collectAsStateWithLifecycle()
       val startupStage = if (
-        profileEngine == ProfileEngine.TRUST_TUNNEL &&
+        (profileEngine == ProfileEngine.TRUST_TUNNEL || profileEngine == ProfileEngine.CORE_BETA) &&
         connectionState == ConnectionState.Connecting
       ) {
         com.example.veilark.vpn.StartupStage.Core
@@ -313,12 +351,16 @@ class MainActivity : ComponentActivity() {
       val trustNodeLatencies by TrustTunnelManager.latencies.collectAsStateWithLifecycle()
       val trustLatencyChecking by
         TrustTunnelManager.latencyChecking.collectAsStateWithLifecycle()
-      val nodeLatencies = if (profileEngine == ProfileEngine.TRUST_TUNNEL) {
+      val nodeLatencies = if (profileEngine == ProfileEngine.CORE_BETA) {
+        emptyMap()
+      } else if (profileEngine == ProfileEngine.TRUST_TUNNEL) {
         trustNodeLatencies
       } else {
         endpointNodeLatencies + singBoxNodeLatencies
       }
-      val latencyChecking = if (profileEngine == ProfileEngine.TRUST_TUNNEL) {
+      val latencyChecking = if (profileEngine == ProfileEngine.CORE_BETA) {
+        false
+      } else if (profileEngine == ProfileEngine.TRUST_TUNNEL) {
         trustLatencyChecking
       } else {
         endpointLatencyChecking || singBoxLatencyChecking
@@ -428,7 +470,14 @@ class MainActivity : ComponentActivity() {
       val vpnPermission = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult(),
       ) { result ->
-        if (result.resultCode == Activity.RESULT_OK) {
+        if (result.resultCode == Activity.RESULT_OK && pendingPermissionEngine == profileEngine) {
+          if (pendingCoreConnection && profileEngine == ProfileEngine.CORE_BETA) {
+            coroutineScope.launch {
+              runCatching {
+                CoreBetaManager.start(this@MainActivity)
+              }.onFailure { importError = it.message ?: getString(R.string.core_beta_unavailable) }
+            }
+          }
           pendingConfigPath?.let {
             if (trustTunnelConnectionState != ConnectionState.Disconnected) {
               TrustTunnelManager.stop(this)
@@ -444,9 +493,12 @@ class MainActivity : ComponentActivity() {
         }
         pendingConfigPath = null
         pendingTrustConfig = null
+        pendingCoreConnection = false
+        pendingPermissionEngine = null
       }
 
       var connectAfterNotificationPermission by remember { mutableStateOf(false) }
+      var notificationRequestEngine by remember { mutableStateOf<String?>(null) }
       val notificationPermission = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
       ) { granted ->
@@ -456,10 +508,12 @@ class MainActivity : ComponentActivity() {
             getString(R.string.notification_permission_denied),
           )
         }
-        if (connectAfterNotificationPermission) {
+        if (connectAfterNotificationPermission && notificationRequestEngine == profileEngine) {
           connectAfterNotificationPermission = false
           tileConnectRequests.value += 1
         }
+        connectAfterNotificationPermission = false
+        notificationRequestEngine = null
       }
 
       val tileConnectRequest by tileConnectRequests.collectAsStateWithLifecycle()
@@ -468,11 +522,22 @@ class MainActivity : ComponentActivity() {
         if (shouldRequestNotificationPermission()) {
           markNotificationPermissionRequested()
           connectAfterNotificationPermission = true
+          notificationRequestEngine = profileEngine
           notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
           return@LaunchedEffect
         }
         runCatching {
-          if (profileEngine == ProfileEngine.TRUST_TUNNEL) {
+          if (profileEngine == ProfileEngine.CORE_BETA) {
+            check(coreRuntimeAvailable && coreProfileName != null) { getString(R.string.core_beta_unavailable) }
+            val permissionIntent = VpnService.prepare(this@MainActivity)
+            if (permissionIntent == null) {
+              CoreBetaManager.start(this@MainActivity)
+            } else {
+              pendingCoreConnection = true
+              pendingPermissionEngine = profileEngine
+              vpnPermission.launch(permissionIntent)
+            }
+          } else if (profileEngine == ProfileEngine.TRUST_TUNNEL) {
             check(SecureProfileStore.exists(this@MainActivity, SecureProfileStore.TRUST_TUNNEL)) {
               getString(R.string.trust_profile_not_found)
             }
@@ -485,6 +550,7 @@ class MainActivity : ComponentActivity() {
               TrustTunnelManager.start(this@MainActivity, config)
             } else {
               pendingTrustConfig = config
+              pendingPermissionEngine = profileEngine
               vpnPermission.launch(permissionIntent)
             }
           } else {
@@ -496,6 +562,7 @@ class MainActivity : ComponentActivity() {
               VeilarkVpnService.start(this@MainActivity)
             } else {
               pendingConfigPath = SecureProfileStore.SING_BOX
+              pendingPermissionEngine = profileEngine
               vpnPermission.launch(permissionIntent)
             }
           }
@@ -518,50 +585,108 @@ class MainActivity : ComponentActivity() {
         }
       }
 
-      val filePicker = rememberLauncherForActivityResult(
-        ActivityResultContracts.OpenDocument(),
-      ) { uri ->
-        if (uri == null) return@rememberLauncherForActivityResult
-        runCatching {
-          val config = contentResolver.openInputStream(uri)?.use { input ->
-            input.readAtMost(MAX_CONFIG_SIZE + 1)
-          } ?: error(getString(R.string.profile_read_failed))
-          require(config.size <= MAX_CONFIG_SIZE) { getString(R.string.profile_too_large) }
-          val configText = config.toString(Charsets.UTF_8)
-          Libbox.checkConfig(configText)
-          val importedName =
-            uri.lastPathSegment?.substringAfterLast('/') ?: "Imported profile"
-          val entry = SingBoxCatalog.create(
-            config = configText,
-            nodes = emptyList(),
-            selectedNodeTag = ProfileSelection.AUTOMATIC_TAG,
-            sourceUrl = null,
-            suggestedName = importedName,
-          )
-          singBoxProfiles = SingBoxCatalog.upsert(this, entry)
-          SingBoxCatalog.activate(this, entry)
-          stopTunnelsAfterProfileCommit()
-          selectedSingBoxId = entry.id
-          profileName = entry.name
-          profileEngine = ProfileEngine.SING_BOX
-          connectionNodes = emptyList()
-          selectedNodeTag = ProfileSelection.AUTOMATIC_TAG
-          profilePreferences.edit()
-            .putString("display_name", profileName)
-            .putString("sing_display_name", profileName)
-            .putString("selected_sing_profile", entry.id)
-            .putString("profile_engine", profileEngine)
-            .remove("nodes")
-            .putString("selected_node", selectedNodeTag)
-            .apply()
-          subscriptionRefreshAvailable = false
-          importError = null
-        }.onFailure {
-          importError = it.userMessage(R.string.invalid_configuration)
-          TechnicalLogStore.error("IMPORT", "JSON configuration import rejected")
+      suspend fun importCorePayload(payload: ByteArray): Boolean {
+        val text = payload.toString(Charsets.UTF_8)
+        if (!text.contains("veilark-core-beta-profile-v1") && !text.contains("veilark-argon-profile-v1")) return false
+        check(coreConnectionState == ConnectionState.Disconnected || coreConnectionState == ConnectionState.Failed) {
+          getString(R.string.engine_switch_disconnect_first)
         }
+        check(CoreBetaManager.stopped.value) { getString(R.string.core_beta_cleanup_failed) }
+        try {
+          CoreBetaManager.importProfileWhenStopped(this@MainActivity, payload)
+        } finally {
+          // A disk error while saving selection may follow a successful profile
+          // replacement. Reflect the actual selected source even on failure.
+          coreProfileName = withContext(Dispatchers.IO) {
+            runCatching { CoreProfileStore.loadMetadata(this@MainActivity).name }.getOrNull()
+          }
+          if (profileEngine == ProfileEngine.CORE_BETA) profileName = coreProfileName
+        }
+        // Import is intentionally separate from selecting or starting the engine.
+        importError = null
+        return true
       }
 
+      // Both the picker and externally granted content URIs use one bounded reader.
+      fun importDocument(uri: Uri) {
+        if (importing) return
+        importing = true
+        importError = null
+        coroutineScope.launch {
+          try {
+            runCatching {
+              val config = withContext(Dispatchers.IO) {
+                contentResolver.openInputStream(uri)?.use { input ->
+                  input.readAtMost(MAX_CONFIG_SIZE + 1)
+                } ?: error(getString(R.string.profile_read_failed))
+              }
+              require(config.size <= MAX_CONFIG_SIZE) { getString(R.string.profile_too_large) }
+              if (importCorePayload(config)) return@runCatching
+              val configText = config.toString(Charsets.UTF_8)
+              // Exported import-code .txt files are links, not sing-box JSON.
+              // Route them through the same validated, one-shot link importer as QR.
+              ImportDeepLink.parseQrPayload(configText)?.let { link ->
+                externalImportRequests.value = link
+                return@runCatching
+              }
+              withContext(Dispatchers.Default) { Libbox.checkConfig(configText) }
+              val importedName =
+                uri.lastPathSegment?.substringAfterLast('/') ?: "Imported profile"
+              val entry = SingBoxCatalog.create(
+                config = configText,
+                nodes = emptyList(),
+                selectedNodeTag = ProfileSelection.AUTOMATIC_TAG,
+                sourceUrl = null,
+                suggestedName = importedName,
+              )
+              singBoxProfiles = SingBoxCatalog.upsert(this@MainActivity, entry)
+              SingBoxCatalog.activate(this@MainActivity, entry)
+              stopTunnelsAfterProfileCommit()
+              selectedSingBoxId = entry.id
+              profileName = entry.name
+              profileEngine = ProfileEngine.SING_BOX
+              connectionNodes = emptyList()
+              selectedNodeTag = ProfileSelection.AUTOMATIC_TAG
+              profilePreferences.edit()
+                .putString("display_name", profileName)
+                .putString("sing_display_name", profileName)
+                .putString("selected_sing_profile", entry.id)
+                .putString("profile_engine", profileEngine)
+                .remove("nodes")
+                .putString("selected_node", selectedNodeTag)
+                .apply()
+              subscriptionRefreshAvailable = false
+              importError = null
+            }.onFailure {
+              // Provider/native exceptions can contain input or paths: never display them.
+              importError = getString(R.string.invalid_configuration)
+              TechnicalLogStore.error("IMPORT", "Configuration file import rejected")
+            }
+          } finally {
+            importing = false
+          }
+        }
+      }
+      val filePicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument(),
+      ) { uri -> if (uri != null) importDocument(uri) }
+      if (externalFileUri != null && !importing) {
+        AlertDialog(
+          onDismissRequest = { externalFileRequests.value = null },
+          title = { Text(getString(R.string.profile_import)) },
+          text = { Text(getString(R.string.add_subscription_or_profile)) },
+          confirmButton = {
+            TextButton(onClick = {
+              val selected = externalFileRequests.value
+              externalFileRequests.value = null
+              if (selected != null) importDocument(selected)
+            }) { Text(getString(R.string.action_import)) }
+          },
+          dismissButton = {
+            TextButton(onClick = { externalFileRequests.value = null }) { Text(getString(R.string.cancel)) }
+          },
+        )
+      }
       var pendingQrConsumer by remember {
         mutableStateOf<((String) -> Unit)?>(null)
       }
@@ -588,23 +713,28 @@ class MainActivity : ComponentActivity() {
         MainScreen(
           profileName = profileName,
           connectionState = connectionState,
+          stopAvailable = coreStopAvailable,
           startupStage = startupStage,
-          importError = importError ?: if (profileEngine == ProfileEngine.TRUST_TUNNEL) {
+          importError = importError ?: if (profileEngine == ProfileEngine.CORE_BETA) {
+            if (coreConnectionState == ConnectionState.Failed) coreConnectionError ?: getString(R.string.core_beta_connection_failed) else null
+          } else if (profileEngine == ProfileEngine.TRUST_TUNNEL) {
             trustTunnelError
           } else {
             connectionError
           },
-          routingNotice = trustRoutingNotice.takeIf {
+          routingNotice = if (profileEngine == ProfileEngine.CORE_BETA) getString(R.string.core_beta_scope) else trustRoutingNotice.takeIf {
             profileEngine == ProfileEngine.TRUST_TUNNEL
           },
-          failureCode = if (profileEngine == ProfileEngine.TRUST_TUNNEL &&
+          failureCode = if (profileEngine == ProfileEngine.CORE_BETA) {
+            if (coreConnectionState == ConnectionState.Failed) "VPN-CORE-BETA" else null
+          } else if (profileEngine == ProfileEngine.TRUST_TUNNEL &&
             trustTunnelError != null
           ) {
             "VPN-TRUST-CONNECTION"
           } else {
             failureCode
           },
-          diagnosticReportAvailable = diagnosticReport != null,
+          diagnosticReportAvailable = profileEngine != ProfileEngine.CORE_BETA && diagnosticReport != null,
           technicalLogs = technicalLogs,
           connectionNodes = connectionNodes,
           singBoxSubscriptions = singBoxProfiles,
@@ -637,11 +767,18 @@ class MainActivity : ComponentActivity() {
           routingAvailable = true,
           geoUpdating = geoUpdating,
           geoUpdateMessage = geoUpdateMessage,
+          geoStatusDescription = geoStatusDescription(geoStatus, geoUpdating),
+          coreBetaActive = profileEngine == ProfileEngine.CORE_BETA,
+          coreBetaAvailable = coreProfileName != null && coreRuntimeAvailable,
+          coreBetaProfileName = coreProfileName,
+          coreBetaRuntimeAvailable = coreRuntimeAvailable,
           trustTunnelActive = profileEngine == ProfileEngine.TRUST_TUNNEL,
           singBoxAvailable = singBoxProfiles.isNotEmpty(),
           trustTunnelAvailable =
             SecureProfileStore.exists(this, SecureProfileStore.TRUST_TUNNEL),
-          engineDescription = if (profileEngine == ProfileEngine.TRUST_TUNNEL) {
+          engineDescription = if (profileEngine == ProfileEngine.CORE_BETA) {
+            getString(R.string.core_beta_title)
+          } else if (profileEngine == ProfileEngine.TRUST_TUNNEL) {
             buildString {
               append("TrustTunnel 1.1.5")
               trustTunnelTransport?.let { append(" · $it") }
@@ -659,8 +796,9 @@ class MainActivity : ComponentActivity() {
           updating = updating,
           updateProgress = updateProgress,
           importing = importing,
-          externalImportUrl = externalImportUrl,
-          onExternalImportConsumed = { externalImportRequests.value = null },
+          // Leave queued external requests pending while an import is running.
+          externalImportUrl = externalImportUrl.takeUnless { importing },
+          onExternalImportConsumed = { if (!importing) externalImportRequests.value = null },
           onShareQr = { _, payload ->
             if (!QrCodeShare.share(
                 this@MainActivity,
@@ -681,13 +819,15 @@ class MainActivity : ComponentActivity() {
             // second permission launcher racing the scanner activity on Android 13+.
             qrScanner.launch(Intent(this@MainActivity, QrScannerActivity::class.java))
           },
-          onImportUrl = { url ->
+          onImportUrl = importUrl@ { url ->
+            if (importing) return@importUrl
             // QR results can be a Veilark import envelope or use an uppercase protocol scheme.
             // Normalize once before dispatching to either the TrustTunnel or sing-box importer.
             val importUrl = ImportDeepLink.parseQrPayload(url) ?: url.trim()
             importing = true
             importError = null
             coroutineScope.launch {
+              try {
               if (importUrl.startsWith("tt://")) {
                 runCatching {
                   val compiled = withContext(Dispatchers.Default) {
@@ -740,6 +880,7 @@ class MainActivity : ComponentActivity() {
                   } else {
                     importUrl.toByteArray(Charsets.UTF_8)
                   }
+                  if (importCorePayload(payload)) return@runCatching null
                   val parser = SubscriptionParser()
                   val trustLinks = parser.extractTrustTunnelLinks(payload)
                   val compiledAttempt = runCatching { parser.compile(payload) }
@@ -793,6 +934,7 @@ class MainActivity : ComponentActivity() {
                     directRoutes,
                     vpnRoutes,
                     geoRuleSets(routingMode),
+                    categoryRuleSets(routingMode, directRoutes, vpnRoutes),
                   )
                   config = ProfileSelection.applyApplications(
                     config,
@@ -874,7 +1016,7 @@ class MainActivity : ComponentActivity() {
                   TechnicalLogStore.error("IMPORT", "Subscription import failed")
                 }
               }
-              importing = false
+              } finally { importing = false }
             }
           },
           onRefreshSubscription = {
@@ -977,6 +1119,7 @@ class MainActivity : ComponentActivity() {
                     refreshDirectRoutes,
                     refreshVpnRoutes,
                     geoRuleSets(refreshRoutingMode),
+                    categoryRuleSets(refreshRoutingMode, refreshDirectRoutes, refreshVpnRoutes),
                   )
                   config = ProfileSelection.applyApplications(
                     config,
@@ -1042,12 +1185,29 @@ class MainActivity : ComponentActivity() {
               }
             }
           },
-          onSwitchProfile = {
-            val target = if (profileEngine == ProfileEngine.TRUST_TUNNEL) {
-              ProfileEngine.SING_BOX
-            } else {
-              ProfileEngine.TRUST_TUNNEL
+          onSelectEngine = selectEngine@{ target ->
+            if (connectionState != ConnectionState.Disconnected && connectionState != ConnectionState.Failed) return@selectEngine
+            if (target == profileEngine) return@selectEngine
+            pendingConfigPath = null
+            pendingTrustConfig = null
+            pendingCoreConnection = false
+            pendingPermissionEngine = null
+            if (target == ProfileEngine.CORE_BETA) {
+              if (!coreRuntimeAvailable || coreProfileName == null) return@selectEngine
+              stopTunnelsAfterProfileCommit()
+              profileEngine = target
+              profileName = coreProfileName
+              connectionNodes = emptyList()
+              selectedNodeTag = ""
+              routingMode = storedRoutingModeFor(target, ProfileSelection.ROUTING_ALL)
+              directRoutes = profilePreferences.getString("core_direct_routes", "").orEmpty()
+              vpnRoutes = profilePreferences.getString("core_vpn_routes", "").orEmpty()
+              subscriptionRefreshAvailable = false
+              profilePreferences.edit().putString("profile_engine", target).apply()
+              importError = null
+              return@selectEngine
             }
+            if (coreConnectionState != ConnectionState.Disconnected) CoreBetaManager.stop(this)
             if (profileEngine == ProfileEngine.TRUST_TUNNEL) {
               if (trustTunnelConnectionState != ConnectionState.Disconnected) {
                 TrustTunnelManager.stop(this)
@@ -1055,8 +1215,11 @@ class MainActivity : ComponentActivity() {
             } else if (singBoxConnectionState != ConnectionState.Disconnected) {
               VeilarkVpnService.stop(this)
             }
+            val fallbackRouting = if (profileEngine == ProfileEngine.CORE_BETA)
+              profilePreferences.getString("routing_mode", ProfileSelection.ROUTING_ALL)
+                ?: ProfileSelection.ROUTING_ALL else routingMode
             profileEngine = target
-            routingMode = storedRoutingModeFor(target, routingMode)
+            routingMode = storedRoutingModeFor(target, fallbackRouting)
             directRoutes = profilePreferences.getString(
               if (target == ProfileEngine.TRUST_TUNNEL) "trust_direct_routes" else "direct_routes",
               "",
@@ -1105,10 +1268,13 @@ class MainActivity : ComponentActivity() {
           },
           onSelectNode = { tag ->
             runCatching {
+              check(profileEngine != ProfileEngine.CORE_BETA) { getString(R.string.core_beta_scope) }
               if (connectionState == ConnectionState.Connected ||
                 connectionState == ConnectionState.Connecting
               ) {
-                if (profileEngine == ProfileEngine.TRUST_TUNNEL) {
+                if (profileEngine == ProfileEngine.CORE_BETA) {
+                  CoreBetaManager.stop(this)
+                } else if (profileEngine == ProfileEngine.TRUST_TUNNEL) {
                   TrustTunnelManager.stop(this)
                 } else {
                   VeilarkVpnService.stop(this)
@@ -1148,6 +1314,7 @@ class MainActivity : ComponentActivity() {
           },
           onSelectSubscription = { id ->
             runCatching {
+              check(profileEngine != ProfileEngine.CORE_BETA) { getString(R.string.core_beta_scope) }
               if (profileEngine == ProfileEngine.TRUST_TUNNEL) {
                 if (trustTunnelConnectionState != ConnectionState.Disconnected) {
                   TrustTunnelManager.stop(this)
@@ -1212,7 +1379,27 @@ class MainActivity : ComponentActivity() {
             }
           },
           onDeleteSubscription = { sourceId ->
-            runCatching {
+            if (profileEngine == ProfileEngine.CORE_BETA) {
+              coroutineScope.launch {
+                runCatching {
+                  require(sourceId == "core-beta") { getString(R.string.subscription_missing) }
+                  check(coreConnectionState == ConnectionState.Disconnected || coreConnectionState == ConnectionState.Failed) {
+                    getString(R.string.engine_switch_disconnect_first)
+                  }
+                  check(CoreBetaManager.stopped.value) { getString(R.string.core_beta_cleanup_failed) }
+                  CoreBetaManager.deleteProfileWhenStopped(this@MainActivity)
+                  coreProfileName = null
+                  profileName = null
+                  connectionNodes = emptyList()
+                  subscriptionRefreshAvailable = false
+                  profilePreferences.edit().remove("display_name").apply()
+                  importError = null
+                }.onFailure {
+                  importError = getString(R.string.subscription_delete_failed)
+                  TechnicalLogStore.error("PROFILE", "Core profile deletion rejected")
+                }
+              }
+            } else runCatching {
               if (profileEngine == ProfileEngine.TRUST_TUNNEL) {
                 val removed = trustProfiles.filter { it.sourceId == sourceId }
                 require(removed.isNotEmpty()) { getString(R.string.trust_subscription_missing) }
@@ -1368,7 +1555,9 @@ class MainActivity : ComponentActivity() {
             }
           },
           onRefreshLatency = {
-            if (profileEngine == ProfileEngine.TRUST_TUNNEL) {
+            if (profileEngine == ProfileEngine.CORE_BETA) {
+              // The beta has one operator-defined endpoint; no sing-box probe/config access.
+            } else if (profileEngine == ProfileEngine.TRUST_TUNNEL) {
               TrustTunnelManager.refreshLatencies(trustProfiles)
             } else if (connectionState == ConnectionState.Connected) {
               LatencyMonitor.refresh()
@@ -1435,6 +1624,7 @@ class MainActivity : ComponentActivity() {
                   TechnicalLogStore.warning("GEO", "Geo update rejected; last-known-good retained")
                 }
                 geoUpdating = false
+                geoStatus = withContext(Dispatchers.IO) { GeoRoutingAssets.status(this@MainActivity) }
               }
             }
           },
@@ -1451,22 +1641,49 @@ class MainActivity : ComponentActivity() {
                 newApplicationMode,
                 packages,
               )
+              if (profileEngine == ProfileEngine.CORE_BETA) {
+                require(newRoutingMode in setOf(ProfileSelection.ROUTING_ALL, ProfileSelection.ROUTING_MANUAL,
+                  ProfileSelection.ROUTING_RU_DIRECT) &&
+                  newDpiMode == ProfileSelection.DPI_OFF) { getString(R.string.core_l3_cidr_only) }
+                val coreMetadata = CoreProfileStore.loadMetadata(this)
+                CoreRoutingPlan.prepare(newRoutingMode, newDirectRoutes, newVpnRoutes,
+                  CoreL3DnsPolicy.effective(coreMetadata.dnsIpv4).resolvers, android.os.Build.VERSION.SDK_INT,
+                ) { path -> assets.open(path).use { it.readBytes() } }
+                val plan = applicationPolicy.forAndroidVpn(packageName)
+                val installed: (String) -> Boolean = { app ->
+                  try { packageManager.getApplicationInfo(app, 0); true }
+                  catch (_: PackageManager.NameNotFoundException) { false }
+                }
+                plan.applyInstalled(packageName, installed, installed)
+                check(profilePreferences.edit().putString("application_mode", newApplicationMode)
+                  .putStringSet("selected_applications", packages)
+                  .putString("core_routing_mode", newRoutingMode)
+                  .putString("core_direct_routes", newDirectRoutes.trim())
+                  .putString("core_vpn_routes", newVpnRoutes.trim())
+                  .commit()) { getString(R.string.routing_save_failed) }
+                routingMode = newRoutingMode
+                directRoutes = newDirectRoutes.trim()
+                vpnRoutes = newVpnRoutes.trim()
+                applicationMode = newApplicationMode
+                selectedApplications = packages
+                if (!coreStopped) {
+                  CoreBetaManager.stop(this)
+                }
+                importError = null
+                return@runCatching
+              }
               if (profileEngine == ProfileEngine.TRUST_TUNNEL) {
                 // Validate Android's mutually exclusive allow/disallow plan before any stop/write.
                 applicationPolicy.forTrustTunnel(packageName)
               }
               if (profileEngine == ProfileEngine.SING_BOX) {
-                if (connectionState != ConnectionState.Disconnected &&
-                  connectionState != ConnectionState.Failed
-                ) {
-                  VeilarkVpnService.stop(this)
-                }
                 var config = ProfileSelection.applyRouting(
                   SecureProfileStore.load(this, SecureProfileStore.SING_BOX),
                   newRoutingMode,
                   newDirectRoutes,
                   newVpnRoutes,
                   geoRuleSets(newRoutingMode),
+                  categoryRuleSets(newRoutingMode, newDirectRoutes, newVpnRoutes),
                 )
                 config = ProfileSelection.applyApplications(
                   config,
@@ -1476,6 +1693,12 @@ class MainActivity : ComponentActivity() {
                 )
                 config = ProfileSelection.applyDpiProtection(config, newDpiMode)
                 Libbox.checkConfig(config)
+                // Reject missing or invalid category data before disconnecting the current VPN.
+                if (connectionState != ConnectionState.Disconnected &&
+                  connectionState != ConnectionState.Failed
+                ) {
+                  VeilarkVpnService.stop(this)
+                }
                 SecureProfileStore.save(this, SecureProfileStore.SING_BOX, config)
                 singBoxProfiles.firstOrNull { it.id == selectedSingBoxId }?.let { current ->
                   singBoxProfiles = SingBoxCatalog.upsert(
@@ -1495,6 +1718,7 @@ class MainActivity : ComponentActivity() {
                 ) { getString(R.string.trust_routing_mode_unsupported) }
                 if (newRoutingMode == ProfileSelection.ROUTING_MANUAL) {
                   TrustTunnelGeoRouting.manualExclusions(newDirectRoutes, newVpnRoutes)
+                  GeoCategoryCatalog.fromContext(this).trustDirectExclusions(newDirectRoutes, newVpnRoutes)
                 }
                 if (connectionState != ConnectionState.Disconnected &&
                   connectionState != ConnectionState.Failed
@@ -1530,7 +1754,8 @@ class MainActivity : ComponentActivity() {
               check(routingEditor.commit()) { getString(R.string.routing_save_failed) }
               importError = null
             }.onFailure {
-              importError = it.userMessage(R.string.routing_apply_failed)
+              importError = if (it is ApplicationRoutingUnavailableException)
+                getString(R.string.core_beta_apps_unavailable) else it.userMessage(R.string.routing_apply_failed)
               TechnicalLogStore.error("ROUTING", "Routing settings rejected")
             }.isSuccess
           },
@@ -1576,47 +1801,63 @@ class MainActivity : ComponentActivity() {
             }
           },
           onConnect = {
+            coroutineScope.launch {
             runCatching {
-              if (connectionState == ConnectionState.Connected ||
+              if (coreStopAvailable || connectionState == ConnectionState.Connected ||
                 connectionState == ConnectionState.Connecting
               ) {
-                if (profileEngine == ProfileEngine.TRUST_TUNNEL) {
-                  TrustTunnelManager.stop(this)
+                if (profileEngine == ProfileEngine.CORE_BETA) {
+                  CoreBetaManager.stop(this@MainActivity)
+                } else if (profileEngine == ProfileEngine.TRUST_TUNNEL) {
+                  TrustTunnelManager.stop(this@MainActivity)
                 } else {
-                  VeilarkVpnService.stop(this)
+                  VeilarkVpnService.stop(this@MainActivity)
                 }
               } else if (shouldRequestNotificationPermission()) {
                 markNotificationPermissionRequested()
                 connectAfterNotificationPermission = true
+                notificationRequestEngine = profileEngine
                 notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
               } else {
-                if (profileEngine == ProfileEngine.TRUST_TUNNEL) {
-                  if (singBoxConnectionState != ConnectionState.Disconnected) {
-                    VeilarkVpnService.stop(this)
+                if (profileEngine == ProfileEngine.CORE_BETA) {
+                  check(coreRuntimeAvailable && coreProfileName != null) { getString(R.string.core_beta_unavailable) }
+                  val permissionIntent = VpnService.prepare(this@MainActivity)
+                  if (permissionIntent == null) {
+                    CoreBetaManager.start(this@MainActivity)
+                  } else {
+                    pendingCoreConnection = true
+                    pendingPermissionEngine = profileEngine
+                    vpnPermission.launch(permissionIntent)
                   }
-                  check(SecureProfileStore.exists(this, SecureProfileStore.TRUST_TUNNEL)) {
+                } else if (profileEngine == ProfileEngine.TRUST_TUNNEL) {
+                  if (singBoxConnectionState != ConnectionState.Disconnected) {
+                    VeilarkVpnService.stop(this@MainActivity)
+                  }
+                  check(SecureProfileStore.exists(this@MainActivity, SecureProfileStore.TRUST_TUNNEL)) {
                     getString(R.string.trust_profile_not_found)
                   }
-                  val config = SecureProfileStore.load(this, SecureProfileStore.TRUST_TUNNEL)
-                  val permissionIntent: Intent? = VpnService.prepare(this)
+                  val config = SecureProfileStore.load(this@MainActivity, SecureProfileStore.TRUST_TUNNEL)
+                  val permissionIntent: Intent? = VpnService.prepare(this@MainActivity)
                   if (permissionIntent == null) {
-                    TrustTunnelManager.start(this, config)
+                    TrustTunnelManager.start(this@MainActivity, config)
                   } else {
                     pendingTrustConfig = config
+                    pendingPermissionEngine = profileEngine
                     vpnPermission.launch(permissionIntent)
                   }
                 } else {
                   if (trustTunnelConnectionState != ConnectionState.Disconnected) {
-                    TrustTunnelManager.stop(this)
+                    TrustTunnelManager.stop(this@MainActivity)
                   }
-                  check(SecureProfileStore.exists(this, SecureProfileStore.SING_BOX)) {
+                  check(SecureProfileStore.exists(this@MainActivity, SecureProfileStore.SING_BOX)) {
                     getString(R.string.main_profile_not_found)
                   }
-                  val permissionIntent: Intent? = VpnService.prepare(this)
+                  val permissionIntent: Intent? = VpnService.prepare(this@MainActivity)
                   if (permissionIntent == null) {
-                    VeilarkVpnService.start(this)
+                    VeilarkVpnService.start(this@MainActivity)
                   } else {
                     pendingConfigPath = SecureProfileStore.SING_BOX
+                    pendingPermissionEngine = profileEngine
                     vpnPermission.launch(permissionIntent)
                   }
                 }
@@ -1624,6 +1865,7 @@ class MainActivity : ComponentActivity() {
             }.onFailure {
               importError = it.userMessage(R.string.vpn_start_failed)
               TechnicalLogStore.error("APP", "Connection command failed")
+            }
             }
           },
         )
@@ -1637,6 +1879,26 @@ class MainActivity : ComponentActivity() {
     consumeTileConnectIntent(intent)
     consumeUpdateNoticeIntent(intent)
     ImportDeepLink.parse(intent)?.let { externalImportRequests.value = it }
+    consumeFileImportIntent(intent)
+  }
+
+  private fun consumeFileImportIntent(intent: Intent?) {
+    if (intent == null) return
+    val uri = runCatching {
+      @Suppress("DEPRECATION")
+      when (intent.action) {
+        Intent.ACTION_VIEW -> intent.data
+        Intent.ACTION_SEND -> intent.getParcelableExtra<Uri>(Intent.EXTRA_STREAM)
+        else -> null
+      }
+    }.getOrNull() ?: return
+    if (FileImportRequest.accepts(intent.action, uri.toString(),
+        intent.flags and Intent.FLAG_GRANT_READ_URI_PERMISSION != 0)) {
+      externalFileRequests.value = uri
+      intent.data = null
+      intent.removeExtra(Intent.EXTRA_STREAM)
+      intent.action = null
+    }
   }
 
   private fun consumeTileConnectIntent(intent: Intent?) {
@@ -1705,13 +1967,16 @@ class MainActivity : ComponentActivity() {
       }
       val requestedEngine = preferences.getString("profile_engine", ProfileEngine.SING_BOX)
       val resolvedEngine = when {
+        requestedEngine == ProfileEngine.CORE_BETA && CoreProfileStore.exists(this) -> ProfileEngine.CORE_BETA
         requestedEngine == ProfileEngine.TRUST_TUNNEL && trustId != null -> ProfileEngine.TRUST_TUNNEL
         requestedEngine == ProfileEngine.SING_BOX && singId != null -> ProfileEngine.SING_BOX
         singId != null -> ProfileEngine.SING_BOX
         trustId != null -> ProfileEngine.TRUST_TUNNEL
         else -> requestedEngine ?: ProfileEngine.SING_BOX
       }
-      val displayName = if (resolvedEngine == ProfileEngine.TRUST_TUNNEL) {
+      val displayName = if (resolvedEngine == ProfileEngine.CORE_BETA) {
+        runCatching { CoreProfileStore.loadMetadata(this).name }.getOrNull()
+      } else if (resolvedEngine == ProfileEngine.TRUST_TUNNEL) {
         trustProfiles.firstOrNull { it.id == trustId }?.name
       } else {
         singProfiles.firstOrNull { it.id == singId }?.name
@@ -1727,12 +1992,38 @@ class MainActivity : ComponentActivity() {
     }
   }
 
+  private fun geoStatusDescription(status: GeoUpdateStatus, updating: Boolean): String {
+    val formatter = java.text.DateFormat.getDateTimeInstance(
+      java.text.DateFormat.MEDIUM, java.text.DateFormat.SHORT,
+    )
+    fun date(value: Long?) = value?.let { formatter.format(java.util.Date(it)) }
+      ?: getString(R.string.geo_no_date)
+    val state = if (updating) GeoUpdateStatus.Result.UPDATING else status.result
+    val stateResource = when (state) {
+      GeoUpdateStatus.Result.NEVER -> R.string.geo_state_never
+      GeoUpdateStatus.Result.UPDATING -> R.string.geo_state_updating
+      GeoUpdateStatus.Result.SUCCESS -> R.string.geo_state_success
+      GeoUpdateStatus.Result.FAILED -> R.string.geo_state_failed
+      GeoUpdateStatus.Result.CANCELLED, GeoUpdateStatus.Result.INTERRUPTED -> R.string.geo_state_interrupted
+    }
+    return listOf(
+      getString(stateResource),
+      getString(R.string.geo_last_attempt, date(status.lastAttemptAtMillis)),
+      getString(R.string.geo_last_success, date(status.lastSuccessAtMillis)),
+      status.sourceGeneratedAt?.let { getString(R.string.geo_current_source, it) }
+        ?: getString(R.string.geo_packaged_source),
+    ).joinToString("\n")
+  }
+
   private fun geoRuleSets(mode: String): ProfileSelection.GeoRuleSets? =
     if (mode == ProfileSelection.ROUTING_RU_DIRECT) {
       GeoRoutingAssets.prepare(this)
     } else {
       null
     }
+
+  private fun categoryRuleSets(mode: String, direct: String, vpn: String): Map<String, String> =
+    if (mode == ProfileSelection.ROUTING_MANUAL) GeoCategoryCatalog.fromContext(this).localPaths(direct, vpn) else emptyMap()
 
   private fun Throwable.userMessage(fallbackRes: Int): String {
     val language = resources.configuration.locales[0].language

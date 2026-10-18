@@ -51,5 +51,6 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: veilark-macos-unsigned-${{ runner.arch }}
+          retention-days: 7
           path: macos/build/compose/binaries/main/dmg/*.dmg
           if-no-files-found: error

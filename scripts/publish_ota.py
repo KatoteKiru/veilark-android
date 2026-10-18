@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import errno
 from datetime import datetime, timezone
 import hashlib
 import hmac
@@ -304,6 +305,56 @@ def upload_resumable(
     raise RuntimeError("Resumable APK upload failed") from last_error
 
 
+def stage_release_apk(
+    env: dict[str, str], local_apk: Path, remote_apk: str, remote_apk_tmp: str,
+    sha256: str, version_code: int, version_name: str,
+    live_manifest: dict[str, object],
+) -> None:
+    """Reject reused release identities/URLs before uploading any APK bytes.
+
+    Publishing remains single-writer: these checks are not a distributed lock.
+    An identical previously staged APK may be reused while its manifest is old.
+    """
+    live_version_code = int(live_manifest["versionCode"])
+    if version_code <= live_version_code:
+        raise RuntimeError(
+            f"OTA versionCode must increase strictly: live={live_version_code}, requested={version_code}"
+        )
+    if version_name == live_manifest["versionName"]:
+        raise RuntimeError("OTA versionName must not reuse the current live APK URL")
+    client = connect_node(env)
+    try:
+        sftp = client.open_sftp()
+        try:
+            try:
+                sftp.stat(remote_apk)
+                exists = True
+            except OSError as failure:
+                if failure.errno != errno.ENOENT:
+                    raise
+                exists = False
+        finally:
+            sftp.close()
+        if exists:
+            if remote_sha256(client, remote_apk) != sha256:
+                raise RuntimeError("Existing OTA APK URL has different or unverifiable bytes; refusing replacement")
+            return
+    finally:
+        client.close()
+    upload_resumable(env, local_apk, remote_apk_tmp)
+    client = connect_node(env)
+    try:
+        if remote_sha256(client, remote_apk_tmp) != sha256:
+            raise RuntimeError("Remote APK SHA-256 mismatch")
+        sftp = client.open_sftp()
+        try:
+            sftp.posix_rename(remote_apk_tmp, remote_apk)
+        finally:
+            sftp.close()
+    finally:
+        client.close()
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Sign and atomically publish a Veilark OTA build")
     parser.add_argument("--apk", type=Path, required=True)
@@ -417,35 +468,13 @@ def main() -> None:
     if args.server_env is None:
         raise ValueError("--server-env is required when publishing")
     live_manifest = fetch_verified_live_manifest(origin, private_key.public_key())
-    live_version_code = int(live_manifest["versionCode"])
-    if args.version_code < live_version_code:
-        raise RuntimeError(
-            f"OTA versionCode must increase monotonically: live={live_version_code}, "
-            f"requested={args.version_code}"
-        )
     env = read_env(args.server_env.resolve())
     remote_dir = args.remote_dir.rstrip("/")
     remote_apk = f"{remote_dir}/{apk_name}"
     remote_apk_tmp = f"{remote_dir}/.{apk_name}.uploading"
     remote_manifest_tmp = f"{remote_dir}/.manifest.json.{uuid.uuid4().hex}.tmp"
-    client = connect_node(env)
-    try:
-        remote_matches = remote_sha256(client, remote_apk) == sha256
-    finally:
-        client.close()
-    if not remote_matches:
-        upload_resumable(env, local_apk, remote_apk_tmp)
-        client = connect_node(env)
-        try:
-            if remote_sha256(client, remote_apk_tmp) != sha256:
-                raise RuntimeError("Remote APK SHA-256 mismatch")
-            sftp = client.open_sftp()
-            try:
-                sftp.posix_rename(remote_apk_tmp, remote_apk)
-            finally:
-                sftp.close()
-        finally:
-            client.close()
+    stage_release_apk(env, local_apk, remote_apk, remote_apk_tmp, sha256,
+                      args.version_code, args.version_name, live_manifest)
 
     client = connect_node(env)
     try:

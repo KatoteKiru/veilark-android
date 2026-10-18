@@ -165,7 +165,7 @@ object TechnicalLogStore {
   private fun safe(value: String, limit: Int): String = value
     .replace(Regex("""\u001B\[[;?\d]*[ -/]*[@-~]"""), "")
     .replace(
-      Regex("""(?i)\b(tt|vless|trojan|hysteria2?|hy2|vmess|ss|shadowsocks|tuic|anytls)://\S+"""),
+      Regex("""(?i)\b(veilark|tt|vless|trojan|hysteria2?|hy2|vmess|ss|shadowsocks|tuic|anytls)://\S+"""),
       "<profile-link-redacted>",
     )
     .replace(
@@ -175,6 +175,10 @@ object TechnicalLogStore {
     .replace(
       Regex("""(?i)\b(Bearer)\s+[^\s"',;]+"""),
       "$1 <redacted>",
+    )
+    .replace(
+      Regex("""(?i)(client_static_private_base64["']?\s*[:=]\s*["']?)[^,\s"']+"""),
+      "$1<redacted>",
     )
     .replace(
       Regex("""(?i)(password|passwd|token|secret|private_key|uuid)\s*[=:]\s*["']?[^,\s"']+"""),

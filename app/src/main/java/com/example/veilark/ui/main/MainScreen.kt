@@ -248,6 +248,12 @@ fun MainScreen(
   routingAvailable: Boolean = true,
   geoUpdating: Boolean = false,
   geoUpdateMessage: String? = null,
+  geoStatusDescription: String? = null,
+  coreBetaActive: Boolean = false,
+  coreBetaAvailable: Boolean = false,
+  coreBetaProfileName: String? = null,
+  coreBetaRuntimeAvailable: Boolean = false,
+  stopAvailable: Boolean = false,
   trustTunnelActive: Boolean = false,
   singBoxAvailable: Boolean = true,
   trustTunnelAvailable: Boolean = false,
@@ -273,6 +279,7 @@ fun MainScreen(
   onDeleteSubscription: (String) -> Unit = {},
   onShareQr: (String, String) -> Unit = { _, _ -> },
   onSwitchProfile: () -> Unit = {},
+  onSelectEngine: (String) -> Unit = { onSwitchProfile() },
   onRefreshLatency: () -> Unit = {},
   onOpenRouting: () -> Unit = {},
   onRefreshGeo: () -> Unit = {},
@@ -305,7 +312,8 @@ fun MainScreen(
   var showTechnicalLogs by rememberSaveable { mutableStateOf(false) }
   var showAbout by rememberSaveable { mutableStateOf(false) }
   var legalDocument by rememberSaveable { mutableStateOf<LegalDocument?>(null) }
-  var subscriptionUrl by rememberSaveable { mutableStateOf("") }
+  // Import text may contain a Core PSK. Never serialize it into SavedState/Bundle.
+  var subscriptionUrl by remember { mutableStateOf("") }
   var importAttempted by rememberSaveable { mutableStateOf(false) }
   var importSubmitted by remember { mutableStateOf(false) }
   var observedImporting by remember { mutableStateOf(false) }
@@ -328,11 +336,14 @@ fun MainScreen(
   val routingSavedReconnectMessage = stringResource(R.string.routing_saved_reconnect)
   val clipboard = LocalClipboardManager.current
   val activeSubscriptions = remember(
+    coreBetaActive,
     trustTunnelActive,
     trustSubscriptions,
     singBoxSubscriptions,
   ) {
-    if (trustTunnelActive) {
+    if (coreBetaActive) {
+      listOfNotNull(coreBetaProfileName?.let { SubscriptionUiItem(id = "core-beta", name = it, nodeCount = 1, refreshable = false, deletable = true) })
+    } else if (trustTunnelActive) {
       trustSubscriptions
     } else {
       singBoxSubscriptions.map { subscription ->
@@ -354,6 +365,7 @@ fun MainScreen(
       if (importError == null) {
         showImport = false
         importAttempted = false
+        subscriptionUrl = ""
       }
       importSubmitted = false
       observedImporting = false
@@ -444,9 +456,11 @@ fun MainScreen(
       onDismiss = {
         showImport = false
         importAttempted = false
+        subscriptionUrl = ""
       },
       onImportFile = {
         showImport = false
+        subscriptionUrl = ""
         onImportFile()
       },
       onScanQr = scanAndImport,
@@ -467,10 +481,12 @@ fun MainScreen(
       selectedApplications = selectedApplications,
       installedApplications = installedApplications,
       trustTunnelActive = trustTunnelActive,
+      coreBetaActive = coreBetaActive,
       geoRefreshEnabled = connectionState == ConnectionState.Disconnected ||
         connectionState == ConnectionState.Failed,
       geoUpdating = geoUpdating,
       geoUpdateMessage = geoUpdateMessage,
+      geoStatusDescription = geoStatusDescription,
       onRefreshGeo = onRefreshGeo,
       onApply = { route, direct, vpn, apps, dpi, packages ->
         val reconnectRequired = connectionState != ConnectionState.Disconnected &&
@@ -560,16 +576,22 @@ fun MainScreen(
             }
           ],
           importing = importing,
-          onConnect = if (profileName == null) openImport else onConnect,
+          authenticatedOnly = coreBetaActive,
+          stopAvailable = stopAvailable,
+          onConnect = if (!stopAvailable && profileName == null && connectionState != ConnectionState.Connected &&
+            connectionState != ConnectionState.Connecting) openImport else onConnect,
         )
       }
       item {
         EngineSelectorCard(
+          coreBetaActive = coreBetaActive,
+          coreBetaAvailable = coreBetaAvailable,
+          coreBetaRuntimeAvailable = coreBetaRuntimeAvailable,
           trustTunnelActive = trustTunnelActive,
           singBoxAvailable = singBoxAvailable,
           trustTunnelAvailable = trustTunnelAvailable,
           connectionState = connectionState,
-          onSwitchProfile = onSwitchProfile,
+          onSelectEngine = onSelectEngine,
         )
       }
       if (importError != null) {
@@ -590,10 +612,13 @@ fun MainScreen(
       item {
         ProfileCard(
           profileName = profileName,
+          coreBetaActive = coreBetaActive,
           trustTunnelActive = trustTunnelActive,
           nodes = connectionNodes,
           subscriptions = activeSubscriptions,
-          selectedSubscriptionId = if (trustTunnelActive) {
+          selectedSubscriptionId = if (coreBetaActive) {
+            "core-beta"
+          } else if (trustTunnelActive) {
             selectedTrustSubscriptionId
           } else {
             selectedSubscriptionId
@@ -604,8 +629,8 @@ fun MainScreen(
           expanded = showNodes,
           latencies = nodeLatencies,
           automaticAvailable = automaticNodeSelectionAvailable,
-          canRefreshLatency = trustTunnelActive ||
-            profileName != null,
+          canRefreshLatency = !coreBetaActive && (trustTunnelActive ||
+            profileName != null),
           latencyChecking = latencyChecking,
           onRefreshSubscription = onRefreshSubscription,
           onAddSubscription = openImport,
@@ -636,9 +661,10 @@ fun MainScreen(
         RoutingCard(
           routingMode = routingMode,
           applicationMode = applicationMode,
-          dpiMode = dpiMode,
+          dpiMode = if (coreBetaActive) ProfileSelection.DPI_OFF else dpiMode,
           selectedApplicationCount = selectedApplications.size,
           available = routingAvailable,
+          coreBetaActive = coreBetaActive,
           onClick = {
             if (routingAvailable) {
               onOpenRouting()
@@ -925,11 +951,14 @@ private fun ConnectionCard(
   stage: StartupStage,
   latency: Int?,
   importing: Boolean,
+  authenticatedOnly: Boolean,
+  stopAvailable: Boolean = false,
   onConnect: () -> Unit,
 ) {
   val connected = state == ConnectionState.Connected
   val connecting = state == ConnectionState.Connecting
   val failed = state == ConnectionState.Failed
+  val action = connectionCardAction(state, profileName != null, importing, stopAvailable)
   val motion = MaterialTheme.motionScheme
   // The emblem morphs from a soft square into a 12-sided "seal" when the tunnel
   // is up. The morph only animates on a state change; nothing loops at rest.
@@ -1023,7 +1052,7 @@ private fun ConnectionCard(
           text = when (current) {
             ConnectionState.Disconnected -> stringResource(R.string.vpn_off)
             ConnectionState.Connecting -> stringResource(stage.titleRes)
-            ConnectionState.Connected -> stringResource(R.string.vpn_protected)
+            ConnectionState.Connected -> stringResource(if (authenticatedOnly) R.string.core_authenticated_title else R.string.vpn_protected)
             ConnectionState.Failed -> stringResource(R.string.vpn_connect_failed)
           },
           style = MaterialTheme.typography.headlineMediumEmphasized,
@@ -1035,6 +1064,7 @@ private fun ConnectionCard(
         text = when {
           profileName == null -> stringResource(R.string.vpn_add_profile_hint)
           connecting -> stringResource(R.string.vpn_connecting_hint)
+          connected && authenticatedOnly -> stringResource(R.string.core_authenticated_hint)
           connected -> profileName
           else -> stringResource(R.string.vpn_ready_hint)
         },
@@ -1062,17 +1092,17 @@ private fun ConnectionCard(
       Button(
         onClick = onConnect,
         shapes = ButtonDefaults.shapesFor(buttonHeight),
-        enabled = !importing,
+        enabled = action != ConnectionCardAction.Checking,
         modifier = Modifier.fillMaxWidth().heightIn(min = buttonHeight),
         contentPadding = ButtonDefaults.contentPaddingFor(buttonHeight, hasStartIcon = true),
-        colors = if (connected || connecting) {
+        colors = if (connected || connecting || stopAvailable) {
           ButtonDefaults.filledTonalButtonColors()
         } else {
           ButtonDefaults.buttonColors()
         },
       ) {
         val iconSize = ButtonDefaults.iconSizeFor(buttonHeight)
-        if (importing) {
+        if (action == ConnectionCardAction.Checking) {
           // "Checking profile" is a progress state, not an add/power action.
           LoadingIndicator(
             modifier = Modifier.size(iconSize + 8.dp),
@@ -1080,9 +1110,9 @@ private fun ConnectionCard(
           )
         } else {
           Icon(
-            imageVector = when {
-              profileName == null -> Icons.Rounded.Add
-              connecting -> Icons.Rounded.Close
+            imageVector = when (action) {
+              ConnectionCardAction.Cancel -> Icons.Rounded.Close
+              ConnectionCardAction.Add -> Icons.Rounded.Add
               else -> Icons.Rounded.PowerSettingsNew
             },
             contentDescription = null,
@@ -1091,11 +1121,11 @@ private fun ConnectionCard(
         }
         Spacer(Modifier.size(ButtonDefaults.iconSpacingFor(buttonHeight)))
         Text(
-          text = when {
-            importing -> stringResource(R.string.profile_checking)
-            profileName == null -> stringResource(R.string.profile_add)
-            connecting -> stringResource(R.string.connection_cancel)
-            connected -> stringResource(R.string.disconnect)
+          text = when (action) {
+            ConnectionCardAction.Cancel -> stringResource(R.string.connection_cancel)
+            ConnectionCardAction.Disconnect -> stringResource(R.string.disconnect)
+            ConnectionCardAction.Checking -> stringResource(R.string.profile_checking)
+            ConnectionCardAction.Add -> stringResource(R.string.profile_add)
             else -> stringResource(R.string.connect)
           },
           style = ButtonDefaults.textStyleFor(buttonHeight),
@@ -1105,17 +1135,35 @@ private fun ConnectionCard(
   }
 }
 
+internal enum class ConnectionCardAction { Cancel, Disconnect, Checking, Add, Connect }
+
+/** A live engine lease takes precedence over import progress and missing captions. */
+internal fun connectionCardAction(
+  state: ConnectionState,
+  hasProfile: Boolean,
+  importing: Boolean,
+  stopAvailable: Boolean = false,
+): ConnectionCardAction = when {
+  state == ConnectionState.Connected -> ConnectionCardAction.Disconnect
+  stopAvailable || state == ConnectionState.Connecting -> ConnectionCardAction.Cancel
+  importing -> ConnectionCardAction.Checking
+  !hasProfile -> ConnectionCardAction.Add
+  else -> ConnectionCardAction.Connect
+}
+
 @Composable
 private fun EngineSelectorCard(
+  coreBetaActive: Boolean,
+  coreBetaAvailable: Boolean,
+  coreBetaRuntimeAvailable: Boolean,
   trustTunnelActive: Boolean,
   singBoxAvailable: Boolean,
   trustTunnelAvailable: Boolean,
   connectionState: ConnectionState,
-  onSwitchProfile: () -> Unit,
+  onSelectEngine: (String) -> Unit,
 ) {
   val alternativeAvailable = if (trustTunnelActive) singBoxAvailable else trustTunnelAvailable
   val idle = connectionState.allowsProfileSwitch()
-  val canSwitch = idle && alternativeAvailable
   val fontScale = LocalDensity.current.fontScale
   Column {
     SectionHeading(stringResource(R.string.connection_mode))
@@ -1131,11 +1179,11 @@ private fun EngineSelectorCard(
             EngineModeButton(
               title = "sing-box",
               trust = false,
-              selected = !trustTunnelActive,
+              selected = !trustTunnelActive && !coreBetaActive,
               enabled = idle && singBoxAvailable,
               shapes = shapes,
               modifier = mod,
-              onClick = { if (trustTunnelActive && canSwitch) onSwitchProfile() },
+              onClick = { if (idle && singBoxAvailable && (trustTunnelActive || coreBetaActive)) onSelectEngine("sing-box") },
             )
           }
           val trust: @Composable (Modifier, ToggleButtonShapes) -> Unit = { mod, shapes ->
@@ -1146,7 +1194,7 @@ private fun EngineSelectorCard(
               enabled = idle && trustTunnelAvailable,
               shapes = shapes,
               modifier = mod,
-              onClick = { if (!trustTunnelActive && canSwitch) onSwitchProfile() },
+              onClick = { if (!trustTunnelActive && idle && trustTunnelAvailable) onSelectEngine("trusttunnel") },
             )
           }
           if (stackModes) {
@@ -1170,7 +1218,7 @@ private fun EngineSelectorCard(
               trust(Modifier.weight(1f), ButtonGroupDefaults.connectedTrailingButtonShapes())
             }
           }
-          Text(
+          if (!coreBetaActive || !idle || !alternativeAvailable) Text(
             text = when {
               !idle ->
                 stringResource(R.string.engine_switch_disconnect_first)
@@ -1184,6 +1232,19 @@ private fun EngineSelectorCard(
             modifier = Modifier.padding(horizontal = 4.dp),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
+          )
+          ToggleButton(
+            checked = coreBetaActive,
+            onCheckedChange = { if (idle && coreBetaAvailable && !coreBetaActive) onSelectEngine("veilark-core-beta") },
+            enabled = idle && coreBetaAvailable,
+            modifier = Modifier.fillMaxWidth().testTag("engine_core_beta"),
+          ) {
+            Text(stringResource(R.string.core_beta_title))
+          }
+          Text(
+            stringResource(if (!coreBetaRuntimeAvailable) R.string.core_beta_unavailable else if (!coreBetaAvailable) R.string.core_beta_add_profile else R.string.core_beta_scope),
+            style = MaterialTheme.typography.bodySmall,
+            modifier = Modifier.padding(horizontal = 4.dp),
           )
         }
       }
@@ -1572,6 +1633,7 @@ private fun LogEntryCard(entry: TechnicalLogEntry) {
 @Composable
 private fun ProfileCard(
   profileName: String?,
+  coreBetaActive: Boolean,
   trustTunnelActive: Boolean,
   nodes: List<ConnectionNode>,
   subscriptions: List<SubscriptionUiItem>,
@@ -1640,7 +1702,7 @@ private fun ProfileCard(
   Column {
     SectionHeading(
       text = stringResource(
-        if (trustTunnelActive) R.string.trust_profile else R.string.singbox_profile,
+        if (coreBetaActive) R.string.core_beta_title else if (trustTunnelActive) R.string.trust_profile else R.string.singbox_profile,
       ),
     )
     Surface(
@@ -1667,6 +1729,7 @@ private fun ProfileCard(
             Text(
               when {
                 profileName == null -> stringResource(R.string.import_subscription)
+                coreBetaActive -> stringResource(R.string.core_beta_title)
                 selectedNode != null && !trustTunnelActive ->
                   "${selectedNode.name} · ${selectedNode.protocol}"
                 selectedNode != null -> selectedNode.protocol
@@ -1687,7 +1750,9 @@ private fun ProfileCard(
             ) {
               Box(contentAlignment = Alignment.Center) {
                 val motion = MaterialTheme.motionScheme
-                AnimatedContent(
+                if (coreBetaActive) {
+                  Text("V", style = MaterialTheme.typography.titleLarge)
+                } else AnimatedContent(
                   targetState = trustTunnelActive,
                   transitionSpec = {
                     fadeIn(motion.defaultEffectsSpec()) togetherWith fadeOut(motion.fastEffectsSpec())
@@ -2159,6 +2224,7 @@ private fun RoutingCard(
   dpiMode: String,
   selectedApplicationCount: Int,
   available: Boolean,
+  coreBetaActive: Boolean,
   onClick: () -> Unit,
 ) {
   Column {
@@ -2174,7 +2240,7 @@ private fun RoutingCard(
         if (available) {
           InfoRow(
             stringResource(R.string.traffic),
-            when (routingMode) {
+            if (coreBetaActive && routingMode == ProfileSelection.ROUTING_ALL) stringResource(R.string.core_ipv4_mode) else when (routingMode) {
               ProfileSelection.ROUTING_RU_DIRECT -> stringResource(R.string.russia_direct)
               ProfileSelection.ROUTING_MANUAL -> stringResource(R.string.custom_rules)
               else -> stringResource(R.string.all_traffic_vpn)
@@ -2198,18 +2264,20 @@ private fun RoutingCard(
             },
           )
           HorizontalDivider(modifier = Modifier.padding(horizontal = 20.dp))
-          InfoRow(
-            stringResource(R.string.dpi_protection),
-            if (dpiMode == ProfileSelection.DPI_TLS_FRAGMENT) {
-              stringResource(R.string.tls_fragmentation)
-            } else {
-              stringResource(R.string.standard)
-            },
-          )
+          if (!coreBetaActive) {
+            InfoRow(
+              stringResource(R.string.dpi_protection),
+              if (dpiMode == ProfileSelection.DPI_TLS_FRAGMENT) {
+                stringResource(R.string.tls_fragmentation)
+              } else {
+                stringResource(R.string.standard)
+              },
+            )
+            HorizontalDivider(modifier = Modifier.padding(horizontal = 20.dp))
+          }
+          InfoRow(stringResource(R.string.dns), stringResource(if (coreBetaActive) R.string.core_profile_dns else R.string.protected_value))
           HorizontalDivider(modifier = Modifier.padding(horizontal = 20.dp))
-          InfoRow(stringResource(R.string.dns), stringResource(R.string.protected_value))
-          HorizontalDivider(modifier = Modifier.padding(horizontal = 20.dp))
-          InfoRow(stringResource(R.string.kill_switch), stringResource(R.string.enabled_value))
+          InfoRow(stringResource(if (coreBetaActive) R.string.core_ipv6_blocked else R.string.kill_switch), stringResource(R.string.enabled_value))
         } else {
           InfoRow(stringResource(R.string.traffic), stringResource(R.string.trust_full_tunnel))
           HorizontalDivider(modifier = Modifier.padding(horizontal = 20.dp))
@@ -2369,9 +2437,11 @@ private fun RoutingSettingsDialog(
   selectedApplications: Set<String>,
   installedApplications: List<InstalledApp>,
   trustTunnelActive: Boolean,
+  coreBetaActive: Boolean,
   geoRefreshEnabled: Boolean,
   geoUpdating: Boolean,
   geoUpdateMessage: String?,
+  geoStatusDescription: String?,
   onRefreshGeo: () -> Unit,
   onApply: (String, String, String, String, String, Set<String>) -> Unit,
   onDismiss: () -> Unit,
@@ -2384,11 +2454,32 @@ private fun RoutingSettingsDialog(
   var direct by rememberSaveable { mutableStateOf(directRoutes) }
   var vpn by rememberSaveable { mutableStateOf(vpnRoutes) }
   var appMode by rememberSaveable { mutableStateOf(applicationMode) }
-  var dpi by rememberSaveable { mutableStateOf(dpiMode) }
+  var dpi by rememberSaveable { mutableStateOf(if (coreBetaActive) ProfileSelection.DPI_OFF else dpiMode) }
   var packages by rememberSaveable(stateSaver = StringSetSaver) {
     mutableStateOf(selectedApplications)
   }
   var search by rememberSaveable { mutableStateOf("") }
+  var showCustomGeo by rememberSaveable { mutableStateOf(false) }
+  if (showCustomGeo) {
+    CustomGeoProfileDialog(
+      initialDirect = direct,
+      initialVpn = vpn,
+      geoUpdating = geoUpdating,
+      geoStatusDescription = geoStatusDescription,
+      geoUpdateMessage = geoUpdateMessage,
+      refreshEnabled = geoRefreshEnabled,
+      trustTunnelActive = trustTunnelActive,
+      onRefreshGeo = onRefreshGeo,
+      onUse = { profile ->
+        route = ProfileSelection.ROUTING_MANUAL
+        direct = profile.directEntries
+        vpn = profile.vpnEntries
+        showCustomGeo = false
+      },
+      onDismiss = { showCustomGeo = false },
+    )
+    return
+  }
   val visibleApps = remember(installedApplications, search) {
     installedApplications
       .filter {
@@ -2426,7 +2517,11 @@ private fun RoutingSettingsDialog(
                 style = MaterialTheme.typography.headlineSmallEmphasized,
               )
               Text(
-                if (trustTunnelActive) "TrustTunnel" else "sing-box",
+                when {
+                  coreBetaActive -> stringResource(R.string.core_beta_title)
+                  trustTunnelActive -> "TrustTunnel"
+                  else -> "sing-box"
+                },
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
               )
@@ -2449,79 +2544,112 @@ private fun RoutingSettingsDialog(
             contentPadding = PaddingValues(horizontal = 20.dp, vertical = 16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
           ) {
-            item { SettingsSectionTitle(stringResource(R.string.traffic)) }
-            if (geoUpdateMessage != null) {
-              item {
-                Text(
-                  text = geoUpdateMessage,
-                  style = MaterialTheme.typography.bodySmall,
-                  color = MaterialTheme.colorScheme.primary,
-                )
+            if (!coreBetaActive) {
+              item { SettingsSectionTitle(stringResource(R.string.traffic)) }
+              geoStatusDescription?.let { description ->
+                item { Text(description, style = MaterialTheme.typography.bodySmall) }
               }
-            }
-            item {
-              SettingChoice(
-                title = stringResource(R.string.all_traffic_vpn),
-                selected = route == ProfileSelection.ROUTING_ALL,
-                onClick = { route = ProfileSelection.ROUTING_ALL },
-              )
-            }
-            item {
-              SettingChoice(
-                title = stringResource(R.string.russia_direct),
-                subtitle = stringResource(
-                  if (trustTunnelActive) {
-                    R.string.trust_russia_direct_description
-                  } else {
-                    R.string.russia_direct_description
-                  },
-                ),
-                selected = route == ProfileSelection.ROUTING_RU_DIRECT,
-                onClick = { route = ProfileSelection.ROUTING_RU_DIRECT },
-              )
-            }
-            item {
-              SettingChoice(
-                title = stringResource(R.string.custom_rules),
-                subtitle = stringResource(R.string.custom_rules_description),
-                selected = route == ProfileSelection.ROUTING_MANUAL,
-                onClick = { route = ProfileSelection.ROUTING_MANUAL },
-              )
-            }
-            if (route == ProfileSelection.ROUTING_MANUAL) {
               item {
-                OutlinedTextField(
-                  value = direct,
-                  onValueChange = { direct = it },
-                  modifier = Modifier.fillMaxWidth(),
-                  label = { Text(stringResource(R.string.direct_without_vpn)) },
-                  supportingText = { Text(stringResource(R.string.routes_input_hint)) },
-                  placeholder = { Text("bank.example\n192.0.2.0/24") },
-                  minLines = 3,
-                  shape = RoundedCornerShape(16.dp),
+                OutlinedButton(onClick = { showCustomGeo = true }, modifier = Modifier.fillMaxWidth()) {
+                  Text(stringResource(R.string.geo_scenario_title))
+                }
+              }
+              if (geoUpdateMessage != null) {
+                item {
+                  Text(
+                    text = geoUpdateMessage,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.primary,
+                  )
+                }
+              }
+              item {
+                SettingChoice(
+                  title = stringResource(R.string.all_traffic_vpn),
+                  selected = route == ProfileSelection.ROUTING_ALL,
+                  onClick = { route = ProfileSelection.ROUTING_ALL },
                 )
               }
               item {
-                OutlinedTextField(
-                  value = vpn,
-                  onValueChange = { vpn = it },
-                  modifier = Modifier.fillMaxWidth(),
-                  label = { Text(stringResource(R.string.always_vpn)) },
-                  supportingText = { Text(stringResource(R.string.vpn_routes_priority)) },
-                  placeholder = { Text("video.example\n2001:db8::/32") },
-                  minLines = 3,
-                  shape = RoundedCornerShape(16.dp),
+                SettingChoice(
+                  title = stringResource(R.string.russia_direct),
+                  subtitle = stringResource(
+                    if (trustTunnelActive) {
+                      R.string.trust_russia_direct_description
+                    } else {
+                      R.string.russia_direct_description
+                    },
+                  ),
+                  selected = route == ProfileSelection.ROUTING_RU_DIRECT,
+                  onClick = { route = ProfileSelection.ROUTING_RU_DIRECT },
                 )
               }
+              item {
+                SettingChoice(
+                  title = stringResource(R.string.custom_rules),
+                  subtitle = stringResource(R.string.custom_rules_description),
+                  selected = route == ProfileSelection.ROUTING_MANUAL,
+                  onClick = { route = ProfileSelection.ROUTING_MANUAL },
+                )
+              }
+              if (route == ProfileSelection.ROUTING_MANUAL) {
+                item {
+                  Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceContainer) {
+                    Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                      Text(stringResource(R.string.geo_scenario_selection_summary,
+                        direct.lineSequence().count { it.isNotBlank() },
+                        vpn.lineSequence().count { it.isNotBlank() }), style = MaterialTheme.typography.bodyMedium)
+                      Text(stringResource(R.string.geo_scenario_remaining), style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                      OutlinedButton(onClick = { showCustomGeo = true }, modifier = Modifier.fillMaxWidth()) {
+                        Text(stringResource(R.string.geo_scenario_edit))
+                      }
+                    }
+                  }
+                }
+              }
+            } else {
+              item { Text(stringResource(R.string.core_beta_scope), style = MaterialTheme.typography.bodyMedium) }
+              item {
+                SettingChoice(title = stringResource(R.string.all_traffic_vpn),
+                  selected = route == ProfileSelection.ROUTING_ALL,
+                  onClick = { route = ProfileSelection.ROUTING_ALL })
+              }
+              item {
+                SettingChoice(title = stringResource(R.string.russia_direct),
+                  subtitle = stringResource(R.string.fairway_ru_partial_description),
+                  selected = route == ProfileSelection.ROUTING_RU_DIRECT,
+                  onClick = { route = ProfileSelection.ROUTING_RU_DIRECT })
+              }
+              item {
+                SettingChoice(title = stringResource(R.string.core_l3_manual),
+                  subtitle = stringResource(R.string.core_l3_cidr_only),
+                  selected = route == ProfileSelection.ROUTING_MANUAL,
+                  onClick = { route = ProfileSelection.ROUTING_MANUAL })
+              }
+              if (route == ProfileSelection.ROUTING_MANUAL) {
+                item {
+                  OutlinedTextField(value = direct, onValueChange = { if (it.length <= 65_536) direct = it },
+                    label = { Text(stringResource(R.string.core_l3_direct_cidrs)) },
+                    supportingText = { Text(stringResource(R.string.core_l3_cidr_hint)) },
+                    modifier = Modifier.fillMaxWidth(), minLines = 2, maxLines = 6)
+                }
+                item {
+                  OutlinedTextField(value = vpn, onValueChange = { if (it.length <= 65_536) vpn = it },
+                    label = { Text(stringResource(R.string.core_l3_vpn_cidrs)) },
+                    supportingText = { Text(stringResource(R.string.core_l3_vpn_priority)) },
+                    modifier = Modifier.fillMaxWidth(), minLines = 2, maxLines = 6)
+                }
+              }
             }
-            if (trustTunnelActive) {
+            if (trustTunnelActive || coreBetaActive) {
               item {
                 Surface(
                   shape = RoundedCornerShape(18.dp),
                   color = MaterialTheme.colorScheme.secondaryContainer,
                 ) {
                   Text(
-                    text = stringResource(R.string.trust_app_rules_note),
+                    text = stringResource(if (coreBetaActive) R.string.core_application_rules_note else R.string.trust_app_rules_note),
                     modifier = Modifier.padding(16.dp),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSecondaryContainer,
@@ -2625,7 +2753,7 @@ private fun RoutingSettingsDialog(
                 )
               }
             }
-            if (!trustTunnelActive) {
+            if (!trustTunnelActive && !coreBetaActive) {
               item { SettingsSectionTitle(stringResource(R.string.dpi_protection)) }
               item {
                 SettingChoice(
@@ -3087,6 +3215,12 @@ private fun ImportDialog(
           OutlinedTextField(
             value = subscriptionUrl,
             onValueChange = onUrlChange,
+            // Import material may be raw JSON, protocol credentials or a bearer URL.
+            // Mask every family rather than trying to guess where its secrets begin.
+            visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
+            keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+              keyboardType = androidx.compose.ui.text.input.KeyboardType.Password,
+            ),
             modifier = Modifier.fillMaxWidth(),
             label = { Text(stringResource(R.string.subscription_or_profile_link)) },
             minLines = 1,
@@ -3120,7 +3254,10 @@ private fun ImportDialog(
               if (importing) R.string.profile_importing else R.string.profile_import,
             ),
             confirmIcon = Icons.Rounded.FileDownload,
-            confirmEnabled = subscriptionUrl.contains("://") && !importing,
+            confirmEnabled = !importing && (subscriptionUrl.contains("://") ||
+              (subscriptionUrl.trimStart().startsWith("{") &&
+                (subscriptionUrl.contains("veilark-core-beta-profile-v1") ||
+                  subscriptionUrl.contains("veilark-argon-profile-v1")))),
             loading = importing,
             onConfirm = onImportUrl,
           )

@@ -7,6 +7,13 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class TechnicalLogStoreTest {
+  @Test fun compactImportsAndCorePrivateJsonNeverSurviveDiagnosticRedaction() {
+    assertEquals("import <profile-link-redacted> failed",
+      safe("import veilark://import?t=synthetic-private-token failed"))
+    val result = safe("""profile {"client_static_private_base64":"synthetic-private-key","engine":"argon-v1"}""")
+    assertFalse(result.contains("synthetic-private-key"))
+    assertTrue(result.contains("argon-v1"))
+  }
   // Exercise the actual persistence/redaction boundary without starting the disk writer.
   private fun safe(value: String, limit: Int = 800): String =
     TechnicalLogStore::class.java.getDeclaredMethod("safe", String::class.java, Int::class.javaPrimitiveType)
