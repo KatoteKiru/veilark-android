@@ -80,13 +80,13 @@ val veilarkCoreCanaryRequested = providers.gradleProperty("veilarkCoreCanary")
 // Private candidate only; production/OSS builds do not pick up lab artifacts.
 val bundleCoreBetaRuntime = providers.gradleProperty("bundleVeilarkCoreBetaRuntime")
   .map { it.toBooleanStrict() }.orElse(false).get()
-val coreBetaRuntimeDirectory = rootProject.file("build/core-beta-runtime")
+val coreBetaRuntimeDirectory = rootProject.file("build/core-stability-runtime")
 if (bundleCoreBetaRuntime) {
   val runtime = coreBetaRuntimeDirectory.resolve("arm64-v8a/libveilark_core_runtime.so")
-  require(runtime.isFile && runtime.length() == 4_401_056L) { "Verified Core beta ARM64 runtime missing" }
+  require(runtime.isFile && runtime.length() == 4_363_168L) { "Verified Core beta ARM64 runtime missing" }
   val digest = MessageDigest.getInstance("SHA-256").digest(runtime.readBytes())
     .joinToString("") { "%02x".format(it) }
-  require(digest == "5963189c372f8561ee53581552adc86b7e71c26c366131af3f2993bdd8bb8ddc") {
+  require(digest == "8077c561be347baefb7bb8cd3d54234e0b5880560bc5a2b6a8eab8beee932107") {
     "Core beta runtime hash does not match reviewed artifact"
   }
   require(coreBetaRuntimeDirectory.walkTopDown().filter { it.isFile }.toList() == listOf(runtime)) {
@@ -152,8 +152,8 @@ android {
     defaultConfig {
         minSdk = 29
         targetSdk = 36
-        versionCode = 81
-        versionName = "0.9.0-beta11"
+        versionCode = 82
+        versionName = "0.9.0-beta12"
         buildConfigField("boolean", "VEILARK_CORE_ENABLED", "false")
         buildConfigField("boolean", "CORE_BETA_RUNTIME_BUNDLED", "false")
         buildConfigField("String", "TELEGRAM_BOT_URL", quotedBuildConfig(telegramBotUrl))
