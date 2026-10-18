@@ -1,0 +1,82 @@
+package com.example.veilark.core.runtime
+
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
+import android.os.Looper
+import android.os.ParcelFileDescriptor
+import android.system.ErrnoException
+import android.system.Os
+import android.system.OsConstants
+import java.io.FileDescriptor
+import java.io.IOException
+import java.net.InetAddress
+
+/** A specific non-VPN Network, captured by the attempt's network-epoch owner. */
+internal class CoreFairwayAndroidNetworkBinding(
+  private val connectivity: ConnectivityManager,
+  private val network: Network,
+  private val protectSocket: (Int) -> Boolean,
+) : CoreFairwayNetworkBinding {
+  override fun isUsable(): Boolean {
+    val capabilities = connectivity.getNetworkCapabilities(network) ?: return false
+    return capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+      capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN) &&
+      !capabilities.hasTransport(NetworkCapabilities.TRANSPORT_VPN)
+  }
+
+  override fun bind(fd: FileDescriptor) = network.bindSocket(fd)
+  override fun protect(fd: Int): Boolean = protectSocket(fd)
+}
+
+/**
+ * Disabled Fairway integration component: not called by the released VPN service.
+ * The broker runs this synchronous, nonblocking-socket work on bounded IO workers.
+ * Native must revalidate the entire request and duplicate the BORROWED fd inside
+ * deliverBorrowed; Java closes its original even on rejection or cancellation.
+ */
+internal class CoreFairwayUdpSocketFactory : CoreFairwayFdOpener {
+  override fun deliver(
+    request: CoreFairwayFdRequest,
+    host: CoreFairwayFdHost,
+    isActive: () -> Boolean,
+  ): CoreFairwayFdFailure? {
+    check(Looper.myLooper() != Looper.getMainLooper()) { "Fairway socket creation requires an IO worker" }
+    fun current(): Boolean = isActive() && host.isCurrent(request)
+    fun failed(reason: CoreFairwayFdFailureReason) = CoreFairwayFdFailure(reason)
+    if (!current()) return failed(CoreFairwayFdFailureReason.STALE)
+    val binding = host.network(request) ?: return failed(CoreFairwayFdFailureReason.NETWORK_UNAVAILABLE)
+    if (!binding.isUsable()) return failed(CoreFairwayFdFailureReason.NETWORK_UNAVAILABLE)
+    var owned: ParcelFileDescriptor? = null
+    try {
+      val raw = Os.socket(OsConstants.AF_INET,
+        OsConstants.SOCK_DGRAM or OsConstants.SOCK_NONBLOCK or OsConstants.SOCK_CLOEXEC,
+        OsConstants.IPPROTO_UDP)
+      try { owned = ParcelFileDescriptor.dup(raw) } finally { Os.close(raw) }
+      val socket = checkNotNull(owned)
+      if (!current()) return failed(CoreFairwayFdFailureReason.STALE)
+      binding.bind(socket.fileDescriptor) // Must be unconnected when binding the Network.
+      if (!current()) return failed(CoreFairwayFdFailureReason.STALE)
+      if (!binding.protect(socket.fd)) return failed(CoreFairwayFdFailureReason.PROTECTION_FAILED)
+      if (!current()) return failed(CoreFairwayFdFailureReason.STALE)
+      val ip = request.destinationIpv4
+      val address = InetAddress.getByAddress(byteArrayOf(
+        (ip ushr 24).toByte(), (ip ushr 16).toByte(), (ip ushr 8).toByte(), ip.toByte(),
+      ))
+      // UDP connect sends no packet. No application source-port bind: the native
+      // flow engine owns inner/outer tuple translation and packet construction.
+      Os.connect(socket.fileDescriptor, address, request.destinationPort)
+      if (!current()) return failed(CoreFairwayFdFailureReason.STALE)
+      val code = host.deliverBorrowed(request, socket.fd)
+      check(code <= 0) { "Invalid Fairway FD admission result" }
+      return if (code == 0) null else CoreFairwayFdFailure(CoreFairwayFdFailureReason.NATIVE_REJECTED, code)
+    } catch (_: IOException) {
+      return failed(CoreFairwayFdFailureReason.IO_FAILURE)
+    } catch (_: ErrnoException) {
+      return failed(CoreFairwayFdFailureReason.IO_FAILURE)
+    } finally {
+      // Do not swallow a close failure and pretend ownership was released.
+      owned?.close()
+    }
+  }
+}
