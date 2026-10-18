@@ -7,6 +7,7 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.content.pm.PackageManager.NameNotFoundException
 import android.net.VpnService
+import android.net.ConnectivityManager
 import android.os.Build
 import android.os.ParcelFileDescriptor
 import android.os.SystemClock
@@ -33,6 +34,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.currentCoroutineContext
@@ -68,6 +70,7 @@ class CoreBetaVpnService : VpnService() {
     })
     var diagnosticStage = "SERVICE"
     var lastFailureCode: String? = null
+    @Volatile var networkDiagnostics: CoreNetworkDiagnostics? = null
   }
   private val sessions = CoreBetaSessionGate<Session>()
   @Volatile private var destroyed = false
@@ -148,6 +151,14 @@ class CoreBetaVpnService : VpnService() {
     val routingSnapshot: Map<String, *>
     try {
       currentCoroutineContext().ensureActive()
+      val diagnostics = CoreNetworkDiagnostics(
+        getSystemService(ConnectivityManager::class.java), ::coreInfo,
+      )
+      session.networkDiagnostics = diagnostics
+      // If destruction raced publication of the observer, scope completion still
+      // closes it. Registration itself also compensates for concurrent close.
+      session.scope.coroutineContext[Job]?.invokeOnCompletion { diagnostics.close() }
+      diagnostics.start()
       stage(session, "PROFILE_SELECTION")
       // The selection facade serializes import/selection on this same monitor.
       // Keep the support preflight and dispatched identity in one admission boundary.
@@ -577,15 +588,22 @@ class CoreBetaVpnService : VpnService() {
     }
   }
 
-  override fun onRevoke() { sessions.current()?.scope?.cancel(); super.onRevoke() }
+  override fun onRevoke() {
+    coreInfo("service_event=revoke")
+    sessions.current()?.scope?.cancel()
+    super.onRevoke()
+  }
   override fun onDestroy() {
     destroyed = true
-    sessions.current()?.scope?.cancel()
+    coreInfo("service_event=destroy")
+    sessions.current()?.let { it.networkDiagnostics?.close(); it.scope.cancel() }
     super.onDestroy()
   }
 
   private fun finishServiceEffects(session: Session) {
     sessions.finishServiceEffects(session) {
+      session.networkDiagnostics?.close()
+      coreInfo("service_event=terminal_cleanup")
       // No global service mutation is allowed after admission becomes possible.
       try { stopForeground(STOP_FOREGROUND_REMOVE) } finally { stopSelf() }
     }

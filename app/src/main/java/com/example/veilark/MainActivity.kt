@@ -22,6 +22,10 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import com.example.veilark.profile.FileImportRequest
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.veilark.theme.VeilarkTheme
@@ -79,6 +83,7 @@ class MainActivity : ComponentActivity() {
   private var pendingUpdateApk: File? = null
   private val tileConnectRequests = MutableStateFlow(0)
   private val externalImportRequests = MutableStateFlow<String?>(null)
+  private val externalFileRequests = MutableStateFlow<Uri?>(null)
   private val updateNoticeRequests = MutableStateFlow(0L)
 
   override fun onCreate(savedInstanceState: Bundle?) {
@@ -86,6 +91,7 @@ class MainActivity : ComponentActivity() {
     consumeTileConnectIntent(intent)
     consumeUpdateNoticeIntent(intent)
     externalImportRequests.value = ImportDeepLink.parse(intent)
+    consumeFileImportIntent(intent)
     SecureProfileStore.migrateLegacy(this)
     val initialProfilePreferences = getSharedPreferences("profile_meta", MODE_PRIVATE)
     TrustTunnelCatalog.migrateSingle(
@@ -126,6 +132,7 @@ class MainActivity : ComponentActivity() {
         mutableStateOf(TrustTunnelCatalog.load(this))
       }
       val externalImportUrl by externalImportRequests.collectAsStateWithLifecycle()
+      val externalFileUri by externalFileRequests.collectAsStateWithLifecycle()
       val updateNoticeRequest by updateNoticeRequests.collectAsStateWithLifecycle()
       var singBoxProfiles by remember {
         mutableStateOf(SingBoxCatalog.load(this))
@@ -600,11 +607,9 @@ class MainActivity : ComponentActivity() {
         return true
       }
 
-      val filePicker = rememberLauncherForActivityResult(
-        ActivityResultContracts.OpenDocument(),
-      ) { uri ->
-        if (uri == null) return@rememberLauncherForActivityResult
-        if (importing) return@rememberLauncherForActivityResult
+      // Both the picker and externally granted content URIs use one bounded reader.
+      fun importDocument(uri: Uri) {
+        if (importing) return
         importing = true
         importError = null
         coroutineScope.launch {
@@ -661,6 +666,26 @@ class MainActivity : ComponentActivity() {
             importing = false
           }
         }
+      }
+      val filePicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument(),
+      ) { uri -> if (uri != null) importDocument(uri) }
+      if (externalFileUri != null && !importing) {
+        AlertDialog(
+          onDismissRequest = { externalFileRequests.value = null },
+          title = { Text(getString(R.string.profile_import)) },
+          text = { Text(getString(R.string.add_subscription_or_profile)) },
+          confirmButton = {
+            TextButton(onClick = {
+              val selected = externalFileRequests.value
+              externalFileRequests.value = null
+              if (selected != null) importDocument(selected)
+            }) { Text(getString(R.string.action_import)) }
+          },
+          dismissButton = {
+            TextButton(onClick = { externalFileRequests.value = null }) { Text(getString(R.string.cancel)) }
+          },
+        )
       }
       var pendingQrConsumer by remember {
         mutableStateOf<((String) -> Unit)?>(null)
@@ -771,8 +796,9 @@ class MainActivity : ComponentActivity() {
           updating = updating,
           updateProgress = updateProgress,
           importing = importing,
-          externalImportUrl = externalImportUrl,
-          onExternalImportConsumed = { externalImportRequests.value = null },
+          // Leave queued external requests pending while an import is running.
+          externalImportUrl = externalImportUrl.takeUnless { importing },
+          onExternalImportConsumed = { if (!importing) externalImportRequests.value = null },
           onShareQr = { _, payload ->
             if (!QrCodeShare.share(
                 this@MainActivity,
@@ -793,13 +819,15 @@ class MainActivity : ComponentActivity() {
             // second permission launcher racing the scanner activity on Android 13+.
             qrScanner.launch(Intent(this@MainActivity, QrScannerActivity::class.java))
           },
-          onImportUrl = { url ->
+          onImportUrl = importUrl@ { url ->
+            if (importing) return@importUrl
             // QR results can be a Veilark import envelope or use an uppercase protocol scheme.
             // Normalize once before dispatching to either the TrustTunnel or sing-box importer.
             val importUrl = ImportDeepLink.parseQrPayload(url) ?: url.trim()
             importing = true
             importError = null
             coroutineScope.launch {
+              try {
               if (importUrl.startsWith("tt://")) {
                 runCatching {
                   val compiled = withContext(Dispatchers.Default) {
@@ -988,7 +1016,7 @@ class MainActivity : ComponentActivity() {
                   TechnicalLogStore.error("IMPORT", "Subscription import failed")
                 }
               }
-              importing = false
+              } finally { importing = false }
             }
           },
           onRefreshSubscription = {
@@ -1851,6 +1879,26 @@ class MainActivity : ComponentActivity() {
     consumeTileConnectIntent(intent)
     consumeUpdateNoticeIntent(intent)
     ImportDeepLink.parse(intent)?.let { externalImportRequests.value = it }
+    consumeFileImportIntent(intent)
+  }
+
+  private fun consumeFileImportIntent(intent: Intent?) {
+    if (intent == null) return
+    val uri = runCatching {
+      @Suppress("DEPRECATION")
+      when (intent.action) {
+        Intent.ACTION_VIEW -> intent.data
+        Intent.ACTION_SEND -> intent.getParcelableExtra<Uri>(Intent.EXTRA_STREAM)
+        else -> null
+      }
+    }.getOrNull() ?: return
+    if (FileImportRequest.accepts(intent.action, uri.toString(),
+        intent.flags and Intent.FLAG_GRANT_READ_URI_PERMISSION != 0)) {
+      externalFileRequests.value = uri
+      intent.data = null
+      intent.removeExtra(Intent.EXTRA_STREAM)
+      intent.action = null
+    }
   }
 
   private fun consumeTileConnectIntent(intent: Intent?) {
