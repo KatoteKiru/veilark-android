@@ -88,6 +88,7 @@ internal class CoreFairwayTcpConnect {
       closeWakePipe()
       synchronized(lock) {
         checkCancelledLocked()
+        checkDeadline(deadline)
         // Linearize transfer against cancel; cancellation after this point belongs
         // to the caller's attempt/admission fence, not this connection operation.
         socket = null
