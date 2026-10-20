@@ -6,6 +6,7 @@ import android.net.LinkProperties
 import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.RouteInfo
+import android.net.VpnService
 import java.io.FileDescriptor
 import java.io.IOException
 import java.net.InetAddress
@@ -89,6 +90,18 @@ internal class CoreFairwayNetworkOwner(
 
   fun isCurrent(epoch: Long): Boolean = synchronized(lock) {
     !closed && current.value?.epoch == epoch
+  }
+
+  /** Declare the same captured upstream used by outer and direct sockets.
+   * Raw Network custody stays here; a stale lease cannot configure a new TUN.
+   */
+  fun applyUnderlying(capture: CoreFairwayCapturedNetwork, builder: VpnService.Builder) {
+    synchronized(lock) {
+      val snapshot = epochs.snapshot()
+      check(!closed && current.value === capture && snapshot?.epoch == capture.epoch &&
+        capture.binding.isUsable()) { "Stale Fairway TUN network" }
+      builder.setUnderlyingNetworks(arrayOf(checkNotNull(snapshot).network))
+    }
   }
 
   private fun update(change: CoreFairwayNetworkEpoch<Network>.() -> Unit) {

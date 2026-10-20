@@ -413,6 +413,7 @@ class CoreBetaVpnService : VpnService() {
             currentCoroutineContext().ensureActive()
           }
           val builder = tunBuilder(session, authenticated.ipv4, authenticated.mtu, profile.dnsIpv4, routingSnapshot, routePlan)
+          if (capture != null) checkNotNull(networks).applyUnderlying(capture, builder)
           stage(session, "CORE_TUN_ESTABLISH")
           currentCoroutineContext().ensureActive()
           // Retain the previous Java TUN until the replacement has been established.
