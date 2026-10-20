@@ -41,6 +41,8 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.first
 import java.net.InetAddress
 import java.net.Inet4Address
 import java.net.InetSocketAddress
@@ -323,6 +325,7 @@ class CoreBetaVpnService : VpnService() {
     val originals = mutableListOf<ParcelFileDescriptor>()
     val tunnels = mutableListOf<ParcelFileDescriptor>()
     var activeTun: ParcelFileDescriptor? = null
+    var networkOwner: CoreFairwayNetworkOwner? = null
     try {
       currentCoroutineContext().ensureActive()
       stage(session, "CORE_NATIVE_LOAD")
@@ -334,8 +337,13 @@ class CoreBetaVpnService : VpnService() {
       // infer its address; only authenticated native output may supply that.
       stage(session, "ROUTING_RULES")
       val dns = CoreL3DnsPolicy.effective(profile.dnsIpv4)
-      val routePlan = prepareRouting(routingSnapshot, dns.resolvers)
+      val routePlan = prepareRouting(routingSnapshot, dns.resolvers, CoreFairwayIntegration.ENABLED)
       val nativeRoutingMode = routePlan.nativeMode
+      val fairwayPolicy = routePlan.fairwayPolicy
+      if (fairwayPolicy != null) {
+        networkOwner = CoreFairwayNetworkOwner(getSystemService(ConnectivityManager::class.java), ::protect)
+        networkOwner.start()
+      }
       val peer = ipv4(profile.endpointIpv4) as Inet4Address
       var consecutiveFailures = 0
       while (true) {
@@ -343,8 +351,13 @@ class CoreBetaVpnService : VpnService() {
         publish(session, ConnectionState.Connecting)
         var ticket: CoreArgonHandleTicket? = null
         try {
+          val networks = networkOwner
+          val capture = if (networks != null) {
+            stage(session, "CORE_AWAIT_NETWORK")
+            networks.captures.filterNotNull().first()
+          } else null
           stage(session, "CORE_UDP_OPEN")
-          val socket = CoreProtectedUdp.open(peer, profile.endpointPort, ::protect)
+          val socket = CoreProtectedUdp.open(peer, profile.endpointPort, ::protect, capture?.binding)
           originals += socket
           var secret: ByteArray? = null
           var pin: ByteArray? = null
@@ -363,10 +376,35 @@ class CoreBetaVpnService : VpnService() {
             secret?.fill(0); pin?.fill(0)
           }
           val admitted = checkNotNull(ticket)
+          if (capture != null && networks != null) {
+            session.argonLifecycle.startCallbacks(admitted, session.scope) {
+              // A lease check alone cannot wake a parked native authentication,
+              // observer or admission ACK. Actively stop this immutable attempt.
+              networks.captures.first { it?.epoch != capture.epoch }
+              val code = VeilarkArgonNative.nativeStop(admitted.handle)
+              if (code != 0) {
+                recordArgonFailure(session, CoreArgonFailure("network_stop", code.toLong()))
+                session.scope.cancel() // Main owner performs cleanup; this worker never joins itself.
+              }
+            }
+          }
           stage(session, "CORE_AUTHENTICATING")
           val authenticated = session.argonLifecycle.awaitAuthenticated(admitted)
           currentCoroutineContext().ensureActive()
-          if (nativeRoutingMode == 1) {
+          if (fairwayPolicy != null) {
+            stage(session, "FAIRWAY_CONFIGURE")
+            val owner = checkNotNull(networks)
+            val host = CoreFairwayNativeHost(CoreFairwayArgonApi, admitted.handle,
+              checkNotNull(capture), CoreFairwayIntegration.POLICY_GENERATION, owner::isCurrent)
+            host.configure(fairwayPolicy.networks, fairwayPolicy.prefixes)
+            session.argonLifecycle.startCallbacks(admitted, session.scope) {
+              try {
+                CoreFairwaySocketBroker(opener = CoreFairwaySocketFactory()).run(host)
+              } catch (cancelled: CancellationException) { throw cancelled }
+              catch (failure: Throwable) { recordArgonFailure(session, failure) }
+              finally { host.stopRequests() }
+            }
+          } else if (nativeRoutingMode == 1) {
             stage(session, "FAIRWAY_DNS_OPEN")
             val resolver = CoreProtectedUdp.open(ipv4("77.88.8.8") as Inet4Address, 53, ::protect)
             originals += resolver
@@ -431,7 +469,10 @@ class CoreBetaVpnService : VpnService() {
     } finally {
       runCatching { loadedProfile?.close() }
       suspend fun cleanup(): Boolean {
-        val native = runCatching { session.argonLifecycle.stopAndRelease() }.getOrDefault(false)
+        // Invalidating the captured Network also wakes its watcher while native
+        // ownership still exists. Failed callback unregistration retains custody.
+        val networkClosed = runCatching { networkOwner?.close(); true }.getOrDefault(false)
+        val native = runCatching { session.argonLifecycle.stopAndRelease() }.getOrDefault(false) && networkClosed
         val originalsClosed = closeTracked(originals)
         val tunnelsClosed = closeTracked(tunnels)
         val descriptorsClosed = originalsClosed && tunnelsClosed
@@ -460,11 +501,14 @@ class CoreBetaVpnService : VpnService() {
     return descriptors.isEmpty()
   }
 
-  private fun prepareRouting(snapshot: Map<String, *>, dns: List<String>): CoreRoutingPlan =
-    CoreRoutingPlan.prepare(
+  private fun prepareRouting(
+    snapshot: Map<String, *>, dns: List<String>, commonFairway: Boolean = false,
+  ): CoreRoutingPlan =
+    CoreRoutingPlan.prepareIntegrated(
       preferenceString(snapshot, "core_routing_mode", ProfileSelection.ROUTING_ALL),
       preferenceString(snapshot, "core_direct_routes", ""),
       preferenceString(snapshot, "core_vpn_routes", ""), dns, Build.VERSION.SDK_INT,
+      commonFairway,
     ) { path -> assets.open(path).use { it.readBytes() } }
 
   /** Apply the same preflight snapshot; do not reload assets during reconnect. */

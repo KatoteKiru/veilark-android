@@ -36,6 +36,25 @@ class CoreRoutingPlanTest {
     }
   }
 
+  @Test fun commonRuCapturesAllIpv4AndLoadsOnlyCompleteNativePolicy() {
+    for (api in listOf(29, 33, 37)) {
+      val reads = mutableListOf<String>()
+      val plan = CoreRoutingPlan.prepareIntegrated(ProfileSelection.ROUTING_RU_DIRECT, "invalid", "invalid",
+        listOf("1.1.1.1"), api, true) { path ->
+        reads += path
+        listOf(File("src/main/assets/$path"), File("app/src/main/assets/$path"))
+          .first { it.isFile }.readBytes()
+      }
+      assertEquals(listOf(CoreFairwayRuPolicy.ASSET), reads)
+      assertEquals(listOf(CoreIpv4Route("0.0.0.0", 0)), plan.included)
+      assertTrue(plan.excluded.isEmpty())
+      assertFalse(plan.partialRu)
+      assertEquals(45_223_232L, plan.directRuIpv4)
+      assertEquals(8662, checkNotNull(plan.fairwayPolicy).networks.size)
+      assertEquals(1, plan.nativeMode)
+    }
+  }
+
   @Test fun corruptGeoAndUnknownModeFailBeforeReturningPlan() {
     assertThrows(IllegalArgumentException::class.java) {
       CoreRoutingPlan.prepare(ProfileSelection.ROUTING_RU_DIRECT, "", "", listOf("1.1.1.1"), 33) { byteArrayOf() }

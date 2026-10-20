@@ -1,5 +1,9 @@
 package com.example.veilark.core.runtime
 
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
@@ -33,6 +37,7 @@ internal data class CoreArgonAuthenticated(val ipv4: String, val mtu: Int)
 internal class CoreArgonLifecycle(private val api: CoreArgonHandleApi) {
   private class Owner(val ticket: CoreArgonHandleTicket) {
     var cleaning = false
+    val callbacks = mutableListOf<Job>()
     var waiters = 0
     var drained = CompletableDeferred<Unit>().apply { complete(Unit) }
   }
@@ -115,6 +120,38 @@ internal class CoreArgonLifecycle(private val api: CoreArgonHandleApi) {
     catch (failure: Throwable) { stopAndRelease(ticket); throw failure }
   }
 
+  /**
+   * Register a structured callback worker BEFORE it can enter JNI. Cleanup first
+   * wakes native observers, then cancels/drains every worker, and only then joins
+   * and releases the handle. Worker blocks must never call stopAndRelease (they
+   * may signal native Stop); otherwise they would await their own completion.
+   */
+  suspend fun startCallbacks(
+    ticket: CoreArgonHandleTicket, scope: CoroutineScope, block: suspend CoroutineScope.() -> Unit,
+  ): Job {
+    val caller = currentCoroutineContext()
+    val worker = scope.launch(start = CoroutineStart.LAZY, block = block)
+    var registered = false
+    try {
+      withContext(NonCancellable) {
+        ownershipMutex.withLock {
+          caller.ensureActive()
+          val lease = requireOwner(ticket)
+          check(lease.callbacks.size < 2) { "Too many Veilark Core callback workers" }
+          lease.callbacks += worker
+          registered = true
+        }
+      }
+      // Concurrent cleanup may already have cancelled this lazy worker. It may
+      // never start outside owner custody, even if registration is cancelled.
+      worker.start()
+      caller.ensureActive()
+      return worker
+    } finally {
+      if (!registered) withContext(NonCancellable) { worker.cancel(); worker.join() }
+    }
+  }
+
   /** Matched native ABI: latched Stop=4 or worker End=6, without periodic polling. */
   suspend fun awaitTerminal(ticket: CoreArgonHandleTicket): Int =
     waitNative(ticket, accepts = { it == 4 || it == 6 }) { api.awaitTerminal(ticket.handle) }
@@ -175,7 +212,10 @@ internal class CoreArgonLifecycle(private val api: CoreArgonHandleApi) {
       }
       var released = false
       try {
-        if (api.stop(admitted.ticket.handle) != 0) return@withContext false
+        val stopCode = api.stop(admitted.ticket.handle)
+        admitted.callbacks.forEach { it.cancel() }
+        if (stopCode != 0) return@withContext false // Retain custody; never release live callbacks.
+        admitted.callbacks.forEach { it.join() }
         admitted.drained.await()
         if (api.join(admitted.ticket.handle) != 0) return@withContext false
         // Status reads are short but may not race disposal.

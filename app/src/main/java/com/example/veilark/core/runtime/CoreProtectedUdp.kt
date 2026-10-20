@@ -17,6 +17,7 @@ internal object CoreProtectedUdp {
     peer: Inet4Address,
     port: Int,
     protect: (Int) -> Boolean,
+    binding: CoreFairwayNetworkBinding? = null,
   ): ParcelFileDescriptor {
     require(port in 1..65535)
     currentCoroutineContext().ensureActive()
@@ -33,10 +34,15 @@ internal object CoreProtectedUdp {
       try { owned = ParcelFileDescriptor.dup(raw) } finally { Os.close(raw) }
       val carrier = checkNotNull(owned)
       currentCoroutineContext().ensureActive()
-      check(protect(carrier.fd)) { "Core UDP protection failed" }
+      if (binding != null) {
+        check(binding.isUsable()) { "Core UDP network unavailable" }
+        binding.bind(carrier.fileDescriptor)
+      }
+      check(binding?.protect(carrier.fd) ?: protect(carrier.fd)) { "Core UDP protection failed" }
       currentCoroutineContext().ensureActive()
       Os.connect(carrier.fileDescriptor, peer, port)
       currentCoroutineContext().ensureActive()
+      check(binding?.isUsable() != false) { "Core UDP network changed" }
       transferred = true
       return carrier
     } finally {

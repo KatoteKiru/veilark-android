@@ -10,13 +10,28 @@ internal class CoreRoutingPlan private constructor(
   val nativeMode: Int,
   val partialRu: Boolean,
   val directRuIpv4: Long,
+  val fairwayPolicy: CoreFairwayRuPolicy? = null,
 ) {
   companion object {
     fun prepare(
       mode: String, direct: String, vpn: String, dns: List<String>, api: Int,
       readAsset: (String) -> ByteArray,
+    ): CoreRoutingPlan = prepareIntegrated(mode, direct, vpn, dns, api, false, readAsset)
+
+    fun prepareIntegrated(
+      mode: String, direct: String, vpn: String, dns: List<String>, api: Int,
+      commonFairway: Boolean,
+      readAsset: (String) -> ByteArray,
     ): CoreRoutingPlan {
       if (mode == ProfileSelection.ROUTING_RU_DIRECT) {
+        if (commonFairway) {
+          require(api >= 29) { "Fairway requires Android API 29 or later" }
+          CoreL3DnsPolicy.effective(dns) // Validate separately from the immutable GeoIP policy.
+          val policy = CoreFairwayRuPolicy.prepare(readAsset(CoreFairwayRuPolicy.ASSET))
+          // One system route: native PacketPolicy makes the exact RU decision.
+          return CoreRoutingPlan(listOf(CoreIpv4Route("0.0.0.0", 0)), emptyList(),
+            1, false, policy.directRuIpv4, policy)
+        }
         val ru = FairwayRuRoutePlan.prepare(api,
           readAsset(FairwayRuRoutePlan.EXACT_ASSET),
           readAsset(FairwayRuRoutePlan.LEGACY_ASSET), dns)

@@ -34,6 +34,69 @@ class CoreArgonLifecycleTest {
     override fun release(handle: Long): Int { releases.incrementAndGet(); return releaseCode }
   }
 
+  @Test fun cleanupWakesAndDrainsCallbacksBeforeNativeJoinOrRelease() = runBlocking {
+    val entered = CompletableDeferred<Unit>()
+    val stopped = CountDownLatch(1)
+    val exited = AtomicInteger()
+    val fake = object : Fake() {
+      override fun stop(handle: Long): Int { stopped.countDown(); return super.stop(handle) }
+      override fun join(handle: Long): Int { assertEquals(1, exited.get()); return super.join(handle) }
+      override fun release(handle: Long): Int { assertEquals(1, exited.get()); return super.release(handle) }
+    }
+    val owner = CoreArgonLifecycle(fake)
+    val ticket = owner.startBorrowed({ 7L }, {})
+    val worker = owner.startCallbacks(ticket, this) {
+      kotlinx.coroutines.withContext(Dispatchers.IO) {
+        entered.complete(Unit)
+        check(stopped.await(5, TimeUnit.SECONDS))
+        exited.incrementAndGet()
+      }
+    }
+    withTimeout(2000) { entered.await() }
+    assertTrue(withTimeout(2000) { owner.stopAndRelease(ticket) })
+    assertTrue(worker.isCompleted)
+    assertEquals(1, fake.releases.get())
+  }
+
+  @Test fun runningFailureCannotReleaseWhileCallbackIsReturningFromNative() = runBlocking {
+    val entered = CompletableDeferred<Unit>()
+    val stopped = CountDownLatch(1)
+    val exited = AtomicInteger()
+    val fake = object : Fake() {
+      override fun awaitRunning(handle: Long) = -23
+      override fun stop(handle: Long): Int { stopped.countDown(); return super.stop(handle) }
+      override fun release(handle: Long): Int { assertEquals(1, exited.get()); return super.release(handle) }
+    }
+    val owner = CoreArgonLifecycle(fake)
+    val ticket = owner.startBorrowed({ 7L }, {})
+    owner.startCallbacks(ticket, this) {
+      kotlinx.coroutines.withContext(Dispatchers.IO) {
+        entered.complete(Unit)
+        check(stopped.await(5, TimeUnit.SECONDS))
+        exited.incrementAndGet()
+      }
+    }
+    withTimeout(2000) { entered.await() }
+    try { owner.awaitRunning(ticket); fail("Expected native failure") }
+    catch (failure: CoreArgonFailure) { assertEquals(-23, failure.code.toInt()) }
+    assertEquals(1, fake.releases.get())
+    assertNull(owner.status())
+  }
+
+  @Test fun staleTicketCannotLaunchCallbacksAgainstReusedNumericHandle() = runBlocking {
+    val fake = Fake()
+    val owner = CoreArgonLifecycle(fake)
+    val old = owner.startBorrowed({ 7L }, {})
+    assertTrue(owner.stopAndRelease(old))
+    val current = owner.startBorrowed({ 7L }, {})
+    val entered = AtomicInteger()
+    try { owner.startCallbacks(old, this) { entered.incrementAndGet() }; fail("Stale callback registration") }
+    catch (_: IllegalStateException) { }
+    assertEquals(0, entered.get())
+    assertEquals(3, owner.status())
+    assertTrue(owner.stopAndRelease(current))
+  }
+
   @Test fun cancellationInAuthenticationSignalsStopBeforeJoiningBlockedWait() = runBlocking {
     val entered = CompletableDeferred<Unit>()
     val stopped = CompletableDeferred<Unit>()
