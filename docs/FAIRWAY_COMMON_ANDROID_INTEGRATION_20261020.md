@@ -1,4 +1,4 @@
-# Common Fairway Android service integration — 2026-10-20
+# Common Fairway Android service integration â€” 2026-10-20
 
 Source implemented behind `CoreFairwayIntegration.ENABLED=false`. This document does not approve activation, an owner-ready build or publication. Published81 and local82 remain immutable. Native511/c72 and old isolated lab artifacts are preserved.
 
@@ -16,4 +16,4 @@ Still mandatory: new native foreign-fragment/reclaim fixes, usable TCP throughpu
 
 Actual API35 lab diagnosed NETWORK_CHANGE_AVAILABLE stopping native before client packets. `registerDefaultNetworkCallback` can report virtual VPNs and is therefore unsuitable as a physical-only observer. API31+ now uses passive `registerBestMatchingNetworkCallback` with INTERNET+NOT_VPN before availability events. Real physical availability/loss/block/link invalidation and immutable epoch behavior stay enabled. This does not request a radio connection or synthesize validation. Source: https://developer.android.com/reference/android/net/ConnectivityManager#registerBestMatchingNetworkCallback(android.net.NetworkRequest,%20android.net.ConnectivityManager.NetworkCallback,%20android.os.Handler)
 
-API29–30 full common routing is now explicitly rejected before asset/socket/native admission until a separately accepted passive physical selector exists; existing default-gate-off product and legacy modes are unchanged. API29–30 support remains a mandatory open requirement, not a silent partial-route fallback. Targeted tests now58, zero failures/errors/skips, both Kotlin compiles PASS after this change. Real causal OS-TUN retest still required.
+API29â€“30 full common routing is now explicitly rejected before asset/socket/native admission until a separately accepted passive physical selector exists; existing default-gate-off product and legacy modes are unchanged. API29â€“30 support remains a mandatory open requirement, not a silent partial-route fallback. Targeted tests now58, zero failures/errors/skips, both Kotlin compiles PASS after this change. Real causal OS-TUN retest still required.
