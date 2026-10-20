@@ -39,6 +39,21 @@ internal object VeilarkArgonNative {
   @JvmStatic external fun nativeAwaitRunning(handle: Long): Int
   /** Blocking event wait: Stop=4, worker End=6, negative ABI errors. No timer. */
   @JvmStatic external fun nativeAwaitTerminal(handle: Long): Int
+  /** Additive common Fairway ABI. Requires a matched artifact, not base ABI1 alone.
+   * Configure once after Authenticated/before TUN, routingMode1 only; mutually
+   * exclusive with nativeAttachRuDns. Epoch/policy immutable for this attempt.
+   */
+  @JvmStatic external fun nativeConfigureFairway(
+    handle: Long, epoch: Long, generation: Long, networks: IntArray, prefixes: IntArray,
+  ): Int
+  /** Exact9 Longs: attempt,epoch,policy,flowId,srcUInt32,srcPort,dstUInt32,dstPort,protocol6|17.
+   * Blocking observer; Stop wakes it. No pinned Java array during native wait.
+   */
+  @JvmStatic external fun nativeAwaitFairwayRequest(handle: Long, output: LongArray): Int
+  @JvmStatic external fun nativeFairwayRequestCurrent(handle: Long, request: LongArray): Int
+  /** BORROWED fd; native full-token check, sync dup and reactor-registration ACK. */
+  @JvmStatic external fun nativeRespondFairwayRequest(handle: Long, request: LongArray, borrowedFd: Int): Int
+  @JvmStatic external fun nativeRejectFairwayRequest(handle: Long, request: LongArray, causePositive: Int): Int
   @JvmStatic external fun nativeStatus(handle: Long): Int
   @JvmStatic external fun nativeStop(handle: Long): Int
   @JvmStatic external fun nativeJoin(handle: Long): Int
