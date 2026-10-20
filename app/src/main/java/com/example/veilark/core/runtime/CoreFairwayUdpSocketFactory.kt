@@ -47,6 +47,23 @@ internal class CoreFairwayUdpSocketFactory : CoreFairwayFdOpener {
     if (!current()) return failed(CoreFairwayFdFailureReason.STALE)
     val binding = host.network(request) ?: return failed(CoreFairwayFdFailureReason.NETWORK_UNAVAILABLE)
     if (!binding.isUsable()) return failed(CoreFairwayFdFailureReason.NETWORK_UNAVAILABLE)
+    return deliverAuthorized(binding, request.destinationIpv4, request.destinationPort, ::current) {
+      host.deliverBorrowed(request, it)
+    }
+  }
+
+  /** Shared kernel UDP operation; caller authorizes the full typed request. */
+  internal fun deliverAuthorized(
+    binding: CoreFairwayNetworkBinding,
+    destinationIpv4: Int,
+    destinationPort: Int,
+    current: () -> Boolean,
+    deliverBorrowed: (Int) -> Int,
+  ): CoreFairwayFdFailure? {
+    check(Looper.myLooper() != Looper.getMainLooper()) { "Fairway socket creation requires an IO worker" }
+    fun failed(reason: CoreFairwayFdFailureReason) = CoreFairwayFdFailure(reason)
+    if (!current()) return failed(CoreFairwayFdFailureReason.STALE)
+    require(destinationPort in 1..65535)
     var owned: ParcelFileDescriptor? = null
     try {
       val raw = Os.socket(OsConstants.AF_INET,
@@ -59,15 +76,15 @@ internal class CoreFairwayUdpSocketFactory : CoreFairwayFdOpener {
       if (!current()) return failed(CoreFairwayFdFailureReason.STALE)
       if (!binding.protect(socket.fd)) return failed(CoreFairwayFdFailureReason.PROTECTION_FAILED)
       if (!current()) return failed(CoreFairwayFdFailureReason.STALE)
-      val ip = request.destinationIpv4
+      val ip = destinationIpv4
       val address = InetAddress.getByAddress(byteArrayOf(
         (ip ushr 24).toByte(), (ip ushr 16).toByte(), (ip ushr 8).toByte(), ip.toByte(),
       ))
       // UDP connect sends no packet. No application source-port bind: the native
       // flow engine owns inner/outer tuple translation and packet construction.
-      Os.connect(socket.fileDescriptor, address, request.destinationPort)
+      Os.connect(socket.fileDescriptor, address, destinationPort)
       if (!current()) return failed(CoreFairwayFdFailureReason.STALE)
-      val code = host.deliverBorrowed(request, socket.fd)
+      val code = deliverBorrowed(socket.fd)
       check(code <= 0) { "Invalid Fairway FD admission result" }
       return if (code == 0) null else CoreFairwayFdFailure(CoreFairwayFdFailureReason.NATIVE_REJECTED, code)
     } catch (_: IOException) {
