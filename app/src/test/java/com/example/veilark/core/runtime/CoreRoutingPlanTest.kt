@@ -37,7 +37,7 @@ class CoreRoutingPlanTest {
   }
 
   @Test fun commonRuCapturesAllIpv4AndLoadsOnlyCompleteNativePolicy() {
-    for (api in listOf(29, 33, 37)) {
+    for (api in listOf(31, 33, 37)) {
       val reads = mutableListOf<String>()
       val plan = CoreRoutingPlan.prepareIntegrated(ProfileSelection.ROUTING_RU_DIRECT, "invalid", "invalid",
         listOf("1.1.1.1"), api, true) { path ->
@@ -52,6 +52,18 @@ class CoreRoutingPlanTest {
       assertEquals(45_223_232L, plan.directRuIpv4)
       assertEquals(8662, checkNotNull(plan.fairwayPolicy).networks.size)
       assertEquals(1, plan.nativeMode)
+    }
+  }
+
+  @Test fun fullCommonRuRejectsOlderApiBeforeAssetOrSocketAdmission() {
+    for (api in listOf(29, 30)) {
+      assertThrows(IllegalArgumentException::class.java) {
+        CoreRoutingPlan.prepareIntegrated(ProfileSelection.ROUTING_RU_DIRECT, "", "",
+          listOf("1.1.1.1"), api, true) { error("Unsupported API must fail before reading policy") }
+      }
+      // The same Android versions retain their existing, explicitly partial plan.
+      assertEquals(0, CoreRoutingPlan.prepareIntegrated(ProfileSelection.ROUTING_ALL, "", "",
+        listOf("1.1.1.1"), api, true) { error("No GEO for all mode") }.nativeMode)
     }
   }
 

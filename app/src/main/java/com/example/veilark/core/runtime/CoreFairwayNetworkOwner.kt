@@ -5,6 +5,10 @@ import android.net.LinkAddress
 import android.net.LinkProperties
 import android.net.Network
 import android.net.NetworkCapabilities
+import android.net.NetworkRequest
+import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.net.RouteInfo
 import android.net.VpnService
 import java.io.FileDescriptor
@@ -14,6 +18,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
+internal enum class CoreFairwayNetworkChange { NONE, AVAILABLE, CAPABILITIES, BLOCKED, LINK, LOST }
+
 /** Immutable lease on one underlying Network, never the lifecycle engine epoch. */
 internal class CoreFairwayCapturedNetwork internal constructor(
   val epoch: Long,
@@ -21,7 +27,8 @@ internal class CoreFairwayCapturedNetwork internal constructor(
 )
 
 /**
- * Dormant session-scoped observer for the app's default non-VPN network.
+ * Session-scoped observer for the best physical network on API31+;
+ * API29/30 default observer is retained only for dormant helper compatibility.
  * Core's own UID must remain outside its TUN (the existing tunBuilder policy).
  * No requestNetwork, probes, timers, process binding, JNI or service activation.
  * Callback snapshots avoid racing synchronous ConnectivityManager lookups.
@@ -41,6 +48,8 @@ internal class CoreFairwayNetworkOwner(
   private var started = false
   private var registered = false
   private var closed = false
+  @Volatile var lastChange: CoreFairwayNetworkChange = CoreFairwayNetworkChange.NONE
+    private set
 
   private data class LinkSignature(
     val name: String?, val mtu: Int, val addresses: List<LinkAddress>,
@@ -49,23 +58,23 @@ internal class CoreFairwayNetworkOwner(
   )
 
   private val callback = object : ConnectivityManager.NetworkCallback() {
-    override fun onAvailable(network: Network) = update { available(network) }
-    override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) = update {
+    override fun onAvailable(network: Network) = update(CoreFairwayNetworkChange.AVAILABLE) { available(network) }
+    override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) = update(CoreFairwayNetworkChange.CAPABILITIES) {
       capabilities(network,
         caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
           caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN) &&
           caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_SUSPENDED) &&
           !caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN))
     }
-    override fun onBlockedStatusChanged(network: Network, blocked: Boolean) = update {
+    override fun onBlockedStatusChanged(network: Network, blocked: Boolean) = update(CoreFairwayNetworkChange.BLOCKED) {
       this.blocked(network, blocked)
     }
-    override fun onLinkPropertiesChanged(network: Network, properties: LinkProperties) = update {
+    override fun onLinkPropertiesChanged(network: Network, properties: LinkProperties) = update(CoreFairwayNetworkChange.LINK) {
       link(network, LinkSignature(properties.interfaceName, properties.mtu,
         properties.linkAddresses.toList(), properties.routes.toList(), properties.dnsServers.toList(),
         properties.isPrivateDnsActive, properties.privateDnsServerName))
     }
-    override fun onLost(network: Network) = update { lost(network) }
+    override fun onLost(network: Network) = update(CoreFairwayNetworkChange.LOST) { lost(network) }
   }
 
   /** Register once. A registration error is fatal to this owner, never ignored. */
@@ -75,7 +84,20 @@ internal class CoreFairwayNetworkOwner(
       started = true
     }
     try {
-      connectivity.registerDefaultNetworkCallback(callback)
+      if (Build.VERSION.SDK_INT >= 31) {
+        // An app-default observer may report a newly created VPN. Physical
+        // upstream selection must exclude VPNs in the request, before onAvailable.
+        // This passive callback never requests/keeps an extra radio network alive.
+        val request = NetworkRequest.Builder()
+          .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+          .addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
+          .build()
+        connectivity.registerBestMatchingNetworkCallback(request, callback, Handler(Looper.getMainLooper()))
+      } else {
+        // Full common routing is preflight-gated to API31+ until a separately
+        // accepted passive API29/30 physical-network selector is implemented.
+        connectivity.registerDefaultNetworkCallback(callback)
+      }
     } catch (error: RuntimeException) {
       synchronized(lock) { closed = true; epochs.close(); current.value = null }
       throw error
@@ -104,11 +126,12 @@ internal class CoreFairwayNetworkOwner(
     }
   }
 
-  private fun update(change: CoreFairwayNetworkEpoch<Network>.() -> Unit) {
+  private fun update(reason: CoreFairwayNetworkChange, change: CoreFairwayNetworkEpoch<Network>.() -> Unit) {
     synchronized(lock) {
       if (closed) return
       epochs.change()
       val snapshot = epochs.snapshot()
+      if (current.value?.epoch != snapshot?.epoch) lastChange = reason
       if (snapshot == null) { current.value = null; return }
       if (current.value?.epoch == snapshot.epoch) return
       val binding = object : CoreFairwayNetworkBinding {

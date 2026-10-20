@@ -25,7 +25,7 @@ internal class CoreRoutingPlan private constructor(
     ): CoreRoutingPlan {
       if (mode == ProfileSelection.ROUTING_RU_DIRECT) {
         if (commonFairway) {
-          require(api >= 29) { "Fairway requires Android API 29 or later" }
+          require(api >= 31) { "Full Fairway routing requires Android API 31 or later" }
           CoreL3DnsPolicy.effective(dns) // Validate separately from the immutable GeoIP policy.
           val policy = CoreFairwayRuPolicy.prepare(readAsset(CoreFairwayRuPolicy.ASSET))
           // One system route: native PacketPolicy makes the exact RU decision.
