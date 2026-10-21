@@ -1,5 +1,20 @@
 # Fairway actual product-service checkpoint — 2026-10-21
 
+## IPv6 family block and APPS_ALL — 2026-10-21
+
+Actualcasecc05683adf84 PASS with source5b510b7/native3a0f49. Under the same APPS_BYPASS service, excluded UID reached an owned IPv6 UDP/DNS fixture via fec0::2:<ephemeral> (host socket bound ONLY::1); valid TEST-NET A answer proved real IPv6 roundtrip outside the Android VPN. Included UID attempted the SAME endpoint and connect failed EHOSTUNREACH113 before DNSwrite. Fixture received exactly1query, then joined/closed. Paired IPv4 HTTPS/ordinary TUN/encryptedUDP and actualStop also passed. This proves default UID IPv6-family block on ownedAPI35, not publicIPv6Internet/physicaloperator behavior. No bind/protect/JNI/route override inside either client.
+
+The contract matches Android VpnService.Builder.allowFamily documentation and AOSP Vpn.makeLinkProperties: absence ofIPv6 addresses/routes/DNS adds an unreachableIPv6default. Primary references https://developer.android.com/reference/android/net/VpnService.Builder#allowFamily(int) and https://android.googlesource.com/platform/frameworks/base/+/master/services/core/java/com/android/server/connectivity/Vpn.java . Corebuilder already had this policy; no production change was required.
+
+Preserved negative evidence: a8a17ebbbce2 FAIL because emulator-advertisedfec0::3 DNS did not respond even outsideVPN (inconclusive control, not a privacy PASS). cdbecb53b852 FAIL because the test allowlist omitted actualEHOSTUNREACH although the controlled positive path worked and kernel blocked the includedUID. Both rawFAILs and APKs retained. The first cdbec source ZIP was captured after the one-line errno fix: explicit -provenance-correction.json and -build-sources-corrected.zip reconstruct the exact pre-fix comparator separately; original archive/verdict were not overwritten. Corrected source is reconstructed from the exact patch, not claimed as a new execution. Subsequent client builds emit source-build-receipt.json, and freeze validates Java/manifest/builder hashes against each compiled APK; cc056 positive evidence has this stronger receipt. No failed-case integrity record is promoted to scenarioPASS.
+
+Actualcase99b01d43cd56 PASS APPS_ALL with labsource8b0581b (onlyfixture configuration generalized), same productionruntimee2b13d8/native3a0f. Two different ordinaryUIDs both defaultVPN/source10.0.0.1, real platformTLS HTTPS and encryptedTEST-NET echo1/1200/1252; actualStop/fullRU/noLibbox passed. Host reportsapplication_mode=all, one nativebegin/zeroerrorbackoffs. This is two-UID default-mode sampling, not all third-party apps/UI/settings workflow. EarlierAPPS_ONLY and pairedBYPASS proofs remain separate.
+
+cc056 hostf795f1f7.../203inputs;99b host13481663bbde0058d8f4d57ceaf1d2459291128ba66e1614eb420a09a15fb608/202inputs. Installed/frozenAPKs/native/asset plus compiled-client source receipts verified, canonicalJSON/archives in reports/fairway-common-abi-20261020. No new native/product/UI/default, no oldAPI29guard lift. Owned AVD shutdown was ultimately confirmed with a bounded named/qemu guard after an earlier cleanup call lackedACK. Temporary fixture/peer/profile cleanup passed.
+
+Vector520c95b Noiseprofile checkpoint and41c5f79 Carrier2 codec remain UNWIRED; typed admission/cache/tombstone/minimum-profile policy and versioned activefeedback controller pending. PublicforeignNAT, establishedsilentpeerloss/reboot, sustainedload/energy and originalpublicframing/enrollment gates remain. Latest outbound update lackedACK; shared Atlas→Vector note is durable, do not blindly resend. NoOTA/published81/local82 changes.
+
+
 ## Paired application-exclusion proof — 2026-10-21
 
 Actualcasec7789c13119c PASS with unchanged Core7c2d77/SO3a0f49, productionAndroidruntimee2b13d8 and lab-only source5b510b7613f7565b7ff6cccc1af78603d8a6bedb. The fixture selects APPS_BYPASS for one explicit test package; it changes no product UI/default/profile policy. Two independently installed testOnly packages have distinct verifiedUIDs10210(client) and10212(control), no sharedUserId.
