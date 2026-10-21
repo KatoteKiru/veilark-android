@@ -1,5 +1,16 @@
 # Fairway actual product-service checkpoint — 2026-10-21
 
+## TCP output-progress candidate on Android — 2026-10-21
+
+Adopted sourceec6bb4a235bb1e40c63dd8434d128495e4e61dbb/SOc9707f6ed07640bb42b0bf119e993851a110a93334d04f7061a047219d024694 (4988384B) as explicit lab-only `-PveilarkFairwayLabNative=tcp-output`. Defaultwindow17d and earlierudp-stall33b remain pinned/selectable with separate staging. Normal release gate remains false. Independently verified all252 current/native archive inputs and SO; bounded review of TCP independent output deadline/Actor stop+join/FIFO preservation found no additional blocker in that scope. This is not a full security audit. Logical slot can still await FIFO drain.
+
+Actual case `product-service-7f721c8d9c1f` PASS with Androidsourcecf688856539d378e5b4666d1e9760bb5ea7a4fe0; APKebddb9760896fbaa5dc49968a8711660eb3c6bd8ff0e2556b6775ed0f8deff5f (119560633B). Compared to prior33b decoded APK, ONLY Core SO changed: Android DEX/resources/manifest identical. Native47-export ABI/wire unchanged per source/artifact checks. Build PASS13s after supplying missing ANDROID_HOME; initial environment-only failure retained in android-product-tcp-output-build.log, passing log has -sdk suffix. No broad old green tests rerun.
+
+Real manager/service/defaultTUN/full8662/independent client UID: Yandex5.255.255.77 HTTP200/TLS1.3/body32768B, Ozon185.73.193.68 HTTP307/TLS1.3/body164B, both asset-matchedRU and source10.0.0.1. Same session exact encrypted synthetic UDP echoes1/1200/1252; real Stop/resourcesreleased. Idle10010ms/5ms processCPU/UIDTX0RX0, translatedARM64 lab only. Library map Corepresent/libboxabsent. Installed/frozen APKs/native/RUasset hashes and197source inputs archived/verified via workspace `scripts/freeze-fairway-product-case-20261021.py --case product-service-7f721c8d9c1f`. Canonical receipt/source archive under reports/fairway-common-abi-20261020/product-service-7f721c8d9c1f-*.
+
+This validates normal Android traffic after adoption, NOT forced Android blocked-FIFO expiry, public foreign forwarding, browser VPN detection, sustained energy/throughput, reboot/reconnect or physical/LTE. Original header/import and recovery gates remain. Previousbackup751/33b/window and published81/local82 untouched. Temporary peer/profiles cleaned; owned AVD shut down after test. No OTA.
+
+
 ## Public RU HTTPS plus encrypted branch — 2026-10-21
 
 Case `product-service-fde37412586a` PASS: unchanged Android751da57 runtime/testOnly APK2ec and native6641368/SO33b; actual manager/service, default OS-TUN for independent ordinary application UID, full8662 native policy, clean Stop/resources release. Yandex77.88.44.55 returned HTTP200/TLS1.3 and32768 body wire bytes in1718ms; Ozon185.73.194.82 returned HTTP307/TLS1.3 and164 body bytes in1641ms. Default platform certificate and HTTPS hostname verification retained. Both destination addresses independently matched the pinned RU asset; local source10.0.0.1. No browser anti-VPN/classification claim: the Ozon redirect was not followed.
