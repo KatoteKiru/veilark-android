@@ -141,10 +141,10 @@ class FairwayProductStand : Instrumentation() {
     }
     result.putString("verdict", if (failure == null) "PASS" else "FAIL")
     result.putInt("native_begin_count", TechnicalLogStore.entries.value.count {
-      it.component == "CORE" && it.message == "stage=CORE_BEGIN"
+      it.component == "CORE" && Regex("(?:^| )stage=CORE_BEGIN(?: |$)").containsMatchIn(it.message)
     })
     result.putInt("reconnect_backoff_count", TechnicalLogStore.entries.value.count {
-      it.component == "CORE" && it.message.startsWith("reconnect_backoff_ms=")
+      it.component == "CORE" && Regex("(?:^| )reconnect_backoff_ms=[0-9]+(?: |$)").containsMatchIn(it.message)
     })
     result.putString("service_stages", TechnicalLogStore.entries.value
       .filter { it.component == "CORE" }.flatMap {
