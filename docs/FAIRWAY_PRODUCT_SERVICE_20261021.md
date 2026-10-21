@@ -1,5 +1,16 @@
 # Fairway actual product-service checkpoint — 2026-10-21
 
+## Paired application-exclusion proof — 2026-10-21
+
+Actualcasec7789c13119c PASS with unchanged Core7c2d77/SO3a0f49, productionAndroidruntimee2b13d8 and lab-only source5b510b7613f7565b7ff6cccc1af78603d8a6bedb. The fixture selects APPS_BYPASS for one explicit test package; it changes no product UI/default/profile policy. Two independently installed testOnly packages have distinct verifiedUIDs10210(client) and10212(control), no sharedUserId.
+
+During the SAME running Core service/full8662 policy/session/underlyingnetwork: excludedclient default transportNONVPN, HTTPS andUDP source10.0.2.16; platformTLS Yandex200/body32768 andOzon307 work, encryptedTEST-NET echo absent as expected. Nonexcludedcontrol default transportVPN, source10.0.0.1, platformTLS/HTTP plus3exact encryptedTEST-NET echoes1/1200/1252 work. ActualStop/resourcesreleasedtrue, Coremapped/noLibbox. Thus this is per-UID exclusion, not accidental global VPN bypass. First785010591456 single-UID proof retained separately.
+
+HostAPKf795f1f7f17a2526b6c06ffee6238847e55623b71c357783ffa209acc8fba40e (119597165B), controlAPK d0335084b0eb202c0a3aaa3413f2681966719fd03dadccdf7525a83b40415120. Three installed/frozenAPKs, packagednative/RUasset and201sourceinputs verified; canonicalreceipt/sourcesarchive under reports/fairway-common-abi-20261020/product-service-c7789c13119c-*. Builder --control generates a distinct package/target manifest with unchanged standalone client code. Runner --native-candidate terminal-outcome --ru-https --app-exclusion now requires both independent UID outcomes beforePASS. Test client checks capability, socket source and platform certificate/hostname verification; no JNI/route/protect/bind inside client. Source archive includes generated control manifest and builder.
+
+Evidence is ownedAPI35AVD only, static configuration onstart, not Compose/UI mode switching, all per-app modes, API29/30, physicalLTE, geographicpublicexit, browserantiVPN, activeperformance or foreigninternet/NAT. Existing APPS_ONLY selected-client and aa10 networkrotation proof remain separate. No new product/native changes, no extra broad test suite. AVDshut down/temporarypeerprofilescleaned. Oldcandidates/routebackup unchanged. NoCarrier2 activation: Vector41c5f79 codec remains isolated/unwired pendingNoiseprofile/transcript checks, no newSO. Originalprotocol/headerpublicgate, establishedpeerloss feedback, publicforeign, load/energy/import remain open; noOTA.
+
+
 ## Atlas review of active feedback profile2 — 2026-10-21
 
 Reviewed Vector draft2863417 in docs/engineering/active-feedback-profile-v2-draft-20261021.md against current handshake.rs/stun_auth.rs and primary Noise section6, RFC5116 section3.1, RFC8489 section14.14. In this bounded design/source review, no additional blocking flaw found in profile-bound prologue, existing directional KDF, shared nonces/replay, role/length validation, one fresh challenge, reserved bounded slots and finite active episode. This is NOT implementation, a complete crypto audit or acceptance. Existing Android/native49 aa10 remains the tested checkpoint.
