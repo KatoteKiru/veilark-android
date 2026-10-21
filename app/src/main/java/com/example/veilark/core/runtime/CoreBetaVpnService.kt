@@ -19,6 +19,7 @@ import androidx.core.app.NotificationCompat
 import com.example.veilark.MainActivity
 import com.example.veilark.R
 import com.example.veilark.diagnostics.TechnicalLogStore
+import com.example.veilark.BuildConfig
 import com.example.veilark.lifecycle.LifecycleAttempt
 import com.example.veilark.profile.CoreBetaProfile
 import com.example.veilark.profile.CoreArgonProfile
@@ -46,6 +47,7 @@ import kotlinx.coroutines.flow.first
 import java.net.InetAddress
 import java.net.Inet4Address
 import java.net.InetSocketAddress
+import java.util.concurrent.atomic.AtomicBoolean
 
 /** IPv4-only beta: retained TUN blocks traffic during reconnect, never changes engine. */
 class CoreBetaVpnService : VpnService() {
@@ -69,6 +71,8 @@ class CoreBetaVpnService : VpnService() {
       override fun status(handle: Long) = VeilarkArgonNative.nativeStatus(handle)
       override fun stop(handle: Long) = VeilarkArgonNative.nativeStop(handle)
       override fun join(handle: Long) = VeilarkArgonNative.nativeJoin(handle)
+      override fun terminalOutcome(handle: Long): Int? =
+        if (BuildConfig.ARGON_TERMINAL_OUTCOME_ENABLED) VeilarkArgonNative.nativeTerminalOutcome(handle) else null
       override fun release(handle: Long) = VeilarkArgonNative.nativeRelease(handle)
     })
     var diagnosticStage = "SERVICE"
@@ -350,6 +354,11 @@ class CoreBetaVpnService : VpnService() {
         currentCoroutineContext().ensureActive()
         publish(session, ConnectionState.Connecting)
         var ticket: CoreArgonHandleTicket? = null
+        val networkStopSucceeded = AtomicBoolean(false)
+        val callbackFailed = AtomicBoolean(false)
+        var reachedRunning = false
+        var terminalStatus: Int? = null
+        var attemptFailure: Throwable? = null
         try {
           val networks = networkOwner
           val capture = if (networks != null) {
@@ -382,7 +391,9 @@ class CoreBetaVpnService : VpnService() {
               // observer or admission ACK. Actively stop this immutable attempt.
               networks.captures.first { it?.epoch != capture.epoch }
               val code = VeilarkArgonNative.nativeStop(admitted.handle)
+              if (code == 0) networkStopSucceeded.set(true)
               if (code != 0) {
+                callbackFailed.set(true)
                 recordArgonFailure(session, CoreArgonFailure("network_stop", code.toLong()))
                 session.scope.cancel() // Main owner performs cleanup; this worker never joins itself.
               }
@@ -401,7 +412,10 @@ class CoreBetaVpnService : VpnService() {
               try {
                 CoreFairwaySocketBroker(opener = CoreFairwaySocketFactory()).run(host)
               } catch (cancelled: CancellationException) { throw cancelled }
-              catch (failure: Throwable) { recordArgonFailure(session, failure) }
+              catch (failure: Throwable) {
+                callbackFailed.set(true)
+                recordArgonFailure(session, failure)
+              }
               finally { host.stopRequests() }
             }
           } else if (nativeRoutingMode == 1) {
@@ -431,9 +445,11 @@ class CoreBetaVpnService : VpnService() {
           stage(session, "CORE_AWAIT_RUNNING")
           session.argonLifecycle.awaitRunning(admitted)
           currentCoroutineContext().ensureActive()
+          reachedRunning = true
           stage(session, "CORE_RUNNING")
           publish(session, ConnectionState.Connected)
           val terminal = session.argonLifecycle.awaitTerminal(admitted)
+          terminalStatus = terminal
           currentCoroutineContext().ensureActive()
           // A terminal result in a live owner means the connection ended. User
           // Stop cancels this owner and is handled by the cancellation path.
@@ -443,7 +459,7 @@ class CoreBetaVpnService : VpnService() {
           // Saved application-policy/configuration errors cannot be repaired by
           // reconnecting. Match the legacy builder's immediate failure behavior.
           if (failure is ApplicationRoutingUnavailableException || failure is IllegalArgumentException) throw failure
-          recordArgonFailure(session, failure)
+          attemptFailure = failure
         }
         finally {
           // Cleanup must succeed before another native owner can be admitted.
@@ -451,14 +467,22 @@ class CoreBetaVpnService : VpnService() {
           val closed = closeTracked(originals)
           // A failed replacement close retains more than one Java TUN. End
           // this worker and hand every descriptor to final/late cleanup.
+          if (!released || !closed || tunnels.size > 1) {
+            attemptFailure?.let { recordArgonFailure(session, it) }
+          }
           check(released && closed && tunnels.size <= 1) { "Veilark Core cleanup did not complete" }
         }
         currentCoroutineContext().ensureActive()
-        consecutiveFailures = CoreBetaReconnectPolicy.nextFailureCount(consecutiveFailures, false)
-        val backoff = CoreBetaReconnectPolicy.delayMillis(consecutiveFailures)
-        coreInfo("reconnect_backoff_ms=$backoff")
+        val plannedNetworkRotation = CoreArgonReconnectPolicy.isPlannedNetworkRotation(
+          reachedRunning, networkStopSucceeded.get(), callbackFailed.get(), terminalStatus,
+          ticket?.releasedTerminalOutcome,
+        )
+        if (!plannedNetworkRotation) attemptFailure?.let { recordArgonFailure(session, it) }
+        val retry = CoreArgonReconnectPolicy.next(consecutiveFailures, plannedNetworkRotation)
+        consecutiveFailures = retry.failureCount
+        coreInfo(if (plannedNetworkRotation) "network_rotation=confirmed" else "reconnect_backoff_ms=${retry.delayMillis}")
         publish(session, ConnectionState.Connecting)
-        delay(backoff)
+        delay(retry.delayMillis)
       }
     } catch (_: CancellationException) {
       // Stop/revoke completes only after native and Java descriptor cleanup.

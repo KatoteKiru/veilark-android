@@ -13,6 +13,68 @@ import org.junit.Test
 
 /** Deterministic lifecycle mocks; these do not establish native TUN or device acceptance. */
 class CoreArgonLifecycleTest {
+  @Test fun terminalOutcomeIsReadAfterJoinAndExposedOnlyAfterDisposal() = runBlocking {
+    val calls = mutableListOf<String>()
+    lateinit var ticket: CoreArgonHandleTicket
+    val fake = object : Fake() {
+      override fun join(handle: Long): Int { calls += "join"; return 0 }
+      override fun terminalOutcome(handle: Long): Int {
+        calls += "outcome"; assertNull(ticket.releasedTerminalOutcome); return 2
+      }
+      override fun release(handle: Long): Int {
+        calls += "release"; assertNull(ticket.releasedTerminalOutcome); return 0
+      }
+    }
+    val owner = CoreArgonLifecycle(fake)
+    ticket = owner.startBorrowed({ 7L }, {})
+    assertTrue(owner.stopAndRelease(ticket))
+    assertEquals(listOf("join", "outcome", "release"), calls)
+    assertEquals(2, ticket.releasedTerminalOutcome)
+  }
+
+  @Test fun failedJoinOrReleaseCannotPublishOutcome() = runBlocking {
+    var reads = 0
+    val fake = object : Fake() {
+      override fun terminalOutcome(handle: Long): Int { reads++; return 2 }
+    }
+    val owner = CoreArgonLifecycle(fake)
+    val ticket = owner.startBorrowed({ 7L }, {})
+    fake.joinCode = -1
+    assertFalse(owner.stopAndRelease(ticket)); assertNull(ticket.releasedTerminalOutcome)
+    assertEquals(0, reads)
+    fake.joinCode = 0; fake.releaseCode = -1
+    assertFalse(owner.stopAndRelease(ticket)); assertNull(ticket.releasedTerminalOutcome)
+    assertEquals(1, reads)
+    fake.releaseCode = 0
+    assertTrue(owner.stopAndRelease(ticket)); assertEquals(2, ticket.releasedTerminalOutcome)
+  }
+
+  @Test fun missingOrUnknownOutcomeNeverPreventsCleanupAndRemainsConservative() = runBlocking {
+    for (code in listOf(null, 0, -3, 99)) {
+      val fake = object : Fake() { override fun terminalOutcome(handle: Long) = code }
+      val owner = CoreArgonLifecycle(fake)
+      val ticket = owner.startBorrowed({ 7L }, {})
+      assertTrue(owner.stopAndRelease(ticket)); assertNull(ticket.releasedTerminalOutcome)
+    }
+    val fake = object : Fake() {
+      override fun terminalOutcome(handle: Long): Int = throw UnsatisfiedLinkError("test optional symbol")
+    }
+    val owner = CoreArgonLifecycle(fake)
+    val ticket = owner.startBorrowed({ 7L }, {})
+    assertTrue(owner.stopAndRelease(ticket)); assertNull(ticket.releasedTerminalOutcome)
+  }
+
+  @Test fun failedOutcomeIsNotChangedByLaterStopOrStaleCleanup() = runBlocking {
+    val fake = object : Fake() { override fun terminalOutcome(handle: Long) = 24 }
+    val owner = CoreArgonLifecycle(fake)
+    val ticket = owner.startBorrowed({ 7L }, {})
+    assertTrue(owner.stopAndRelease(ticket)); assertEquals(24, ticket.releasedTerminalOutcome)
+    val replacement = owner.startBorrowed({ 8L }, {})
+    assertTrue(owner.stopAndRelease(ticket))
+    assertEquals(24, ticket.releasedTerminalOutcome); assertNull(replacement.releasedTerminalOutcome)
+    assertTrue(owner.stopAndRelease(replacement))
+  }
+
   private open class Fake : CoreArgonHandleApi {
     val stops = AtomicInteger()
     val releases = AtomicInteger()

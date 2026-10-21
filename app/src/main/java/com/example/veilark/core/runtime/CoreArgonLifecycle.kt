@@ -25,10 +25,16 @@ internal interface CoreArgonHandleApi {
   fun status(handle: Long): Int
   fun stop(handle: Long): Int
   fun join(handle: Long): Int
+  /** Optional matched native extension. Old libraries must not be called. */
+  fun terminalOutcome(handle: Long): Int? = null
   fun release(handle: Long): Int
 }
 
-internal class CoreArgonHandleTicket internal constructor(val handle: Long)
+internal class CoreArgonHandleTicket internal constructor(val handle: Long) {
+  /** Published only after actual join, outcome read and successful disposal. */
+  @Volatile var releasedTerminalOutcome: Int? = null
+    internal set
+}
 internal class CoreArgonFailure(val operation: String, val code: Long) :
   IllegalStateException("Veilark Core $operation failed ($code)")
 internal data class CoreArgonAuthenticated(val ipv4: String, val mtu: Int)
@@ -218,9 +224,14 @@ internal class CoreArgonLifecycle(private val api: CoreArgonHandleApi) {
         admitted.callbacks.forEach { it.join() }
         admitted.drained.await()
         if (api.join(admitted.ticket.handle) != 0) return@withContext false
+        // This is optional provenance, never ownership authority. Missing or
+        // failed reads keep recovery conservative but must not prevent disposal.
+        val outcome = runCatching { api.terminalOutcome(admitted.ticket.handle) }.getOrNull()
+          ?.takeIf { it == 2 || it == 3 || it == 24 || it == 26 }
         // Status reads are short but may not race disposal.
         ownershipMutex.withLock {
           if (api.release(admitted.ticket.handle) == 0) {
+            admitted.ticket.releasedTerminalOutcome = outcome
             if (owner === admitted) owner = null
             released = true
           }

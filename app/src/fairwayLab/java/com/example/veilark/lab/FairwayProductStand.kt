@@ -25,6 +25,15 @@ import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.distinctUntilChanged
 
 /** No Compose/UI workflow, networking substitute or native lifecycle substitute. */
 class FairwayProductActivity : Activity()
@@ -53,6 +62,7 @@ class FairwayProductStand : Instrumentation() {
       override fun onReceive(context: Context?, intent: Intent?) { stop.countDown() }
     }
     var failure: Throwable? = null
+    val progress = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     var stage = "ADMISSION"
     try {
       check(BuildConfig.DEBUG && BuildConfig.FAIRWAY_LAB_ENABLED && !BuildConfig.SELF_UPDATE_ENABLED)
@@ -99,6 +109,17 @@ class FairwayProductStand : Instrumentation() {
         "Actual service did not apply complete native RU policy"
       }
       result.putBoolean("product_full_ru_policy_applied", true)
+      progress.launch {
+        combine(CoreBetaManager.state, TechnicalLogStore.entries) { state, entries ->
+          Triple(state, entries.count { it.component == "CORE" &&
+            Regex("(?:^| )stage=CORE_BEGIN(?: |$)").containsMatchIn(it.message) },
+            entries.count { it.component == "CORE" && it.message.endsWith("network_rotation=confirmed") })
+        }.distinctUntilChanged().collect { (state, begins, rotations) ->
+          if (state == ConnectionState.Connected && rotations > 0) {
+            Log.i("FairwayProductLab", "PRODUCT_RECONNECTED case=$case; begins=$begins rotations=$rotations")
+          }
+        }
+      }
       if (observeIdle) {
         stage = "IDLE_OBSERVATION"
         Thread.sleep(3000) // Lab-only startup settling; no product timer is added.
@@ -128,6 +149,8 @@ class FairwayProductStand : Instrumentation() {
       result.putString("failure_stage", stage)
     }
     finally {
+      progress.cancel()
+      runBlocking { progress.coroutineContext[Job]?.join() }
       try {
         CoreBetaManager.stop(context)
         runBlocking { withTimeout(10000) { CoreBetaManager.stopped.first { it } } }
@@ -145,6 +168,9 @@ class FairwayProductStand : Instrumentation() {
     })
     result.putInt("reconnect_backoff_count", TechnicalLogStore.entries.value.count {
       it.component == "CORE" && Regex("(?:^| )reconnect_backoff_ms=[0-9]+(?: |$)").containsMatchIn(it.message)
+    })
+    result.putInt("network_rotation_count", TechnicalLogStore.entries.value.count {
+      it.component == "CORE" && it.message.endsWith("network_rotation=confirmed")
     })
     result.putString("service_stages", TechnicalLogStore.entries.value
       .filter { it.component == "CORE" }.flatMap {

@@ -57,5 +57,7 @@ internal object VeilarkArgonNative {
   @JvmStatic external fun nativeStatus(handle: Long): Int
   @JvmStatic external fun nativeStop(handle: Long): Int
   @JvmStatic external fun nativeJoin(handle: Long): Int
+  /** Optional outcome extension, only for an explicitly matched native candidate. */
+  @JvmStatic external fun nativeTerminalOutcome(handle: Long): Int
   @JvmStatic external fun nativeRelease(handle: Long): Int
 }

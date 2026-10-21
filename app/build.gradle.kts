@@ -127,18 +127,21 @@ val fairwayLabNativeSha = when (fairwayLabNativeName) {
   "window" -> "17d375c0b2e3b36457900227c92cee7ceb4b3c9d9ffeb1f0000c1aa9a22bf73e"
   "udp-stall" -> "33bae0e8a8007605f0e4d814c8d09c61724d876014f4d3c11adfdcafae2704d0"
   "tcp-output" -> "c9707f6ed07640bb42b0bf119e993851a110a93334d04f7061a047219d024694"
+  "terminal-outcome" -> "3a0f092a43af9d5025e4c5f52789b63fb851691b0a1a2ac7f9633179164cfc8d"
   else -> error("Unknown reviewed Fairway lab native candidate")
 }
 val fairwayLabNativeBytes = when (fairwayLabNativeName) {
   "window" -> 4_981_248L
   "udp-stall" -> 4_984_032L
   "tcp-output" -> 4_988_384L
+  "terminal-outcome" -> 4_993_792L
   else -> error("Unknown reviewed Fairway lab native candidate")
 }
 val fairwayLabReport = when (fairwayLabNativeName) {
   "window" -> "fairway-window-native-20261020"
   "udp-stall" -> "fairway-udp-stall-native-20261021"
   "tcp-output" -> "fairway-tcp-output-native-20261021"
+  "terminal-outcome" -> "core-terminal-outcome-20261021"
   else -> error("Unknown reviewed Fairway lab native candidate")
 }
 val fairwayLabStage = layout.buildDirectory.dir(
@@ -231,6 +234,7 @@ android {
         buildConfigField("boolean", "VEILARK_CORE_ENABLED", "false")
         buildConfigField("boolean", "CORE_BETA_RUNTIME_BUNDLED", "false")
         buildConfigField("boolean", "FAIRWAY_LAB_ENABLED", "false")
+        buildConfigField("boolean", "ARGON_TERMINAL_OUTCOME_ENABLED", "false")
         buildConfigField("String", "TELEGRAM_BOT_URL", quotedBuildConfig(telegramBotUrl))
         buildConfigField("String", "WEB_ACCOUNT_URL", quotedBuildConfig(webAccountUrl))
         ndk {
@@ -262,6 +266,8 @@ android {
             buildConfigField("boolean", "VEILARK_CORE_ENABLED", "true")
             buildConfigField("boolean", "CORE_BETA_RUNTIME_BUNDLED", "true")
             buildConfigField("boolean", "FAIRWAY_LAB_ENABLED", "true")
+            buildConfigField("boolean", "ARGON_TERMINAL_OUTCOME_ENABLED",
+                (fairwayLabNativeName == "terminal-outcome").toString())
             buildConfigField("boolean", "SELF_UPDATE_ENABLED", "false")
         }
     }
