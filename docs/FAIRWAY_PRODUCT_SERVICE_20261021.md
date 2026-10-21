@@ -1,5 +1,16 @@
 # Fairway actual product-service checkpoint — 2026-10-21
 
+## Public RU HTTPS plus encrypted branch — 2026-10-21
+
+Case `product-service-fde37412586a` PASS: unchanged Android751da57 runtime/testOnly APK2ec and native6641368/SO33b; actual manager/service, default OS-TUN for independent ordinary application UID, full8662 native policy, clean Stop/resources release. Yandex77.88.44.55 returned HTTP200/TLS1.3 and32768 body wire bytes in1718ms; Ozon185.73.194.82 returned HTTP307/TLS1.3 and164 body bytes in1641ms. Default platform certificate and HTTPS hostname verification retained. Both destination addresses independently matched the pinned RU asset; local source10.0.0.1. No browser anti-VPN/classification claim: the Ozon redirect was not followed.
+
+In the SAME session, connected ordinary UDP socket received exact random echoes of1,1200,1252 bytes through authenticated encrypted Argon to localhost peer's TEST-NET198.51.100.1:45321.1252+IPv4/UDP28 reaches1280MTU. This proves isolated encrypted-branch interoperability alongside public RU TCP; the peer opens NO forwarding sockets, so public FOREIGN egress remains UNTESTED. Neither timings nor body size certify sustained throughput/battery. Earlier441fe4b616ad RU-only pass retained separately.
+
+Installed/frozen APK hashes, extracted native, packaged RU asset and196 source input hashes verified after execution. New test client SHAe2a51db6781bcd2faf22abdc44cde29b99cf7f9e91391cd3f579dbf1a5372567. Exact archive and canonical receipt in workspace `reports/fairway-common-abi-20261020/product-service-fde37412586a-{sources.zip,verification.json}`; raw host/HTTPS/network/routes retained. Runner `scripts/run-fairway-product-service-20261020.py --native-candidate udp-stall --ru-https` builds no product: modified client is built with `scripts/build-fairway-tun-client-20261019.py`. Source archive includes these scripts/client and pinned Android inputs. No production code changes in this run. Normal product full-policy gate remains false.
+
+Bounded read-only sibling review found no added MSS/checksum/FIN blocker, but confirmed known TCP pending-queue16 suppresses Endpoint timer processing under permanent shared FIFO blockage. Vector owns the fix and was messaged with exact lines; Core checkout was left untouched. Local WSL has no installed distribution, so no KernelL3 foreign forwarding test was claimed. No production restart/surface changes, no OTA. Temporary profiles/peer cleaned by runner; owned AVD shut down afterward.
+
+
 This is an isolated acceptance package, not an OTA release. Normal private/release and OSS builds keep FAIRWAY_LAB_ENABLED=false. Published81/local82 remain immutable.
 
 ## Implementation
