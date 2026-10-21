@@ -68,7 +68,6 @@ import com.example.veilark.protocol.TrustTunnelManager
 import com.example.veilark.protocol.TrustTunnelGeoRouting
 import com.example.veilark.protocol.TrustTunnelProfile
 import com.example.veilark.protocol.TrustTunnelCatalog
-import io.nekohasekai.libbox.Libbox
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
@@ -629,7 +628,7 @@ class MainActivity : ComponentActivity() {
                 externalImportRequests.value = link
                 return@runCatching
               }
-              withContext(Dispatchers.Default) { Libbox.checkConfig(configText) }
+              withContext(Dispatchers.Default) { LibboxRuntime.checkConfig(configText) }
               val importedName =
                 uri.lastPathSegment?.substringAfterLast('/') ?: "Imported profile"
               val entry = SingBoxCatalog.create(
@@ -943,7 +942,7 @@ class MainActivity : ComponentActivity() {
                     packageName,
                   )
                   config = ProfileSelection.applyDpiProtection(config, dpiMode)
-                  Libbox.checkConfig(config)
+                  LibboxRuntime.checkConfig(config)
                   // Validate mixed TrustTunnel links before committing the sing-box profile.
                   val compiledTrustProfiles = withContext(Dispatchers.Default) {
                     compiled.trustTunnelLinks.map(TrustTunnelProfile::compile)
@@ -1128,7 +1127,7 @@ class MainActivity : ComponentActivity() {
                     packageName,
                   )
                   config = ProfileSelection.applyDpiProtection(config, refreshDpiMode)
-                  Libbox.checkConfig(config)
+                  LibboxRuntime.checkConfig(config)
                   val refreshedTrustProfiles = withContext(Dispatchers.Default) {
                     compiled.trustTunnelLinks.map(TrustTunnelProfile::compile)
                   }
@@ -1296,7 +1295,7 @@ class MainActivity : ComponentActivity() {
                   tag = tag,
                   nodes = connectionNodes,
                 )
-                Libbox.checkConfig(selected)
+                LibboxRuntime.checkConfig(selected)
                 SecureProfileStore.save(this, SecureProfileStore.SING_BOX, selected)
                 singBoxProfiles.firstOrNull { it.id == selectedSingBoxId }?.let { current ->
                   singBoxProfiles = SingBoxCatalog.upsert(
@@ -1355,7 +1354,7 @@ class MainActivity : ComponentActivity() {
                     geoRuleSets = geoRuleSets(routingMode),
                   ),
                 )
-                Libbox.checkConfig(selectedEntry.config)
+                LibboxRuntime.checkConfig(selectedEntry.config)
                 singBoxProfiles = SingBoxCatalog.upsert(this, selectedEntry)
                 SingBoxCatalog.activate(this, selectedEntry)
                 selectedSingBoxId = selectedEntry.id
@@ -1613,7 +1612,7 @@ class MainActivity : ComponentActivity() {
                         ProfileSelection.ROUTING_RU_DIRECT,
                         geoRuleSets = candidate,
                       )
-                      Libbox.checkConfig(configured)
+                      LibboxRuntime.checkConfig(configured)
                     }
                   }
                 }.onSuccess {
@@ -1692,7 +1691,7 @@ class MainActivity : ComponentActivity() {
                   packageName,
                 )
                 config = ProfileSelection.applyDpiProtection(config, newDpiMode)
-                Libbox.checkConfig(config)
+                LibboxRuntime.checkConfig(config)
                 // Reject missing or invalid category data before disconnecting the current VPN.
                 if (connectionState != ConnectionState.Disconnected &&
                   connectionState != ConnectionState.Failed

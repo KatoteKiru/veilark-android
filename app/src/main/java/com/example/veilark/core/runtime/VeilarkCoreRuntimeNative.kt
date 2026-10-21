@@ -11,7 +11,7 @@ object VeilarkCoreRuntimeNative {
 
   /** Explicit candidate-only loading; it does not start a VPN or change engine selection. */
   @Synchronized fun loadCandidate(): Boolean {
-    if (!BuildConfig.CORE_BETA_RUNTIME_BUNDLED || Build.SUPPORTED_ABIS.firstOrNull() != "arm64-v8a") return false
+    if (!BuildConfig.CORE_BETA_RUNTIME_BUNDLED || !coreRuntimeAbiSupported(Build.SUPPORTED_ABIS.toList())) return false
     if (loaded) return true
     return try {
       System.loadLibrary("veilark_core_runtime")

@@ -15,6 +15,19 @@ internal object CoreConnectionPreflight {
     runtimeAvailable: (CoreProfileKind) -> Boolean,
     installed: (String) -> Boolean,
     readAsset: (String) -> ByteArray,
+  ): CoreRoutingPlan = prepareIntegrated(kind, configuredDns, snapshot, api, vpnPackage,
+    runtimeAvailable, installed, false, readAsset)
+
+  fun prepareIntegrated(
+    kind: CoreProfileKind,
+    configuredDns: List<String>,
+    snapshot: Map<String, *>,
+    api: Int,
+    vpnPackage: String,
+    runtimeAvailable: (CoreProfileKind) -> Boolean,
+    installed: (String) -> Boolean,
+    commonFairway: Boolean,
+    readAsset: (String) -> ByteArray,
   ): CoreRoutingPlan {
     check(runtimeAvailable(kind)) { "Selected Veilark Core runtime is unavailable" }
     fun text(key: String, default: String): String {
@@ -22,10 +35,11 @@ internal object CoreConnectionPreflight {
       require(value is String) { "Invalid saved Core policy" }
       return value
     }
-    val routes = CoreRoutingPlan.prepare(
+    val routes = CoreRoutingPlan.prepareIntegrated(
       text("core_routing_mode", ProfileSelection.ROUTING_ALL),
       text("core_direct_routes", ""), text("core_vpn_routes", ""),
-      CoreL3DnsPolicy.effective(configuredDns).resolvers, api, readAsset,
+      CoreL3DnsPolicy.effective(configuredDns).resolvers, api,
+      commonFairway && kind == CoreProfileKind.ARGON_V1, readAsset,
     )
     val packages = snapshot["selected_applications"]
     require(packages == null || packages is Set<*> && packages.all { it is String }) {

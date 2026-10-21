@@ -7,6 +7,39 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class CoreConnectionPreflightTest {
+  @Test fun fullArgonPreflightUsesSameCompletePolicyAsService() {
+    val reads = mutableListOf<String>()
+    val plan = CoreConnectionPreflight.prepareIntegrated(CoreProfileKind.ARGON_V1,
+      listOf("77.88.8.8"), mapOf("core_routing_mode" to ProfileSelection.ROUTING_RU_DIRECT),
+      35, "app.veilark.test", { true }, { true }, true) { path ->
+        reads += path
+        java.io.File("src/main/assets", path).readBytes()
+      }
+    assertEquals(listOf(CoreFairwayRuPolicy.ASSET), reads)
+    assertFalse(plan.partialRu)
+    assertEquals(8662, plan.fairwayPolicy!!.networks.size)
+    assertEquals(45_223_232L, plan.directRuIpv4)
+    assertEquals(listOf(CoreIpv4Route("0.0.0.0", 0)), plan.included)
+  }
+
+  @Test fun unsupportedFullPolicyRejectsBeforeAssetsOrApplicationAdmission() {
+    assertThrows(IllegalArgumentException::class.java) {
+      CoreConnectionPreflight.prepareIntegrated(CoreProfileKind.ARGON_V1,
+        listOf("1.1.1.1"), mapOf("core_routing_mode" to ProfileSelection.ROUTING_RU_DIRECT),
+        30, "app.veilark.test", { true }, { error("Unexpected package admission") }, true) {
+        error("Unexpected asset read")
+      }
+    }
+  }
+
+  @Test fun fullPolicyFlagNeverChangesLegacyEngineAdmission() {
+    val plan = CoreConnectionPreflight.prepareIntegrated(CoreProfileKind.LEGACY_V1,
+      listOf("1.1.1.1"), emptyMap<String, Any>(), 30, "app.veilark.test",
+      { true }, { true }, true) { error("Unexpected GEO read") }
+    assertNull(plan.fairwayPolicy)
+    assertEquals(0, plan.nativeMode)
+  }
+
   private fun prepare(
     kind: CoreProfileKind = CoreProfileKind.ARGON_V1,
     prefs: Map<String, *> = emptyMap<String, Any>(),

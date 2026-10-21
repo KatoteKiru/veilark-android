@@ -1,3 +1,5 @@
+Current continuation: see FAIRWAY_PRODUCT_SERVICE_20261021.md for the actual product-service/default-TUN checkpoint, lazy runtime fix and API29/30 wrapper. Normal production gate remains disabled.
+
 # Common Fairway Android service integration — 2026-10-20
 
 Source implemented behind `CoreFairwayIntegration.ENABLED=false`. This document does not approve activation, an owner-ready build or publication. Published81 and local82 remain immutable. Native511/c72 and old isolated lab artifacts are preserved.

@@ -6,11 +6,38 @@ import org.gradle.api.DefaultTask
 import org.gradle.api.provider.Property
 import org.gradle.api.tasks.Input
 import org.gradle.api.tasks.TaskAction
+import org.gradle.api.file.RegularFileProperty
+import org.gradle.api.file.DirectoryProperty
+import org.gradle.api.tasks.InputFile
+import org.gradle.api.tasks.OutputDirectory
 
 plugins {
   alias(libs.plugins.android.application)
   alias(libs.plugins.compose.compiler)
   alias(libs.plugins.kotlin.serialization)
+}
+
+/** An isolated debug product fixture, never the production native staging tree. */
+abstract class StageFairwayLabRuntime : DefaultTask() {
+  @get:InputFile abstract val sourceRuntime: RegularFileProperty
+  @get:OutputDirectory abstract val stagingDirectory: DirectoryProperty
+
+  @TaskAction fun stage() {
+    val source = sourceRuntime.get().asFile
+    fun verified(file: java.io.File): Boolean = file.isFile && file.length() == 4_981_248L &&
+      MessageDigest.getInstance("SHA-256").digest(file.readBytes())
+        .joinToString("") { "%02x".format(it) } ==
+        "17d375c0b2e3b36457900227c92cee7ceb4b3c9d9ffeb1f0000c1aa9a22bf73e"
+    require(verified(source)) { "Fairway lab runtime differs from reviewed66a4df7 artifact" }
+    val root = stagingDirectory.get().asFile
+    val target = root.resolve("arm64-v8a/libveilark_core_runtime.so")
+    require(!root.exists() || root.walkTopDown().filter { it.isFile }.all { it == target }) {
+      "Unexpected files in isolated Fairway lab runtime staging"
+    }
+    target.parentFile.mkdirs()
+    source.copyTo(target, overwrite = true)
+    require(verified(target)) { "Fairway lab staging verification failed" }
+  }
 }
 
 abstract class ValidatePrivateOtaRelease : DefaultTask() {
@@ -77,9 +104,28 @@ val veilarkCoreCanaryRequested = providers.gradleProperty("veilarkCoreCanary")
   }
   .orElse(false)
 
+val fairwayLabRequested = providers.gradleProperty("veilarkFairwayLab")
+  .map { it.toBooleanStrict() }.orElse(false).get()
+require(!fairwayLabRequested || !veilarkCoreCanaryRequested.get()) {
+  "Fairway lab and legacy Core canary are separate fixtures"
+}
+
 // Private candidate only; production/OSS builds do not pick up lab artifacts.
 val bundleCoreBetaRuntime = providers.gradleProperty("bundleVeilarkCoreBetaRuntime")
   .map { it.toBooleanStrict() }.orElse(false).get()
+require(!fairwayLabRequested || !bundleCoreBetaRuntime) {
+  "Fairway lab must not include the old private Core runtime"
+}
+val fairwayLabStage = layout.buildDirectory.dir("fairway-lab-runtime")
+val stageFairwayLabRuntime = if (fairwayLabRequested) {
+  tasks.register<StageFairwayLabRuntime>("stageFairwayLabRuntime") {
+    sourceRuntime.set(rootProject.layout.projectDirectory.file(
+      "../reports/fairway-window-native-20261020/17d375c0b2e3b36457900227c92cee7ceb4b3c9d9ffeb1f0000c1aa9a22bf73e/libveilark_core_runtime.so"))
+    stagingDirectory.set(fairwayLabStage)
+    // Recheck the pinned bytes even with configuration/task caches warm.
+    outputs.upToDateWhen { false }
+  }
+} else null
 val coreBetaRuntimeDirectory = rootProject.file("build/core-stability-runtime")
 if (bundleCoreBetaRuntime) {
   val runtime = coreBetaRuntimeDirectory.resolve("arm64-v8a/libveilark_core_runtime.so")
@@ -156,6 +202,7 @@ android {
         versionName = "0.9.0-beta12"
         buildConfigField("boolean", "VEILARK_CORE_ENABLED", "false")
         buildConfigField("boolean", "CORE_BETA_RUNTIME_BUNDLED", "false")
+        buildConfigField("boolean", "FAIRWAY_LAB_ENABLED", "false")
         buildConfigField("String", "TELEGRAM_BOT_URL", quotedBuildConfig(telegramBotUrl))
         buildConfigField("String", "WEB_ACCOUNT_URL", quotedBuildConfig(webAccountUrl))
         ndk {
@@ -177,6 +224,17 @@ android {
             versionNameSuffix = "-veilark-core-canary"
             matchingFallbacks += listOf("debug")
             buildConfigField("boolean", "VEILARK_CORE_ENABLED", "true")
+        }
+        create("fairwayLab") {
+            initWith(getByName("debug"))
+            isDebuggable = true
+            applicationIdSuffix = ".fairwaylab"
+            versionNameSuffix = "-fairway-lab"
+            matchingFallbacks += listOf("debug")
+            buildConfigField("boolean", "VEILARK_CORE_ENABLED", "true")
+            buildConfigField("boolean", "CORE_BETA_RUNTIME_BUNDLED", "true")
+            buildConfigField("boolean", "FAIRWAY_LAB_ENABLED", "true")
+            buildConfigField("boolean", "SELF_UPDATE_ENABLED", "false")
         }
     }
 
@@ -211,6 +269,9 @@ android {
     }
     if (bundleCoreBetaRuntime) {
       sourceSets.getByName("private").jniLibs.directories.add(coreBetaRuntimeDirectory.absolutePath)
+    }
+    if (fairwayLabRequested) {
+      sourceSets.getByName("fairwayLab").jniLibs.directories.add(fairwayLabStage.get().asFile.absolutePath)
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -247,9 +308,19 @@ androidComponents {
     (variantBuilder as com.android.build.api.variant.HasUnitTestBuilder).enableUnitTest = enabled
   }
   beforeVariants(selector().withBuildType("release")) { variantBuilder ->
-    if (veilarkCoreCanaryRequested.get()) {
+    if (veilarkCoreCanaryRequested.get() || fairwayLabRequested) {
       variantBuilder.enable = false
     }
+  }
+  beforeVariants(selector().withBuildType("fairwayLab")) { variantBuilder ->
+    val isPrivate = variantBuilder.productFlavors.any { it.first == "distribution" && it.second == "private" }
+    variantBuilder.enable = fairwayLabRequested && isPrivate
+  }
+}
+
+tasks.configureEach {
+  if (name == "prePrivateFairwayLabBuild" && stageFairwayLabRuntime != null) {
+    dependsOn(stageFairwayLabRuntime)
   }
 }
 

@@ -1,5 +1,7 @@
 package com.example.veilark.vpn
 
+import com.example.veilark.LibboxRuntime
+
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
@@ -180,7 +182,7 @@ class VeilarkVpnService :
           mutableStartupStage.value = StartupStage.Config
         }
         val config = SecureProfileStore.load(this@VeilarkVpnService, configPath)
-        Libbox.checkConfig(config)
+        LibboxRuntime.checkConfig(config)
         requireCurrentStartup(attempt, lifecycleToken)
         TechnicalLogStore.info("CONFIG", describeConfig(config))
 
@@ -954,7 +956,7 @@ class VeilarkVpnService :
     private var activeLifecycleAttempt: LifecycleAttempt? = null
 
     fun start(context: Context, configPath: String = SecureProfileStore.SING_BOX) {
-      NativeRuntimeState.requireLibbox()
+      LibboxRuntime.requireReady()
       AndroidTunnelLifecycleOwner.startSingBox(context, configPath)
     }
 
@@ -963,7 +965,7 @@ class VeilarkVpnService :
       configPath: String,
       attempt: LifecycleAttempt,
     ) {
-      NativeRuntimeState.requireLibbox()
+      LibboxRuntime.requireReady()
       EndpointLatencyProbe.stop()
       activeLifecycleAttempt = attempt
       mutableStopped.value = false

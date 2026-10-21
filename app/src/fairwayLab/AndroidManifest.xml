@@ -1,0 +1,11 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+  <queries>
+    <package android:name="uk.veilark.lab.tunclient" />
+  </queries>
+  <application android:testOnly="true">
+    <activity android:name="com.example.veilark.lab.FairwayProductActivity"
+      android:exported="false" android:hardwareAccelerated="false" />
+  </application>
+  <instrumentation android:name="com.example.veilark.lab.FairwayProductStand"
+    android:targetPackage="${applicationId}" />
+</manifest>

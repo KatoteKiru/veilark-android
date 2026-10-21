@@ -28,7 +28,9 @@ internal class CoreFairwayCapturedNetwork internal constructor(
 
 /**
  * Session-scoped observer for the best physical network on API31+;
- * API29/30 default observer is retained only for dormant helper compatibility.
+ * API29/30 use a bounded passive physical inventory plus independently verified
+ * default hints. This is conditional selection, not platform best-score parity;
+ * the production API31 preflight remains unchanged pending acceptance.
  * Core's own UID must remain outside its TUN (the existing tunBuilder policy).
  * No requestNetwork, probes, timers, process binding, JNI or service activation.
  * Callback snapshots avoid racing synchronous ConnectivityManager lookups.
@@ -42,12 +44,22 @@ internal class CoreFairwayNetworkOwner(
   private val protectSocket: (Int) -> Boolean,
 ) : AutoCloseable {
   private val lock = Any()
+  private val legacyMode = Build.VERSION.SDK_INT < 31
   private val epochs = CoreFairwayNetworkEpoch<Network>()
+  private val legacy = CoreFairwayLegacyNetworkSelector<Network>()
+  private val defaultHint = CoreFairwayDefaultNetworkHint<Network>()
   private val current = MutableStateFlow<CoreFairwayCapturedNetwork?>(null)
   val captures: StateFlow<CoreFairwayCapturedNetwork?> = current.asStateFlow()
-  private var started = false
-  private var registered = false
   private var closed = false
+  private data class Selection(val network: Network, val epoch: Long, val usable: () -> Boolean)
+  private var selection: Selection? = null
+  private val handler by lazy { Handler(Looper.getMainLooper()) }
+  private val physicalRequest by lazy {
+    NetworkRequest.Builder()
+      .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+      .addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
+      .build()
+  }
   @Volatile var lastChange: CoreFairwayNetworkChange = CoreFairwayNetworkChange.NONE
     private set
 
@@ -58,56 +70,59 @@ internal class CoreFairwayNetworkOwner(
   )
 
   private val callback = object : ConnectivityManager.NetworkCallback() {
-    override fun onAvailable(network: Network) = update(CoreFairwayNetworkChange.AVAILABLE) { available(network) }
-    override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) = update(CoreFairwayNetworkChange.CAPABILITIES) {
-      capabilities(network,
-        caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
-          caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN) &&
-          caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_SUSPENDED) &&
-          !caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN))
+    override fun onAvailable(network: Network) = updatePhysical(CoreFairwayNetworkChange.AVAILABLE,
+      { available(network) }, { available(network) })
+    override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) {
+      val eligible = eligible(caps)
+      updatePhysical(CoreFairwayNetworkChange.CAPABILITIES,
+        { capabilities(network, eligible) }, { capabilities(network, eligible) }, if (eligible) null else network)
     }
-    override fun onBlockedStatusChanged(network: Network, blocked: Boolean) = update(CoreFairwayNetworkChange.BLOCKED) {
-      this.blocked(network, blocked)
-    }
-    override fun onLinkPropertiesChanged(network: Network, properties: LinkProperties) = update(CoreFairwayNetworkChange.LINK) {
-      link(network, LinkSignature(properties.interfaceName, properties.mtu,
+    override fun onBlockedStatusChanged(network: Network, blocked: Boolean) = updatePhysical(
+      CoreFairwayNetworkChange.BLOCKED, { this.blocked(network, blocked) }, { this.blocked(network, blocked) },
+      if (blocked) network else null)
+    override fun onLinkPropertiesChanged(network: Network, properties: LinkProperties) {
+      val signature = LinkSignature(properties.interfaceName, properties.mtu,
         properties.linkAddresses.toList(), properties.routes.toList(), properties.dnsServers.toList(),
-        properties.isPrivateDnsActive, properties.privateDnsServerName))
+        properties.isPrivateDnsActive, properties.privateDnsServerName)
+      updatePhysical(CoreFairwayNetworkChange.LINK,
+        { link(network, signature) }, { link(network, signature) })
     }
-    override fun onLost(network: Network) = update(CoreFairwayNetworkChange.LOST) { lost(network) }
+    override fun onLost(network: Network) = updatePhysical(CoreFairwayNetworkChange.LOST,
+      { lost(network) }, { lost(network) }, network)
   }
 
-  /** Register once. A registration error is fatal to this owner, never ignored. */
-  fun start() {
-    synchronized(lock) {
-      if (closed || started) return
-      started = true
+  private val hintCallback = object : ConnectivityManager.NetworkCallback() {
+    override fun onAvailable(network: Network) = updateHint(CoreFairwayNetworkChange.AVAILABLE) {
+      available(network) // Provisional: never certifies a physical network.
     }
-    try {
-      if (Build.VERSION.SDK_INT >= 31) {
-        // An app-default observer may report a newly created VPN. Physical
-        // upstream selection must exclude VPNs in the request, before onAvailable.
-        // This passive callback never requests/keeps an extra radio network alive.
-        val request = NetworkRequest.Builder()
-          .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
-          .addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
-          .build()
-        connectivity.registerBestMatchingNetworkCallback(request, callback, Handler(Looper.getMainLooper()))
+    override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) = updateHint(
+      CoreFairwayNetworkChange.CAPABILITIES) { capabilities(network, eligible(caps)) }
+    override fun onLost(network: Network) = updateHint(CoreFairwayNetworkChange.LOST) { lost(network) }
+  }
+
+  private val registrations = CoreFairwayCallbackCustody<ConnectivityManager.NetworkCallback>(
+    invalidate = { invalidate() },
+    register = { observer ->
+      if (observer === callback) {
+        if (Build.VERSION.SDK_INT >= 31) connectivity.registerBestMatchingNetworkCallback(physicalRequest, observer, handler)
+        else connectivity.registerNetworkCallback(physicalRequest, observer, handler)
       } else {
-        // Full common routing is preflight-gated to API31+ until a separately
-        // accepted passive API29/30 physical-network selector is implemented.
-        connectivity.registerDefaultNetworkCallback(callback)
+        check(legacyMode && observer === hintCallback)
+        connectivity.registerDefaultNetworkCallback(observer, handler)
       }
-    } catch (error: RuntimeException) {
-      synchronized(lock) { closed = true; epochs.close(); current.value = null }
-      throw error
-    }
-    val remove = synchronized(lock) {
-      registered = true
-      closed
-    }
-    // close() may have won while the OS was registering the callback.
-    if (remove) unregister()
+    },
+    unregister = connectivity::unregisterNetworkCallback,
+  )
+
+  private fun eligible(caps: NetworkCapabilities) =
+    caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+      caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN) &&
+      caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_SUSPENDED) &&
+      !caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)
+
+  /** Register once; partial failures close leases and roll back both observers. */
+  fun start() {
+    registrations.start(if (legacyMode) listOf(callback, hintCallback) else listOf(callback))
   }
 
   fun isCurrent(epoch: Long): Boolean = synchronized(lock) {
@@ -119,48 +134,71 @@ internal class CoreFairwayNetworkOwner(
    */
   fun applyUnderlying(capture: CoreFairwayCapturedNetwork, builder: VpnService.Builder) {
     synchronized(lock) {
-      val snapshot = epochs.snapshot()
-      check(!closed && current.value === capture && snapshot?.epoch == capture.epoch &&
-        capture.binding.isUsable()) { "Stale Fairway TUN network" }
-      builder.setUnderlyingNetworks(arrayOf(checkNotNull(snapshot).network))
+      val selected = checkNotNull(selection) { "Stale Fairway TUN network" }
+      check(!closed && current.value === capture && selected.epoch == capture.epoch &&
+        selected.usable() && capture.binding.isUsable()) { "Stale Fairway TUN network" }
+      builder.setUnderlyingNetworks(arrayOf(selected.network))
     }
   }
 
-  private fun update(reason: CoreFairwayNetworkChange, change: CoreFairwayNetworkEpoch<Network>.() -> Unit) {
+  private fun updatePhysical(
+    reason: CoreFairwayNetworkChange,
+    commonChange: CoreFairwayNetworkEpoch<Network>.() -> Unit,
+    legacyChange: CoreFairwayLegacyNetworkSelector<Network>.() -> Unit,
+    revokeHint: Network? = null,
+  ) {
     synchronized(lock) {
       if (closed) return
-      epochs.change()
-      val snapshot = epochs.snapshot()
-      if (current.value?.epoch != snapshot?.epoch) lastChange = reason
-      if (snapshot == null) { current.value = null; return }
-      if (current.value?.epoch == snapshot.epoch) return
-      val binding = object : CoreFairwayNetworkBinding {
-        override fun isUsable(): Boolean = epochs.isCurrent(snapshot)
-        override fun bind(fd: FileDescriptor) {
-          if (!isUsable()) throw IOException("Stale Fairway network binding")
-          snapshot.network.bindSocket(fd)
-          if (!isUsable()) throw IOException("Fairway network changed during bind")
-        }
-        override fun protect(fd: Int): Boolean = isUsable() && protectSocket(fd) && isUsable()
-      }
-      current.value = CoreFairwayCapturedNetwork(snapshot.epoch, binding)
+      if (legacyMode) {
+        if (revokeHint != null) defaultHint.invalidatePhysical(revokeHint)
+        legacy.legacyChange()
+      } else epochs.commonChange()
+      publish(reason)
     }
   }
 
-  override fun close() {
+  private fun updateHint(reason: CoreFairwayNetworkChange, change: CoreFairwayDefaultNetworkHint<Network>.() -> Unit) {
+    synchronized(lock) {
+      if (closed || !legacyMode) return
+      defaultHint.change()
+      legacy.verifiedPhysicalDefault(defaultHint.snapshot())
+      publish(reason)
+    }
+  }
+
+  /** Called only under lock; raw Network and snapshot currency remain owner-local. */
+  private fun publish(reason: CoreFairwayNetworkChange) {
+    val selected = if (legacyMode) {
+      legacy.snapshot()?.let { snapshot -> Selection(snapshot.network, snapshot.epoch) { legacy.isCurrent(snapshot) } }
+    } else {
+      epochs.snapshot()?.let { snapshot -> Selection(snapshot.network, snapshot.epoch) { epochs.isCurrent(snapshot) } }
+    }
+    if (current.value?.epoch != selected?.epoch) lastChange = reason
+    if (selected == null) { selection = null; current.value = null; return }
+    if (current.value?.epoch == selected.epoch) return
+    selection = selected
+    val binding = object : CoreFairwayNetworkBinding {
+      override fun isUsable(): Boolean = selected.usable()
+      override fun bind(fd: FileDescriptor) {
+        if (!isUsable()) throw IOException("Stale Fairway network binding")
+        selected.network.bindSocket(fd)
+        if (!isUsable()) throw IOException("Fairway network changed during bind")
+      }
+      override fun protect(fd: Int): Boolean = isUsable() && protectSocket(fd) && isUsable()
+    }
+    current.value = CoreFairwayCapturedNetwork(selected.epoch, binding)
+  }
+
+  private fun invalidate() {
     synchronized(lock) {
       closed = true
-      epochs.close() // Invalidate borrowed bindings before unregistering callbacks.
+      epochs.close()
+      legacy.close()
+      defaultHint.close()
+      selection = null
       current.value = null
     }
-    unregister()
   }
 
-  private fun unregister() = synchronized(lock) {
-    if (registered) {
-      // Keep registration custody if the OS throws; a later close can retry.
-      connectivity.unregisterNetworkCallback(callback)
-      registered = false
-    }
-  }
+  override fun close() = registrations.close()
 }

@@ -31,7 +31,7 @@ object CoreBetaManager {
   private val startCommands = CoreBetaStartCommands()
 
   fun isAvailable(): Boolean = BuildConfig.CORE_BETA_RUNTIME_BUNDLED &&
-    Build.SUPPORTED_ABIS.firstOrNull() == "arm64-v8a"
+    coreRuntimeAbiSupported(Build.SUPPORTED_ABIS.toList())
 
   suspend fun start(context: Context) {
     val command = startCommands.begin()
@@ -83,7 +83,7 @@ object CoreBetaManager {
     check(isAvailable()) { context.getString(R.string.core_beta_unavailable) }
     val snapshot = context.getSharedPreferences("profile_meta", Context.MODE_PRIVATE).all
       .mapValues { (_, value) -> if (value is Set<*>) value.toSet() else value }
-    CoreConnectionPreflight.prepare(metadata.kind, metadata.dnsIpv4, snapshot,
+    CoreConnectionPreflight.prepareIntegrated(metadata.kind, metadata.dnsIpv4, snapshot,
       Build.VERSION.SDK_INT, context.packageName,
       runtimeAvailable = { kind ->
         val available = when (kind) {
@@ -97,6 +97,7 @@ object CoreBetaManager {
         try { context.packageManager.getApplicationInfo(app, 0); true }
         catch (_: android.content.pm.PackageManager.NameNotFoundException) { false }
       },
+      commonFairway = CoreFairwayIntegration.ENABLED,
       readAsset = { path -> context.assets.open(path).use { it.readBytes() } },
     )
     Unit
