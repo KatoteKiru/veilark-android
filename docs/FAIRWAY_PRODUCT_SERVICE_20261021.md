@@ -1,5 +1,20 @@
 # Fairway actual product-service checkpoint — 2026-10-21
 
+## Initial authentication outage and recovery blockers — 2026-10-21
+
+Actual case `product-service-501cde527b2a` PASS, Androidsource5442308bbcff1d56a9108bb4b7f1cac2ea753cbf, nativec970 unchanged. Loopback-only finite Python UDP gate silently dropped first8seconds (5datagrams), retained same endpoint/key, then forwarded4/replied4. Actual service recorded2 CORE_BEGIN and1 reconnect backoff, reachedCORE_RUNNING, full8662/one defaultTUN, publicRU TLSHTTPS Yandex200/body32768+Ozon307, encrypted syntheticUDP1/1200/1252 and actualStop/resourcesreleased. Gate/client/native joined; profiles removed. Canonical verification/source archive in workspace reports/fairway-common-abi-20261020/product-service-501cde527b2a-*; installed/frozen/native/RUasset hashes and198sourceinputs verified. Test counters are ONLY fairwayLab; normal product unchanged. Runner new flag `--initial-auth-outage`; no extra production polling/keepalive.
+
+Firstcase4fe81ff6397a rawaggregateFAIL preserved: actualservice/client/gate recovered but the new lab counters ignored localized Core title prefix and falsely returned0. Exact originalAPK retained by installed hash, failure note archived; counter regex fix committed separately5442308 after initial2eaa8e1. Passing scenario is a NEW case, not edited oldFAIL. First build46s/second13s; not repeated old green suites.
+
+This proves initial authentication retry ONLY, not recovery of an established server session/reboot. Bounded read-only review found two remaining blockers and sent exact evidence toVector:
+
+- AndroidCoreBetaVpnService383–384 explicitly stops native on physical epoch change, yet457 always increments the same5-error lifetime budget. Repeated ordinary network handovers can exhaust it. Do not reset budget onReady or a timer: existing regression tests intentionally prevent infinite native-failure loops. Planned rotation must preserve earlier real failure history.
+- Native Completion.wait_terminal prioritizes Stop over ended, including an explicit regression test, so terminal4 can mask earlier worker failure. Afterjoin statusClosed5 is not a failure provenance. Android must not waive errors using epochchange+Stop4 alone. A retained immutable completion/failure outcome (Completion already has AtomicU32 failure) is needed before safely classifying planned handover. Vector owns the additive native/JNI contract and compatibility.
+- Established Argon driver has no peer-response/liveness budget on active foreign traffic; successful UDPsend is not peerACK, bad-session packets are discarded. Silent server session loss can keepConnected without foreign delivery. Need traffic-triggered bounded recovery with ZERO idlekeepalive, not a positive reboot claim from initial-auth retry. No unsafe Android workaround applied.
+
+Public foreign KernelL3, active energy/load, forcedFIFO release, original header/encrypted import and remaining recovery gates stayOPEN. No OTA/productionrestart/surface change. User phone remains unavailable; owned AVD shut down after receipt freeze. Previousbackup/candidates/published81/local82 unchanged.
+
+
 ## TCP output-progress candidate on Android — 2026-10-21
 
 Adopted sourceec6bb4a235bb1e40c63dd8434d128495e4e61dbb/SOc9707f6ed07640bb42b0bf119e993851a110a93334d04f7061a047219d024694 (4988384B) as explicit lab-only `-PveilarkFairwayLabNative=tcp-output`. Defaultwindow17d and earlierudp-stall33b remain pinned/selectable with separate staging. Normal release gate remains false. Independently verified all252 current/native archive inputs and SO; bounded review of TCP independent output deadline/Actor stop+join/FIFO preservation found no additional blocker in that scope. This is not a full security audit. Logical slot can still await FIFO drain.
