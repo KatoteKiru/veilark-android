@@ -140,6 +140,12 @@ class FairwayProductStand : Instrumentation() {
       activity?.let { active -> runOnMainSync { active.finish() } }
     }
     result.putString("verdict", if (failure == null) "PASS" else "FAIL")
+    result.putInt("native_begin_count", TechnicalLogStore.entries.value.count {
+      it.component == "CORE" && it.message == "stage=CORE_BEGIN"
+    })
+    result.putInt("reconnect_backoff_count", TechnicalLogStore.entries.value.count {
+      it.component == "CORE" && it.message.startsWith("reconnect_backoff_ms=")
+    })
     result.putString("service_stages", TechnicalLogStore.entries.value
       .filter { it.component == "CORE" }.flatMap {
         Regex("(?:stage|native_status|native_reason)=[A-Za-z0-9_()/+\\-]+").findAll(it.message).map { match -> match.value }.toList()
