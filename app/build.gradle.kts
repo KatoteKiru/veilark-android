@@ -21,14 +21,16 @@ plugins {
 abstract class StageFairwayLabRuntime : DefaultTask() {
   @get:InputFile abstract val sourceRuntime: RegularFileProperty
   @get:OutputDirectory abstract val stagingDirectory: DirectoryProperty
+  @get:Input abstract val expectedSha256: Property<String>
+  @get:Input abstract val expectedBytes: Property<Long>
 
   @TaskAction fun stage() {
     val source = sourceRuntime.get().asFile
-    fun verified(file: java.io.File): Boolean = file.isFile && file.length() == 4_981_248L &&
+    fun verified(file: java.io.File): Boolean = file.isFile && file.length() == expectedBytes.get() &&
       MessageDigest.getInstance("SHA-256").digest(file.readBytes())
         .joinToString("") { "%02x".format(it) } ==
-        "17d375c0b2e3b36457900227c92cee7ceb4b3c9d9ffeb1f0000c1aa9a22bf73e"
-    require(verified(source)) { "Fairway lab runtime differs from reviewed66a4df7 artifact" }
+        expectedSha256.get()
+    require(verified(source)) { "Fairway lab runtime differs from the selected reviewed artifact" }
     val root = stagingDirectory.get().asFile
     val target = root.resolve("arm64-v8a/libveilark_core_runtime.so")
     require(!root.exists() || root.walkTopDown().filter { it.isFile }.all { it == target }) {
@@ -116,12 +118,27 @@ val bundleCoreBetaRuntime = providers.gradleProperty("bundleVeilarkCoreBetaRunti
 require(!fairwayLabRequested || !bundleCoreBetaRuntime) {
   "Fairway lab must not include the old private Core runtime"
 }
-val fairwayLabStage = layout.buildDirectory.dir("fairway-lab-runtime")
+// Named, reviewed inputs only. Keep the accepted window baseline selectable.
+val fairwayLabNativeName = providers.gradleProperty("veilarkFairwayLabNative").orElse("window").get()
+require(fairwayLabRequested || fairwayLabNativeName == "window") {
+  "Alternate Fairway native candidates are lab-only"
+}
+val fairwayLabNativeSha = when (fairwayLabNativeName) {
+  "window" -> "17d375c0b2e3b36457900227c92cee7ceb4b3c9d9ffeb1f0000c1aa9a22bf73e"
+  "udp-stall" -> "33bae0e8a8007605f0e4d814c8d09c61724d876014f4d3c11adfdcafae2704d0"
+  else -> error("Unknown reviewed Fairway lab native candidate")
+}
+val fairwayLabNativeBytes = if (fairwayLabNativeName == "window") 4_981_248L else 4_984_032L
+val fairwayLabReport = if (fairwayLabNativeName == "window") "fairway-window-native-20261020" else "fairway-udp-stall-native-20261021"
+val fairwayLabStage = layout.buildDirectory.dir(
+  if (fairwayLabNativeName == "window") "fairway-lab-runtime" else "fairway-lab-udp-stall-runtime")
 val stageFairwayLabRuntime = if (fairwayLabRequested) {
   tasks.register<StageFairwayLabRuntime>("stageFairwayLabRuntime") {
     sourceRuntime.set(rootProject.layout.projectDirectory.file(
-      "../reports/fairway-window-native-20261020/17d375c0b2e3b36457900227c92cee7ceb4b3c9d9ffeb1f0000c1aa9a22bf73e/libveilark_core_runtime.so"))
+      "../reports/$fairwayLabReport/$fairwayLabNativeSha/libveilark_core_runtime.so"))
     stagingDirectory.set(fairwayLabStage)
+    expectedSha256.set(fairwayLabNativeSha)
+    expectedBytes.set(fairwayLabNativeBytes)
     // Recheck the pinned bytes even with configuration/task caches warm.
     outputs.upToDateWhen { false }
   }
@@ -318,10 +335,20 @@ androidComponents {
   }
 }
 
+// Fresh APK containers only: incremental replacement can retain large archive
+// holes even when indexed entries are correct. Keep compile/resource caches.
+val prepareFreshPrivateReleaseApk = tasks.register<Delete>("prepareFreshPrivateReleaseApk") {
+  delete(layout.buildDirectory.file("outputs/apk/private/release/app-private-release-unsigned.apk"))
+}
+val prepareFreshFairwayLabApk = tasks.register<Delete>("prepareFreshFairwayLabApk") {
+  delete(layout.buildDirectory.file("outputs/apk/private/fairwayLab/app-private-fairwayLab.apk"))
+}
 tasks.configureEach {
   if (name == "prePrivateFairwayLabBuild" && stageFairwayLabRuntime != null) {
     dependsOn(stageFairwayLabRuntime)
   }
+  if (name == "packagePrivateRelease") dependsOn(prepareFreshPrivateReleaseApk)
+  if (name == "packagePrivateFairwayLab") dependsOn(prepareFreshFairwayLabApk)
 }
 
 val validatePrivateOtaRelease by tasks.registering(ValidatePrivateOtaRelease::class) {
