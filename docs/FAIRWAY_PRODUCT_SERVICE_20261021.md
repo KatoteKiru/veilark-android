@@ -1,5 +1,14 @@
 # Fairway actual product-service checkpoint — 2026-10-21
 
+## Atlas review of active feedback profile2 — 2026-10-21
+
+Reviewed Vector draft2863417 in docs/engineering/active-feedback-profile-v2-draft-20261021.md against current handshake.rs/stun_auth.rs and primary Noise section6, RFC5116 section3.1, RFC8489 section14.14. In this bounded design/source review, no additional blocking flaw found in profile-bound prologue, existing directional KDF, shared nonces/replay, role/length validation, one fresh challenge, reserved bounded slots and finite active episode. This is NOT implementation, a complete crypto audit or acceptance. Existing Android/native49 aa10 remains the tested checkpoint.
+
+Required clarifications sent toVector before implementation: freeze exact Carrier2/STUN attribute layout/transcript vectors with profile binding; SOFTWARE must contain UTF8 text (legacy binary SOFTWARE remains nonconforming). Private syntactic framing does not establish real ICE/WebRTC or censorship resistance. Define t0 as actual successful kernel acceptance in the sent prefix, not an on-wire timestamp; local/network queue delay can consume the budget, and timeout is unconfirmed peer reachability, not proof of a dead server. Keep pending active feedback separate from quiescent Idle, including cancellation of unsent retries and burned nonces. The existing five cumulative genuine-error limit remains an explicit recovery constraint, not an unattended many-outage guarantee; no unreviewed policy reset.
+
+Primary references: https://noiseprotocol.org/noise.html#prologue ; https://www.rfc-editor.org/rfc/rfc5116#section-3.1 ; https://www.rfc-editor.org/rfc/rfc8489#section-14.14 . Source confirms legacy104/62 payload sizes and handshake-hash salt in applicationHKDF; no binary/profiles changed during review. Vector owns framing/protocol implementation. No new tests or repeat green fixtures, no CI reruns/billing changes, noOTA.
+
+
 ## Proven physical-network rotation with immutable outcome — 2026-10-21
 
 Androidsourcee2b13d805cd184d1da5d9d3b75b1af8d783412d0 repairs planned Running network rotation accounting. A per-attempt successful epoch-triggered Stop is required, plus Running, observedterminal4, no callback failure, successful cleanup and immutable nativeoutcome2. Prior genuine failure count is PRESERVED, never reset; planned rotation uses250ms delay. Missing/unknown outcome, pre-Running cancellation, native24/26, join/release/FD failure remain conservative. Old legacy engine policy unchanged.
