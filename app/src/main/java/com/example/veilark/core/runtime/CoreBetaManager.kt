@@ -88,7 +88,8 @@ object CoreBetaManager {
       runtimeAvailable = { kind ->
         val available = when (kind) {
           CoreProfileKind.LEGACY_V1 -> VeilarkCoreRuntimeNative.loadCandidate()
-          CoreProfileKind.ARGON_V1 -> VeilarkArgonNative.isAbiAvailable()
+          CoreProfileKind.ARGON_V1 -> VeilarkArgonNative.isProfileAbiAvailable(
+            checkNotNull(metadata.argonHandshakeProfile))
         }
         check(available) { context.getString(R.string.core_beta_unavailable) }
         true

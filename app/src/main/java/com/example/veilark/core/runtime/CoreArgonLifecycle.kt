@@ -1,5 +1,6 @@
 package com.example.veilark.core.runtime
 
+import com.example.veilark.profile.CoreArgonHandshakeProfile
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
@@ -18,6 +19,8 @@ import kotlinx.coroutines.withContext
 /** Matched Argon ABI only; injected implementations also support lifecycle mock tests. */
 internal interface CoreArgonHandleApi {
   fun awaitAuthenticated(handle: Long, output: IntArray): Int
+  /** Additive capability; old injected/native implementations reject v2. */
+  fun awaitAuthenticatedV2(handle: Long, output: IntArray): Int = -3
   fun attachTun(handle: Long, borrowedTunFd: Int): Int
   fun attachRuDns(handle: Long, borrowedResolverFd: Int): Int
   fun awaitRunning(handle: Long): Int
@@ -30,7 +33,10 @@ internal interface CoreArgonHandleApi {
   fun release(handle: Long): Int
 }
 
-internal class CoreArgonHandleTicket internal constructor(val handle: Long) {
+internal class CoreArgonHandleTicket internal constructor(
+  val handle: Long,
+  val handshakeProfile: CoreArgonHandshakeProfile = CoreArgonHandshakeProfile.LEGACY,
+) {
   /** Published only after actual join, outcome read and successful disposal. */
   @Volatile var releasedTerminalOutcome: Int? = null
     internal set
@@ -51,7 +57,12 @@ internal class CoreArgonLifecycle(private val api: CoreArgonHandleApi) {
   private var owner: Owner? = null
 
   /** begin synchronously duplicates borrowed UDP; closeOriginals always runs, even on rejection. */
-  suspend fun startBorrowed(begin: () -> Long, closeOriginals: () -> Unit): CoreArgonHandleTicket {
+  suspend fun startBorrowed(begin: () -> Long, closeOriginals: () -> Unit): CoreArgonHandleTicket =
+    startBorrowedWithProfile(CoreArgonHandshakeProfile.LEGACY, begin, closeOriginals)
+
+  suspend fun startBorrowedWithProfile(
+    profile: CoreArgonHandshakeProfile, begin: () -> Long, closeOriginals: () -> Unit,
+  ): CoreArgonHandleTicket {
     val caller = currentCoroutineContext()
     var admitted: CoreArgonHandleTicket? = null
     try {
@@ -63,7 +74,7 @@ internal class CoreArgonLifecycle(private val api: CoreArgonHandleApi) {
             val handle = begin()
             if (handle <= 0) throw CoreArgonFailure("begin", handle)
             // Admission precedes close: even a throwing close cannot lose native ownership.
-            CoreArgonHandleTicket(handle).also { admitted = it; owner = Owner(it) }
+            CoreArgonHandleTicket(handle, profile).also { admitted = it; owner = Owner(it) }
           } finally { closeOriginals() }
         }
       }
@@ -76,11 +87,17 @@ internal class CoreArgonLifecycle(private val api: CoreArgonHandleApi) {
   }
 
   suspend fun awaitAuthenticated(ticket: CoreArgonHandleTicket): CoreArgonAuthenticated {
-    val output = IntArray(5)
+    val v2 = ticket.handshakeProfile == CoreArgonHandshakeProfile.CARRIER2_LAB1
+    val output = IntArray(if (v2) 7 else 5)
     try {
-      waitNative(ticket) { api.awaitAuthenticated(ticket.handle, output) }
+      waitNative(ticket) {
+        if (v2) api.awaitAuthenticatedV2(ticket.handle, output)
+        else api.awaitAuthenticated(ticket.handle, output)
+      }
       check(output.take(4).all { it in 0..255 } && output[0] in 1..223 && output[0] != 127 &&
         output[4] in 1280..1360) { "Invalid authenticated Veilark Core configuration" }
+      check(!v2 || output[5] == ticket.handshakeProfile.wireProfile &&
+        output[6] == ticket.handshakeProfile.feedbackVersion) { "Veilark Core authenticated profile mismatch" }
       return CoreArgonAuthenticated(output.take(4).joinToString("."), output[4])
     } catch (failure: Throwable) {
       stopAndRelease(ticket)
@@ -227,7 +244,8 @@ internal class CoreArgonLifecycle(private val api: CoreArgonHandleApi) {
         // This is optional provenance, never ownership authority. Missing or
         // failed reads keep recovery conservative but must not prevent disposal.
         val outcome = runCatching { api.terminalOutcome(admitted.ticket.handle) }.getOrNull()
-          ?.takeIf { it == 2 || it == 3 || it == 24 || it == 26 }
+          ?.takeIf { it == 2 || it == 3 || it == 24 || it == 26 ||
+            admitted.ticket.handshakeProfile == CoreArgonHandshakeProfile.CARRIER2_LAB1 && (it == 28 || it == 29) }
         // Status reads are short but may not race disposal.
         ownershipMutex.withLock {
           if (api.release(admitted.ticket.handle) == 0) {

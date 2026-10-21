@@ -5,6 +5,11 @@ import java.nio.charset.CodingErrorAction
 import java.util.Base64
 import java.util.Collections
 
+/** Explicit wire contract; never inferred from routing mode or a failed handshake. */
+enum class CoreArgonHandshakeProfile(val wireProfile: Int, val feedbackVersion: Int) {
+  LEGACY(0, 0), CARRIER2_LAB1(2, 1),
+}
+
 /** Argon identity/configuration, never a legacy PSK conversion or authenticated
  * session. The client's IP is obtained only from the authenticated handshake.
  * Caller owns key copies and must erase them after native synchronous admission.
@@ -15,6 +20,7 @@ class CoreArgonProfile private constructor(
   val endpointPort: Int,
   val mtu: Int,
   val dnsIpv4: List<String>,
+  val handshakeProfile: CoreArgonHandshakeProfile,
   private val clientStaticPrivate: ByteArray,
   private val serverStaticPublic: ByteArray,
   private var envelope: String?,
@@ -56,8 +62,24 @@ class CoreArgonProfile private constructor(
         check(text.length <= MAX_BYTES && CoreProfileJson.validUnicode(text))
         val encoded = text.toByteArray(Charsets.UTF_8)
         try { check(encoded.size <= MAX_BYTES) } finally { encoded.fill(0) }
-        val root = CoreProfileJson.parse(text).obj(setOf("schema", "engine", "beta", "name", "endpoint", "identity", "network"))
-        check(root["schema"] == "veilark-argon-profile-v1" && root["engine"] == "argon-v1" && root["beta"] == true)
+        val parsed = CoreProfileJson.parse(text) as? Map<*, *> ?: error("invalid")
+        val fields = setOf("schema", "engine", "beta", "name", "endpoint", "identity", "network")
+        val wireProfile = when (parsed["schema"]) {
+          "veilark-argon-profile-v1" -> {
+            parsed.obj(fields)
+            CoreArgonHandshakeProfile.LEGACY
+          }
+          "veilark-argon-profile-v2" -> {
+            parsed.obj(fields + "wire_profile")
+            val wire = parsed["wire_profile"].obj(setOf("id", "feedback_version"))
+            wire["id"].integer(2, 2)
+            wire["feedback_version"].integer(1, 1)
+            CoreArgonHandshakeProfile.CARRIER2_LAB1
+          }
+          else -> error("invalid")
+        }
+        val root = parsed
+        check(root["engine"] == "argon-v1" && root["beta"] == true)
         val name = root["name"].str()
         check(name.codePointCount(0, name.length) in 1..80)
         check(name.codePoints().allMatch { Character.getType(it) !in setOf(
@@ -77,7 +99,7 @@ class CoreArgonProfile private constructor(
         val resolvers = dns.map { it.str().also { value -> ipv4(value) } }
         check(resolvers.distinct().size == resolvers.size)
         return CoreArgonProfile(name, address, port, mtu,
-          Collections.unmodifiableList(resolvers.toList()), client, server, text)
+          Collections.unmodifiableList(resolvers.toList()), wireProfile, client, server, text)
           .also { client = null; server = null }
       } catch (_: IllegalArgumentException) { throw IllegalArgumentException(ERROR) }
       catch (_: IllegalStateException) { throw IllegalArgumentException(ERROR) }

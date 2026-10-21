@@ -4,6 +4,10 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class CoreProfileKindTest {
+  @org.junit.Test fun recognizesExplicitArgonV2InTheSameEncryptedIdentityStore() {
+    org.junit.Assert.assertEquals(CoreProfileKind.ARGON_V1,
+      CoreProfileKind.recognize("""{"schema":"veilark-argon-profile-v2"}""".toByteArray()))
+  }
   @Test fun absentChoicePrefersLegacyAndUsesArgonOnlyWhenAlone() {
     assertNull(CoreProfileKind.resolve(null, false, false))
     assertEquals(CoreProfileKind.LEGACY_V1, CoreProfileKind.resolve(null, true, false))

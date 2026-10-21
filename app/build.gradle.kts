@@ -235,6 +235,7 @@ android {
         buildConfigField("boolean", "CORE_BETA_RUNTIME_BUNDLED", "false")
         buildConfigField("boolean", "FAIRWAY_LAB_ENABLED", "false")
         buildConfigField("boolean", "ARGON_TERMINAL_OUTCOME_ENABLED", "false")
+        buildConfigField("boolean", "ARGON_ACTIVE_FEEDBACK_ENABLED", "false")
         buildConfigField("String", "TELEGRAM_BOT_URL", quotedBuildConfig(telegramBotUrl))
         buildConfigField("String", "WEB_ACCOUNT_URL", quotedBuildConfig(webAccountUrl))
         ndk {

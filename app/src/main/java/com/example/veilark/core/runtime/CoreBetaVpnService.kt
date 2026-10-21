@@ -23,6 +23,7 @@ import com.example.veilark.BuildConfig
 import com.example.veilark.lifecycle.LifecycleAttempt
 import com.example.veilark.profile.CoreBetaProfile
 import com.example.veilark.profile.CoreArgonProfile
+import com.example.veilark.profile.CoreArgonHandshakeProfile
 import com.example.veilark.profile.CoreArgonProfileStore
 import com.example.veilark.profile.CoreProfileKind
 import com.example.veilark.profile.CoreProfileStore
@@ -64,6 +65,8 @@ class CoreBetaVpnService : VpnService() {
     })
     val argonLifecycle = CoreArgonLifecycle(object : CoreArgonHandleApi {
       override fun awaitAuthenticated(handle: Long, output: IntArray) = VeilarkArgonNative.nativeAwaitAuthenticated(handle, output)
+      override fun awaitAuthenticatedV2(handle: Long, output: IntArray) =
+        if (BuildConfig.ARGON_ACTIVE_FEEDBACK_ENABLED) VeilarkArgonNative.nativeAwaitAuthenticatedV2(handle, output) else -3
       override fun attachTun(handle: Long, borrowedTunFd: Int) = VeilarkArgonNative.nativeAttachTun(handle, borrowedTunFd)
       override fun attachRuDns(handle: Long, borrowedResolverFd: Int) = VeilarkArgonNative.nativeAttachRuDns(handle, borrowedResolverFd)
       override fun awaitRunning(handle: Long) = VeilarkArgonNative.nativeAwaitRunning(handle)
@@ -337,6 +340,9 @@ class CoreBetaVpnService : VpnService() {
       stage(session, "CORE_PROFILE_STORE")
       val profile = CoreArgonProfileStore.load(this)
       loadedProfile = profile
+      // Defence in depth for direct service entry; the manager checks this
+      // before handing over an existing VPN. A v2 profile cannot downgrade.
+      check(VeilarkArgonNative.isProfileAbiAvailable(profile.handshakeProfile))
       // Validate policy before UDP admission. This does not establish a TUN or
       // infer its address; only authenticated native output may supply that.
       stage(session, "ROUTING_RULES")
@@ -376,9 +382,19 @@ class CoreBetaVpnService : VpnService() {
             val privateKey = checkNotNull(secret)
             val publicPin = checkNotNull(pin)
             stage(session, "CORE_BEGIN")
-            ticket = session.argonLifecycle.startBorrowed(
-              begin = { VeilarkArgonNative.nativeBegin(socket.fd, peer.address,
-                profile.endpointPort, profile.mtu, privateKey, publicPin, nativeRoutingMode) },
+            ticket = session.argonLifecycle.startBorrowedWithProfile(
+              profile = profile.handshakeProfile,
+              begin = {
+                when (profile.handshakeProfile) {
+                  CoreArgonHandshakeProfile.LEGACY -> VeilarkArgonNative.nativeBegin(
+                    socket.fd, peer.address, profile.endpointPort, profile.mtu,
+                    privateKey, publicPin, nativeRoutingMode)
+                  CoreArgonHandshakeProfile.CARRIER2_LAB1 -> VeilarkArgonNative.nativeBeginV2(
+                    socket.fd, peer.address, profile.endpointPort, profile.mtu,
+                    privateKey, publicPin, nativeRoutingMode,
+                    profile.handshakeProfile.wireProfile, profile.handshakeProfile.feedbackVersion)
+                }
+              },
               closeOriginals = { closeTracked(originals, socket) },
             )
           } finally {

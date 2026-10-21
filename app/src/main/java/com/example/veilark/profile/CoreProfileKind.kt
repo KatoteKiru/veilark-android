@@ -41,7 +41,7 @@ enum class CoreProfileKind(val preferenceValue: String) {
         val root = CoreProfileJson.parse(text) as? Map<*, *> ?: error("invalid")
         return when (root["schema"]) {
           "veilark-core-beta-profile-v1" -> LEGACY_V1
-          "veilark-argon-profile-v1" -> ARGON_V1
+          "veilark-argon-profile-v1", "veilark-argon-profile-v2" -> ARGON_V1
           else -> throw IllegalArgumentException(ERROR)
         }
       } catch (_: Exception) {

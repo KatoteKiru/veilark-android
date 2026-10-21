@@ -1,6 +1,8 @@
 package com.example.veilark.core.runtime
 
 import androidx.annotation.Keep
+import com.example.veilark.BuildConfig
+import com.example.veilark.profile.CoreArgonHandshakeProfile
 
 /** Separate matched Argon ABI. Class initialization does not load/start a VPN.
  * Descriptors are BORROWED: native duplicates before begin/attach return.
@@ -24,11 +26,32 @@ internal object VeilarkArgonNative {
     nativeAbiVersion() == ABI_VERSION && nativeAwaitTerminal(0L) == -3
   } catch (_: UnsatisfiedLinkError) { false }
 
+  /** Old binaries never resolve/call the additive JNI. The feature flag may be
+   * enabled only for a separately pinned artifact implementing the full profile.
+   * The capability query performs no admission or descriptor operations.
+   */
+  fun isProfileAbiAvailable(profile: CoreArgonHandshakeProfile): Boolean {
+    if (profile == CoreArgonHandshakeProfile.LEGACY) return isAbiAvailable()
+    if (!BuildConfig.ARGON_ACTIVE_FEEDBACK_ENABLED || !isAbiAvailable()) return false
+    return try {
+      nativeProfileAbiVersion() == 2
+    } catch (_: UnsatisfiedLinkError) { false }
+  }
+
   @JvmStatic external fun nativeAbiVersion(): Int
   @JvmStatic external fun nativeBegin(
     borrowedUdpFd: Int, serverIpv4: ByteArray, serverPort: Int, mtu: Int,
     clientStaticPrivate: ByteArray, serverStaticPublic: ByteArray, routingMode: Int,
   ): Long
+  /** Additive explicit profile entry; no fallback to legacy after failure. */
+  @JvmStatic external fun nativeProfileAbiVersion(): Int
+  @JvmStatic external fun nativeBeginV2(
+    borrowedUdpFd: Int, serverIpv4: ByteArray, serverPort: Int, mtu: Int,
+    clientStaticPrivate: ByteArray, serverStaticPublic: ByteArray, routingMode: Int,
+    wireProfile: Int, feedbackVersion: Int,
+  ): Long
+  /** Authenticated output: IPv4 octets, MTU, wireProfile, feedbackVersion. */
+  @JvmStatic external fun nativeAwaitAuthenticatedV2(handle: Long, output: IntArray): Int
   /** Output length5: four authenticated IPv4 octets followed by MTU.
    * Check return0 before consuming; no Java array is pinned during the wait.
    */

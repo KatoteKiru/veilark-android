@@ -1,5 +1,6 @@
 package com.example.veilark.core.runtime
 
+import com.example.veilark.profile.CoreArgonHandshakeProfile
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
@@ -13,6 +14,58 @@ import org.junit.Test
 
 /** Deterministic lifecycle mocks; these do not establish native TUN or device acceptance. */
 class CoreArgonLifecycleTest {
+  @Test fun explicitV2UsesOnlyAuthenticatedV2AndValidatesTheBoundPair() = runBlocking {
+    val fake = object : Fake() {
+      override fun awaitAuthenticated(handle: Long, output: IntArray): Int = error("Legacy downgrade")
+      override fun awaitAuthenticatedV2(handle: Long, output: IntArray): Int {
+        assertEquals(7, output.size)
+        intArrayOf(10, 0, 0, 1, 1360, 2, 1).copyInto(output)
+        return 0
+      }
+    }
+    val owner = CoreArgonLifecycle(fake)
+    val ticket = owner.startBorrowedWithProfile(CoreArgonHandshakeProfile.CARRIER2_LAB1, { 7L }, {})
+    assertEquals(CoreArgonAuthenticated("10.0.0.1", 1360), owner.awaitAuthenticated(ticket))
+    assertTrue(owner.stopAndRelease(ticket))
+  }
+
+  @Test fun mismatchedAuthenticatedPairDisposesBeforeTunAdmission() = runBlocking {
+    for ((wire, feedback) in listOf(1 to 1, 2 to 0, 2 to 2)) {
+      val fake = object : Fake() {
+        override fun awaitAuthenticatedV2(handle: Long, output: IntArray): Int {
+          intArrayOf(10, 0, 0, 1, 1360, wire, feedback).copyInto(output)
+          return 0
+        }
+      }
+      val owner = CoreArgonLifecycle(fake)
+      val ticket = owner.startBorrowedWithProfile(CoreArgonHandshakeProfile.CARRIER2_LAB1, { 7L }, {})
+      try { owner.awaitAuthenticated(ticket); fail("Mismatched authenticated profile") }
+      catch (_: IllegalStateException) { }
+      assertEquals(1, fake.releases.get())
+      assertNull(owner.status())
+    }
+  }
+
+  @Test fun missingV2ApiCannotFallBackToLegacyAndStillDisposes() = runBlocking {
+    val fake = Fake()
+    val owner = CoreArgonLifecycle(fake)
+    val ticket = owner.startBorrowedWithProfile(CoreArgonHandshakeProfile.CARRIER2_LAB1, { 7L }, {})
+    try { owner.awaitAuthenticated(ticket); fail("Missing capability") }
+    catch (failure: CoreArgonFailure) { assertEquals(-3L, failure.code) }
+    assertEquals(1, fake.releases.get())
+    assertNull(owner.status())
+  }
+
+  @Test fun feedbackOutcomesAreRecognizedOnlyOnTheirExplicitProfile() = runBlocking {
+    for (profile in CoreArgonHandshakeProfile.entries) for (code in listOf(28, 29)) {
+      val owner = CoreArgonLifecycle(object : Fake() { override fun terminalOutcome(handle: Long) = code })
+      val ticket = owner.startBorrowedWithProfile(profile, { 7L }, {})
+      assertTrue(owner.stopAndRelease(ticket))
+      assertEquals(if (profile == CoreArgonHandshakeProfile.CARRIER2_LAB1) code else null,
+        ticket.releasedTerminalOutcome)
+    }
+  }
+
   @Test fun terminalOutcomeIsReadAfterJoinAndExposedOnlyAfterDisposal() = runBlocking {
     val calls = mutableListOf<String>()
     lateinit var ticket: CoreArgonHandleTicket

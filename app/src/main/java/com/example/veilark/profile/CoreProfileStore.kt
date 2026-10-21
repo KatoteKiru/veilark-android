@@ -7,6 +7,7 @@ data class CoreProfileMetadata(
   val kind: CoreProfileKind,
   val name: String,
   val dnsIpv4: List<String>,
+  val argonHandshakeProfile: CoreArgonHandshakeProfile? = null,
 )
 
 /** Selection/import facade. Existing profile files stay separate and are never migrated.
@@ -51,7 +52,7 @@ object CoreProfileStore {
           CoreProfileMetadata(CoreProfileKind.LEGACY_V1, it.name, it.dnsIpv4)
         }
         CoreProfileKind.ARGON_V1 -> CoreArgonProfileStore.load(context).use {
-          CoreProfileMetadata(CoreProfileKind.ARGON_V1, it.name, it.dnsIpv4)
+          CoreProfileMetadata(CoreProfileKind.ARGON_V1, it.name, it.dnsIpv4, it.handshakeProfile)
         }
         null -> throw IllegalStateException(LOAD_ERROR)
       }
@@ -68,7 +69,7 @@ object CoreProfileStore {
           CoreProfileMetadata(kind, it.name, it.dnsIpv4)
         }
         CoreProfileKind.ARGON_V1 -> CoreArgonProfileStore.import(context, payload).use {
-          CoreProfileMetadata(kind, it.name, it.dnsIpv4)
+          CoreProfileMetadata(kind, it.name, it.dnsIpv4, it.handshakeProfile)
         }
       }
     } catch (_: Exception) {

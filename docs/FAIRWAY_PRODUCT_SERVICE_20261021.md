@@ -1,5 +1,14 @@
 # Fairway actual product-service checkpoint — 2026-10-21
 
+## Product repair: explicit profile V2 Android integration — 21 October
+
+Implemented Android code for Vector's additive V2 contract: nativeProfileAbiVersion()==2, nativeBeginV2(old args,routingMode,wireProfile,feedbackVersion), nativeAwaitAuthenticatedV2 output7. Schema veilark-argon-profile-v2 requires exact wire_profile object {id:2,feedback_version:1}; v1 retains its exact field set/Legacy entry. No implicit downgrade or routing-bit overloading. Import/load carry nonsecret profile metadata. Manager rejects unsupported V2 before handing over the existing VPN; direct service entry rechecks. Immutable native ticket selects the matching wait; IPv4/MTU AND authenticated2/1 are checked before Fairway configuration/TUN. Missing or mismatched V2 disposes the attempt. Outcome28/29 retained only for explicit V2 after Join/Release and do not waive failure limits. No Android poller, keepalive or wake lock added.
+
+ARGON_ACTIVE_FEEDBACK_ENABLED remains FALSE in every current variant: Core native49 does not implement this contract. No claim the blackhole is fixed end-to-end yet, no new SO/APK/OTA. Core active recovery is the current repair, not another unchanged UID/IPv6 run. Vector owns primary admission/server/driver/FFI+JNI integration. Child active_recovery_product contributes feedback/controller/pool/clientconfig in a separate worktree/branch; optional admission patch supplied for review. Prevent duplicate implementation; merge belongs to Vector.
+
+Final contract validation: android-explicit-v2-contract-20261021.log PASS:42 targeted unit cases (8profile,7kind,23lifecycle,4retry) and normal privateRelease Kotlin compilation. These are parser/lifecycle compatibility checks, not native/device forwarding proof. Bounded independent final diff review found no concrete blocker; matched-native pins and both optional capability/outcome flags are still required before activation. Earlier missing FairwayLab unit-test task FAIL and preliminary superseded string-profile PASS logs retained; only the final nested-object/capability V2 result applies to this code.
+
+
 ## IPv6 family block and APPS_ALL — 2026-10-21
 
 Actualcasecc05683adf84 PASS with source5b510b7/native3a0f49. Under the same APPS_BYPASS service, excluded UID reached an owned IPv6 UDP/DNS fixture via fec0::2:<ephemeral> (host socket bound ONLY::1); valid TEST-NET A answer proved real IPv6 roundtrip outside the Android VPN. Included UID attempted the SAME endpoint and connect failed EHOSTUNREACH113 before DNSwrite. Fixture received exactly1query, then joined/closed. Paired IPv4 HTTPS/ordinary TUN/encryptedUDP and actualStop also passed. This proves default UID IPv6-family block on ownedAPI35, not publicIPv6Internet/physicaloperator behavior. No bind/protect/JNI/route override inside either client.

@@ -15,6 +15,33 @@ class CoreArgonProfileTest {
       assertFalse(error.toString().contains(client)); assertFalse(error.toString().contains(server))
     }
   }
+  private val wire = "\"wire_profile\":{\"id\":2,\"feedback_version\":1}"
+  private fun profileV2() = profile().replace("veilark-argon-profile-v1", "veilark-argon-profile-v2")
+    .replace("\"engine\":", "$wire,\"engine\":")
+
+  @Test fun wireProfileIsExplicitAndLegacyEnvelopeCannotSelectNewProtocol() {
+    CoreArgonProfile.parse(profile()).use {
+      assertEquals(CoreArgonHandshakeProfile.LEGACY, it.handshakeProfile)
+      assertEquals(0, it.handshakeProfile.wireProfile)
+    }
+    CoreArgonProfile.parse(profileV2()).use {
+      assertEquals(CoreArgonHandshakeProfile.CARRIER2_LAB1, it.handshakeProfile)
+      assertEquals(2, it.handshakeProfile.wireProfile)
+      assertEquals(1, it.handshakeProfile.feedbackVersion)
+    }
+    for (bad in listOf(
+      profileV2().replace("veilark-argon-profile-v2", "veilark-argon-profile-v1"),
+      profileV2().replace("$wire,", ""),
+      profileV2().replace(wire, "\"wire_profile\":\"carrier2-lab1\""),
+      profileV2().replace(wire, "\"wire_profile\":1"),
+      profileV2().replace("\"id\":2", "\"id\":1"),
+      profileV2().replace("\"id\":2", "\"id\":2.0"),
+      profileV2().replace("\"feedback_version\":1", "\"feedback_version\":0"),
+      profileV2().replace("\"feedback_version\":1", "\"feedback_version\":\"1\""),
+      profileV2().replace("\"feedback_version\":1", "\"feedback_version\":1,\"extra\":true"),
+      profileV2().replace("$wire,", "$wire,$wire,"),
+    )) rejected(bad)
+  }
   @Test fun ownsIndependentSecretCopiesAndClosesWithoutLoggingEnvelope() {
     val p = CoreArgonProfile.parse(profile().toByteArray())
     assertEquals("192.0.2.1",p.endpointIpv4);assertEquals(443,p.endpointPort)
