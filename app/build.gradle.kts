@@ -126,12 +126,23 @@ require(fairwayLabRequested || fairwayLabNativeName == "window") {
 val fairwayLabNativeSha = when (fairwayLabNativeName) {
   "window" -> "17d375c0b2e3b36457900227c92cee7ceb4b3c9d9ffeb1f0000c1aa9a22bf73e"
   "udp-stall" -> "33bae0e8a8007605f0e4d814c8d09c61724d876014f4d3c11adfdcafae2704d0"
+  "tcp-output" -> "c9707f6ed07640bb42b0bf119e993851a110a93334d04f7061a047219d024694"
   else -> error("Unknown reviewed Fairway lab native candidate")
 }
-val fairwayLabNativeBytes = if (fairwayLabNativeName == "window") 4_981_248L else 4_984_032L
-val fairwayLabReport = if (fairwayLabNativeName == "window") "fairway-window-native-20261020" else "fairway-udp-stall-native-20261021"
+val fairwayLabNativeBytes = when (fairwayLabNativeName) {
+  "window" -> 4_981_248L
+  "udp-stall" -> 4_984_032L
+  "tcp-output" -> 4_988_384L
+  else -> error("Unknown reviewed Fairway lab native candidate")
+}
+val fairwayLabReport = when (fairwayLabNativeName) {
+  "window" -> "fairway-window-native-20261020"
+  "udp-stall" -> "fairway-udp-stall-native-20261021"
+  "tcp-output" -> "fairway-tcp-output-native-20261021"
+  else -> error("Unknown reviewed Fairway lab native candidate")
+}
 val fairwayLabStage = layout.buildDirectory.dir(
-  if (fairwayLabNativeName == "window") "fairway-lab-runtime" else "fairway-lab-udp-stall-runtime")
+  if (fairwayLabNativeName == "window") "fairway-lab-runtime" else "fairway-lab-$fairwayLabNativeName-runtime")
 val stageFairwayLabRuntime = if (fairwayLabRequested) {
   tasks.register<StageFairwayLabRuntime>("stageFairwayLabRuntime") {
     sourceRuntime.set(rootProject.layout.projectDirectory.file(
