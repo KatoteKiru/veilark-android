@@ -45,10 +45,12 @@ class FairwayProductActivity : Activity()
 class FairwayProductStand : Instrumentation() {
   private var case = "unspecified"
   private var observeIdle = false
+  private var bypassClient = false
   override fun onCreate(arguments: Bundle?) {
     super.onCreate(arguments)
     case = arguments?.getString("case", "unspecified") ?: "unspecified"
     observeIdle = arguments?.getString("observe_idle") == "true"
+    bypassClient = arguments?.getString("bypass_client") == "true"
     start()
   }
 
@@ -91,7 +93,7 @@ class FairwayProductStand : Instrumentation() {
       } finally { bytes.fill(0); check(file.delete()) }
       check(context.getSharedPreferences("profile_meta", Context.MODE_PRIVATE).edit()
         .putString("core_routing_mode", ProfileSelection.ROUTING_RU_DIRECT)
-        .putString("application_mode", ProfileSelection.APPS_ONLY)
+        .putString("application_mode", if (bypassClient) ProfileSelection.APPS_BYPASS else ProfileSelection.APPS_ONLY)
         .putStringSet("selected_applications", setOf("uk.veilark.lab.tunclient"))
         .commit())
       stage = "START_SERVICE"
@@ -109,6 +111,7 @@ class FairwayProductStand : Instrumentation() {
         "Actual service did not apply complete native RU policy"
       }
       result.putBoolean("product_full_ru_policy_applied", true)
+      result.putString("application_mode", if (bypassClient) "bypass" else "only")
       progress.launch {
         combine(CoreBetaManager.state, TechnicalLogStore.entries) { state, entries ->
           Triple(state, entries.count { it.component == "CORE" &&
