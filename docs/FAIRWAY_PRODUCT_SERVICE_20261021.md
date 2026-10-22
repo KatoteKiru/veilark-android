@@ -1,5 +1,21 @@
 # Fairway actual product-service checkpoint — 2026-10-21
 
+## Current acceptance — 23 October
+
+The executed public HTTPS case is `product-service-96b7a5d98bbb-verification.json` in workspace `reports/fairway-common-abi-20261020`. An ordinary Android UID used the default VPN, source10.204.70.2, through the actual Core service/native55 and real Linux daemon/kernel NAT. Platform certificate and hostname validation, TLS1.3 and HTTP200 passed. Observed egress matched the server control. One native begin, zero backoffs, Stop/release and descriptor cleanup passed; the post-traffic10s sample recorded1ms process CPU and zero UID packets. Core was mapped; libbox was absent.
+
+Product APK64d5a012fbfa3ebfa9aced48eb6a8580dda09055f69faa7fbe4f3e32b4a46ff3, client APKf48a228884601afc31582d28122a48864c17db3e92315375109440db708c9d16 and native08ba3b5dfbe478de42f2319fa840b955249befc728ffc9aefa23dd9993c4df75 were installed/frozen and verified. Source archive contains209 inputs. On23October, the server endpoint/controller receipts were linked against that frozen archive. Owned server unit/cgroup/keys were removed, host inventory was unchanged, and the owned emulator was stopped.
+
+This case used an SSH carrier and temporary slirp diagnostic last-mile. It proves actual Android public HTTPS on that path, not production kernel-only WAN, native public UDP/LTE, sustained throughput/energy, original header conformity or encrypted import. Actual daemon-loss recovery was proved separately by `product-service-bf6189236f03-verification.json`; neither result proves a whole-VPS reboot. Do not repeat those unchanged cases.
+
+Release-path preparation now separates the existing testOnly lab package from an explicit private-release opt-in: `veilarkFairwayRepair=true` with `bundleVeilarkCoreBetaRuntime=true`, pinned native55, separate staging, routing/active-feedback/terminal-outcome flags, and version83/beta13. The default82/legacy8077 configuration and publishedOTA81 remain unchanged. Release configuration validation is recorded separately; no new release APK or OTA is implied. Before publication, confirm existing public server/profile compatibility and the bounded active-load gate with Vector. The production ARM64-first guard remains in force.
+
+`stageFairwayRepairRuntime` and `compilePrivateReleaseKotlin` passed with the default ARM64/ARMv7 ABI list. Generated private release fields verified DEBUG=false, FAIRWAY_LAB_ENABLED=false, the three repair flags=true, version83 and the unchanged application identity. Seven configuration cases passed: privateRelease-only task registration, rejection of malformed boolean/missing native bundle/lab/canary combinations, explicitfalse and legacy-default82 flags. New08ba staging and unchanged8077 hashes were checked. Receipt: workspace `reports/fairway-common-abi-20261020/repair-optin-config-20261023-validation.json`. No APK, runtime replay or publication was performed for this change.
+
+## Historical checkpoints below
+
+Earlier statements about unexecuted candidates and open scenarios describe their dated checkpoints; the current section above supersedes them.
+
 ## 22 October: matched55 candidate built and installed, recovery NOT yet accepted
 
 Native08ba3b5dfbe478de42f2319fa840b955249befc728ffc9aefa23dd9993c4df75/source576f218 is independently verified against all259 current+archived inputs and55 public exports, preserving all old49. New active-feedback named candidate pins5016112bytes and exactSHA; BOTH optional capability/outcome flags are true only for this testOnly lab choice. Normal product and previous choices remain unchanged.

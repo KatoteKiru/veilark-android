@@ -2,9 +2,10 @@ package com.example.veilark.core.runtime
 
 import com.example.veilark.BuildConfig
 
-/** Product acceptance fixture only; regular debug/release builds stay disabled. */
+/** A pinned repair release and the isolated acceptance package opt in separately. */
 internal object CoreFairwayIntegration {
-  val ENABLED = BuildConfig.DEBUG && BuildConfig.FAIRWAY_LAB_ENABLED
+  val ENABLED = BuildConfig.FAIRWAY_ROUTING_ENABLED ||
+    (BuildConfig.DEBUG && BuildConfig.FAIRWAY_LAB_ENABLED)
   // The pinned policy cannot change inside an attempt. Native fences both IDs.
   const val POLICY_GENERATION = 20261013L
 }
