@@ -128,6 +128,7 @@ val fairwayLabNativeSha = when (fairwayLabNativeName) {
   "udp-stall" -> "33bae0e8a8007605f0e4d814c8d09c61724d876014f4d3c11adfdcafae2704d0"
   "tcp-output" -> "c9707f6ed07640bb42b0bf119e993851a110a93334d04f7061a047219d024694"
   "terminal-outcome" -> "3a0f092a43af9d5025e4c5f52789b63fb851691b0a1a2ac7f9633179164cfc8d"
+  "active-feedback" -> "08ba3b5dfbe478de42f2319fa840b955249befc728ffc9aefa23dd9993c4df75"
   else -> error("Unknown reviewed Fairway lab native candidate")
 }
 val fairwayLabNativeBytes = when (fairwayLabNativeName) {
@@ -135,6 +136,7 @@ val fairwayLabNativeBytes = when (fairwayLabNativeName) {
   "udp-stall" -> 4_984_032L
   "tcp-output" -> 4_988_384L
   "terminal-outcome" -> 4_993_792L
+  "active-feedback" -> 5_016_112L
   else -> error("Unknown reviewed Fairway lab native candidate")
 }
 val fairwayLabReport = when (fairwayLabNativeName) {
@@ -142,6 +144,7 @@ val fairwayLabReport = when (fairwayLabNativeName) {
   "udp-stall" -> "fairway-udp-stall-native-20261021"
   "tcp-output" -> "fairway-tcp-output-native-20261021"
   "terminal-outcome" -> "core-terminal-outcome-20261021"
+  "active-feedback" -> "core-profile2-feedback-20261021"
   else -> error("Unknown reviewed Fairway lab native candidate")
 }
 val fairwayLabStage = layout.buildDirectory.dir(
@@ -268,7 +271,9 @@ android {
             buildConfigField("boolean", "CORE_BETA_RUNTIME_BUNDLED", "true")
             buildConfigField("boolean", "FAIRWAY_LAB_ENABLED", "true")
             buildConfigField("boolean", "ARGON_TERMINAL_OUTCOME_ENABLED",
-                (fairwayLabNativeName == "terminal-outcome").toString())
+                (fairwayLabNativeName in setOf("terminal-outcome", "active-feedback")).toString())
+            buildConfigField("boolean", "ARGON_ACTIVE_FEEDBACK_ENABLED",
+                (fairwayLabNativeName == "active-feedback").toString())
             buildConfigField("boolean", "SELF_UPDATE_ENABLED", "false")
         }
     }

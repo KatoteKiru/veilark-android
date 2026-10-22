@@ -493,7 +493,12 @@ class CoreBetaVpnService : VpnService() {
           reachedRunning, networkStopSucceeded.get(), callbackFailed.get(), terminalStatus,
           ticket?.releasedTerminalOutcome,
         )
-        if (!plannedNetworkRotation) attemptFailure?.let { recordArgonFailure(session, it) }
+        if (!plannedNetworkRotation) {
+          // Only the immutable cause read after Join and successful Release;
+          // current status after Stop cannot diagnose the original failure.
+          ticket?.releasedTerminalOutcome?.let { coreInfo("terminal_outcome=$it") }
+          attemptFailure?.let { recordArgonFailure(session, it) }
+        }
         val retry = CoreArgonReconnectPolicy.next(consecutiveFailures, plannedNetworkRotation)
         consecutiveFailures = retry.failureCount
         coreInfo(if (plannedNetworkRotation) "network_rotation=confirmed" else "reconnect_backoff_ms=${retry.delayMillis}")

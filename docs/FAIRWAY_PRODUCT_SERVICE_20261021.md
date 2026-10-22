@@ -1,5 +1,14 @@
 # Fairway actual product-service checkpoint — 2026-10-21
 
+## 22 October: matched55 candidate built and installed, recovery NOT yet accepted
+
+Native08ba3b5dfbe478de42f2319fa840b955249befc728ffc9aefa23dd9993c4df75/source576f218 is independently verified against all259 current+archived inputs and55 public exports, preserving all old49. New active-feedback named candidate pins5016112bytes and exactSHA; BOTH optional capability/outcome flags are true only for this testOnly lab choice. Normal product and previous choices remain unchanged.
+
+Production diagnostic now records immutable terminal outcome only after Join/Release. Lab reconnection observer requires latest actual Running after latest Begin; post-client idle observation covers completed active-feedback work. Final assemble log android-profile2-posttraffic-assemble-20261022.log PASS; actual installed APKba38a1e3205ec6337ed6f2786cc4bd207b5d61ffcf72e8941b72091f8ec581b0 on guarded VeilarkRepairAPI35 matches packaged/native hashes. Install receipt profile2-apk-install-20261022.json. This is build/install integrity, NOT connection/recovery acceptance.
+
+Vector actual Linux profile2 kernel/control52B/limiter/SIGTERM receipt passed separately. Installed Android still needs that REAL daemon, not legacy synthetic Windows peer97e. Existing isolated Linux namespace bootstrap requested; stable supervisor must keep namespace while daemon child restarts. SSH loopback-only relay script prepared/reviewed/syntax-checked, not remotely executed. No public ports/production/account/profile changes and no OTA. Do not repeat closed UID/IPv6 checks; next test is actual established-session loss, authenticated reconnection and resumed encrypted user traffic.
+
+
 ## Product repair: explicit profile V2 Android integration — 21 October
 
 Implemented Android code for Vector's additive V2 contract: nativeProfileAbiVersion()==2, nativeBeginV2(old args,routingMode,wireProfile,feedbackVersion), nativeAwaitAuthenticatedV2 output7. Schema veilark-argon-profile-v2 requires exact wire_profile object {id:2,feedback_version:1}; v1 retains its exact field set/Legacy entry. No implicit downgrade or routing-bit overloading. Import/load carry nonsecret profile metadata. Manager rejects unsupported V2 before handing over the existing VPN; direct service entry rechecks. Immutable native ticket selects the matching wait; IPv4/MTU AND authenticated2/1 are checked before Fairway configuration/TUN. Missing or mismatched V2 disposes the attempt. Outcome28/29 retained only for explicit V2 after Join/Release and do not waive failure limits. No Android poller, keepalive or wake lock added.

@@ -116,17 +116,27 @@ class FairwayProductStand : Instrumentation() {
       result.putString("application_mode", applicationMode)
       progress.launch {
         combine(CoreBetaManager.state, TechnicalLogStore.entries) { state, entries ->
+          val core = entries.filter { it.component == "CORE" }
+          val lastBegin = core.indexOfLast { Regex("(?:^| )stage=CORE_BEGIN(?: |$)").containsMatchIn(it.message) }
+          val lastRunning = core.indexOfLast { Regex("(?:^| )stage=CORE_RUNNING(?: |$)").containsMatchIn(it.message) }
           Triple(state, entries.count { it.component == "CORE" &&
             Regex("(?:^| )stage=CORE_BEGIN(?: |$)").containsMatchIn(it.message) },
-            entries.count { it.component == "CORE" && it.message.endsWith("network_rotation=confirmed") })
-        }.distinctUntilChanged().collect { (state, begins, rotations) ->
-          if (state == ConnectionState.Connected && rotations > 0) {
+            Pair(core.count { it.message.endsWith("network_rotation=confirmed") },
+              lastBegin >= 0 && lastRunning > lastBegin))
+        }.distinctUntilChanged().collect { (state, begins, progress) ->
+          val (rotations, latestAttemptRunning) = progress
+          if (state == ConnectionState.Connected && begins > 1 && latestAttemptRunning) {
             Log.i("FairwayProductLab", "PRODUCT_RECONNECTED case=$case; begins=$begins rotations=$rotations")
           }
         }
       }
+      stage = "CLIENTS"
+      Log.i("FairwayProductLab", "PRODUCT_READY case=$case; actual CoreBetaVpnService; full RU; client UID only")
+      check(stop.await(50, TimeUnit.SECONDS)) { "Independent client completion timed out" }
+      check(CoreBetaManager.state.value == ConnectionState.Connected) { "Product service terminated during clients" }
       if (observeIdle) {
-        stage = "IDLE_OBSERVATION"
+        stage = "POST_TRAFFIC_IDLE"
+        result.putBoolean("idle_after_clients", true)
         Thread.sleep(3000) // Lab-only startup settling; no product timer is added.
         val uid = Process.myUid()
         val tx = TrafficStats.getUidTxPackets(uid)
@@ -145,10 +155,6 @@ class FairwayProductStand : Instrumentation() {
         result.putBoolean("idle_cpu_below_five_percent", elapsedMs >= 10000 && cpuMs * 20 <= elapsedMs)
         check(CoreBetaManager.state.value == ConnectionState.Connected)
       }
-      stage = "CLIENTS"
-      Log.i("FairwayProductLab", "PRODUCT_READY case=$case; actual CoreBetaVpnService; full RU; client UID only")
-      check(stop.await(50, TimeUnit.SECONDS)) { "Independent client completion timed out" }
-      check(CoreBetaManager.state.value == ConnectionState.Connected) { "Product service terminated during clients" }
     } catch (error: Throwable) {
       failure = error
       result.putString("failure_stage", stage)
@@ -177,6 +183,9 @@ class FairwayProductStand : Instrumentation() {
     result.putInt("network_rotation_count", TechnicalLogStore.entries.value.count {
       it.component == "CORE" && it.message.endsWith("network_rotation=confirmed")
     })
+    result.putString("native_terminal_outcomes", TechnicalLogStore.entries.value
+      .filter { it.component == "CORE" && Regex("(?:^| )terminal_outcome=[0-9]+(?: |$)").containsMatchIn(it.message) }
+      .joinToString(";") { it.message })
     result.putString("service_stages", TechnicalLogStore.entries.value
       .filter { it.component == "CORE" }.flatMap {
         Regex("(?:stage|native_status|native_reason)=[A-Za-z0-9_()/+\\-]+").findAll(it.message).map { match -> match.value }.toList()
