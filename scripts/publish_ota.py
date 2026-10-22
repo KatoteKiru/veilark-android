@@ -481,7 +481,10 @@ def main() -> None:
         backup_name = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ") + "-" + uuid.uuid4().hex[:8]
         backup_dir = f"/var/backups/veilark/android/before-{args.version_code}-{backup_name}"
         previous_apk = f"{remote_dir}/veilark-{live_manifest['versionName']}.apk"
-        if remote_sha256(client, previous_apk) != live_manifest["sha256"]:
+        # Legacy signed manifests may encode the same digest in uppercase.
+        # Normalize only for byte comparison; retain the signed manifest as-is.
+        previous_sha256 = str(live_manifest["sha256"]).lower()
+        if remote_sha256(client, previous_apk) != previous_sha256:
             raise RuntimeError("Previous live APK does not match its signed manifest")
         _, stdout, stderr = client.exec_command(
             f"install -d -m 0700 -- {shlex.quote(backup_dir)} && "
@@ -491,7 +494,7 @@ def main() -> None:
         )
         if stdout.channel.recv_exit_status() != 0:
             raise RuntimeError("Mandatory OTA rollback snapshot failed")
-        if remote_sha256(client, backup_dir + "/previous.apk") != live_manifest["sha256"]:
+        if remote_sha256(client, backup_dir + "/previous.apk") != previous_sha256:
             raise RuntimeError("OTA rollback APK verification failed")
         sftp = client.open_sftp()
         try:
