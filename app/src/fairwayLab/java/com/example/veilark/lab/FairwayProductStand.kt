@@ -186,6 +186,9 @@ class FairwayProductStand : Instrumentation() {
     result.putString("native_terminal_outcomes", TechnicalLogStore.entries.value
       .filter { it.component == "CORE" && Regex("(?:^| )terminal_outcome=[0-9]+(?: |$)").containsMatchIn(it.message) }
       .joinToString(";") { it.message })
+    result.putString("attempt_cleanup_diagnostics", TechnicalLogStore.entries.value
+      .filter { it.component == "CORE" && Regex("(?:^| )attempt_cleanup=[0-9]+(?: |$)").containsMatchIn(it.message) }
+      .takeLast(8).joinToString(";") { it.message })
     result.putString("service_stages", TechnicalLogStore.entries.value
       .filter { it.component == "CORE" }.flatMap {
         Regex("(?:stage|native_status|native_reason)=[A-Za-z0-9_()/+\\-]+").findAll(it.message).map { match -> match.value }.toList()

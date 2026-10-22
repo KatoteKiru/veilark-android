@@ -356,8 +356,10 @@ class CoreBetaVpnService : VpnService() {
       }
       val peer = ipv4(profile.endpointIpv4) as Inet4Address
       var consecutiveFailures = 0
+      var attemptOrdinal = 0L
       while (true) {
         currentCoroutineContext().ensureActive()
+        if (attemptOrdinal < Long.MAX_VALUE) attemptOrdinal++
         publish(session, ConnectionState.Connecting)
         var ticket: CoreArgonHandleTicket? = null
         val networkStopSucceeded = AtomicBoolean(false)
@@ -481,6 +483,25 @@ class CoreBetaVpnService : VpnService() {
           // Cleanup must succeed before another native owner can be admitted.
           val released = runCatching { session.argonLifecycle.stopAndRelease(ticket) }.getOrDefault(false)
           val closed = closeTracked(originals)
+          // Event-local attribution only. Never log exception messages, profile
+          // data, addresses or Android Network IDs; no polling/timer is added.
+          val argonFailure = attemptFailure as? CoreArgonFailure
+          val errorKind = when (attemptFailure) {
+            null -> "none"
+            is CoreArgonFailure -> "argon"
+            is ErrnoException -> "errno"
+            else -> "other"
+          }
+          val errorCode = argonFailure?.code ?: (attemptFailure as? ErrnoException)?.errno?.toLong()
+          val errorOperation = argonFailure?.operation?.takeIf {
+            it in setOf("begin", "wait", "status", "attach", "attach_dns", "network_stop")
+          } ?: "none"
+          val phase = session.diagnosticStage.takeIf { it.matches(Regex("[A-Z0-9_]{1,48}")) } ?: "UNKNOWN"
+          coreInfo("attempt_cleanup=$attemptOrdinal reached_running=$reachedRunning " +
+            "released_outcome=${ticket?.releasedTerminalOutcome} phase=$phase " +
+            "error_kind=$errorKind error_op=$errorOperation error_code=$errorCode " +
+            "physical_stop=${networkStopSucceeded.get()} callback_failed=${callbackFailed.get()} " +
+            "observed_terminal=$terminalStatus cleanup_released=$released descriptors_closed=$closed")
           // A failed replacement close retains more than one Java TUN. End
           // this worker and hand every descriptor to final/late cleanup.
           if (!released || !closed || tunnels.size > 1) {
