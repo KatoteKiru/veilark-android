@@ -14,8 +14,8 @@ The receiver accepts exactly this suite, never algorithms chosen by the sender.
 This deliberately proposes one refinement to the older carrier-host draft:
 standard JWS signs its encoded protected header and payload, without a custom
 prefix. Purpose separation instead uses a dedicated issuer key, an exact signed
-`typ`, and an exact signed payload purpose. Vector must accept that refinement
-before freezing bytes. Appending a custom prefix while calling it standard JWS
+`typ`, and an exact signed payload purpose. Vector accepted that refinement;
+the remaining lifecycle gates still precede byte freeze. Appending a custom prefix while calling it standard JWS
 would be incorrect. A separately designed prefix format is not a second fallback.
 Vector accepted this refinement in the joint review; lifecycle/bootstrap and
 matched-consumer gates below still prevent byte freeze or activation.
@@ -58,7 +58,8 @@ is that exact origin/path prefix plus `hex(decodedLocator) + ".jwe"`, lower-case
 64-character hex. Legacy `hex(token) + ".json"` remains untouched. `.jwe` and
 `.json` are distinct immutable objects; never try one when the other fails.
 This is a concrete candidate using the existing delivery origin, not a deployed
-route/file. Vector must jointly accept this mapping before implementation.
+route/file. Vector accepted this exact mapping for the draft operator pilot;
+that is not public activation or permission to overwrite legacy files.
 The 32-byte delivery key stays in the app: never attach it to HTTP, Referer,
 redirects, analytics, exception messages or browser navigation. No redirects,
 automatic cross-origin fallback, WebView or third-party QR service. A browser
@@ -74,6 +75,16 @@ from the delivery key after issuance, including logs and backups; any re-display
 feature must explicitly account for key retention rather than claim zero knowledge.
 
 ### Issuance transaction proposed for backend review
+
+Initial pilot scope is a manually invoked authenticated operator publisher only.
+It must explicitly authorize the local operator, create a new immutable object,
+read back its exact SHA-256, and keep a durable request/revision receipt for crash
+recovery. This does not assume a customer API, identity database or key vault.
+The customer-API transaction below is a future extension, not a pilot prerequisite
+implemented by merely renaming the current static publisher. The pilot must
+either implement bounded protected recovery custody or report issued/key
+unavailable and require explicit reissue with a higher revision. Never silently
+regenerate a key or object under the same locator/revision after a crash.
 
 An authenticated owner requests issuance using a random request ID. A unique
 `(owner,request_id)` record binds the exact normalized request digest; retries
@@ -204,8 +215,9 @@ managed-memory zeroization is best effort, never promise perfect key erasure.
 ## Review decisions and implementation gate
 
 Vector conditionally accepted composition, the standard JWS purpose refinement,
-and the explicit portable-bearer model. Still to jointly freeze: initial single
-origin/path and schema allowlist; 30-day import window/renewal and independent
+the explicit portable-bearer model, and the exact single-origin `.jwe` mapping for
+an authenticated manual operator pilot. Still to jointly freeze: schema allowlist,
+operator authorization/crash journal and recovery custody policy; 30-day import window/renewal and independent
 backend session entitlement; bootstrap/key rotation; transactional issue/revoke
 and temporary key-retention behavior. No production producer/consumer is enabled.
 Issuer rotation ships authenticated app trust-map changes before issuing new
