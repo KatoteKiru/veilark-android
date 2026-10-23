@@ -52,6 +52,11 @@ The dedicated `Enrollment operator Linux storage` CI runs those tests in a fresh
 Ubuntu worker using temporary synthetic profiles and keys, with no production
 secrets, SSH, public routes or OTA publication.
 
+Linux CI acceptance completed for commit `ce1d8c8`: all nine cases ran under real
+Linux root, with no skips, in a disposable worker. Run and raw step output:
+https://github.com/KatoteKiru/veilark-android/actions/runs/40007201346 .
+This accepts local staging/permissions, not live publication or Android runtime.
+
 The app's production issuer registry remains EMPTY. Until the separate issuer
 bootstrap and real transport/device acceptance are complete, the new import fails
 closed before network access. This is integrated source, not a usable issued
