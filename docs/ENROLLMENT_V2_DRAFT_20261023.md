@@ -376,8 +376,9 @@ publisher or OTA activated. Published83 and existing server unchanged.
 
 Next: isolated fixed-origin, no-redirect bounded JWE retrieval and secure facade
 integration, then authenticated issuer bootstrap and operator publication gates.
-Cleanup of owned emulator-5584 / Veilark_Enrollment_20261023 remains unconfirmed:
-an earlier final ADB request failed automatic approval because of reviewer quota,
-not an unsafe-action verdict. Do not bypass that failed check. Source closeout
-continues independently. Vector chat resume RPC failed with no active turn id;
-the shared Atlas-to-Vector handoff carries this status.
+Source fix and platform tests committed and pushed as ca6623e. Later approval
+review succeeded: owned emulator stopped, absence in ADB verified, only its two
+transient AVD directories removed; frozen APKs and logs preserved. Earlier review
+quota failure did not affect the application result. Vector chat resume RPC twice
+returned "Cannot steer conversation without an active turn id"; message was NOT
+delivered. Shared Atlas-to-Vector handoff is updated; no claim Vector resumed.
