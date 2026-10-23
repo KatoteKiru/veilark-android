@@ -57,7 +57,22 @@ Linux root, with no skips, in a disposable worker. Run and raw step output:
 https://github.com/KatoteKiru/veilark-android/actions/runs/40007201346 .
 This accepts local staging/permissions, not live publication or Android runtime.
 
-The app's production issuer registry remains EMPTY. Until the separate issuer
-bootstrap and real transport/device acceptance are complete, the new import fails
-closed before network access. This is integrated source, not a usable issued
-subscription or release approval. Published OTA83 remains unchanged.
+The candidate registry now pins the dedicated public issuer key recorded in
+`docs/keys/enrollment-20261023-01.json`. Its private key was generated under
+pinned-host SSH and remains root-only on the existing delivery host; it was not
+exported into the repository, APK, or local reports. Rotation requires a new
+authenticated application release. This pin is not present in published OTA83.
+
+A synthetic, non-connectable RFC5737 profile has been issued into private staging.
+Actual HTTPS publication and VIEW/import/delete/restore instrumentation remain
+pending explicit authorization for that test object and its emulator recipient.
+The candidate/test APKs compile and are installed only on an owned API35 emulator.
+No live HTTPS/UI acceptance, customer profile issuance, or release approval is
+claimed. Published OTA83 and existing subscriptions remain unchanged.
+
+The delivery host now applies a narrow Nginx rule for exact 64-lowercase-hex JWE
+paths: file-only lookup and access events with a constant redacted URI, without
+raw locator or Referer. Other downloads retain their existing behavior. Nginx
+configuration validation and graceful worker reload passed; actual HTTP log
+redaction remains to be verified during the authorized transport test. An exact
+root-only configuration backup is retained on the host.

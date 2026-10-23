@@ -1,0 +1,6 @@
+{
+  "issuer": "veilark-core",
+  "kid": "enrollment-20261023-01",
+  "spki_der_base64": "MCowBQYDK2VwAyEARP69gvw/EZJASqhvG9OQkiwpS+LJYlP+EbHjMXXY2fw=",
+  "spki_sha256": "57b5a09276a99ab88a43593d719020de59c64fff434bef822056a584aa38b95e"
+}

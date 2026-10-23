@@ -3,16 +3,23 @@ package com.example.veilark.profile
 import android.content.Context
 import java.io.File
 import java.io.RandomAccessFile
+import java.util.Base64
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-/** Unactivated production trust boundary. No caller-supplied key map or verified flag.
+/** Candidate release trust boundary. No caller-supplied key map or verified flag.
  * Only a separately authenticated app release may populate this registry; NOT remote data.
- * No UI, engine selection or automatic raw-profile migration calls this facade.
+ * The stopped-state import manager calls this facade. Import does not switch the
+ * engine, start VPN, or automatically migrate an existing raw profile.
  */
 internal object EnrollmentV2Store {
   private const val ERROR = "Protected enrollment is unavailable."
-  private val releaseIssuerKeys: Map<Pair<String, String>, ByteArray> = emptyMap()
+  // Dedicated issuer, created under pinned SSH with root-only custody. Private key
+  // never enters this repository or APK. Rotation requires an authenticated app release.
+  private val releaseIssuerKeys: Map<Pair<String, String>, ByteArray> = mapOf(
+    ("veilark-core" to "enrollment-20261023-01") to Base64.getDecoder().decode(
+      "MCowBQYDK2VwAyEARP69gvw/EZJASqhvG9OQkiwpS+LJYlP+EbHjMXXY2fw="),
+  )
 
   fun isCanonicalLink(link: String): Boolean = EnrollmentV2Fetcher.isCanonicalLink(link)
 
