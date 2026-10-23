@@ -3,6 +3,8 @@ package com.example.veilark.profile
 /** Shared unchanged strict JSON lexer; semantic schemas remain separate. */
 internal object CoreProfileJson {
   fun parse(input: String): Any? = StrictJson(input).parse()
+  /** Import discriminator only: validate structure without building generic config trees. */
+  fun topLevelSchema(input: String): String? = StrictJson(input).topLevelSchema()
     fun validUnicode(value: String): Boolean {
       var i = 0
       while (i < value.length) {
@@ -24,6 +26,61 @@ internal object CoreProfileJson {
         space()
         check(at == input.length)
         return value
+      }
+      fun topLevelSchema(): String? {
+        space(); check(take('{'))
+        var schema: String? = null
+        var seenSchema = false
+        space()
+        if (!take('}')) {
+          do {
+            space(); val key = string(); space(); check(take(':')); space()
+            if (key == "schema") {
+              check(!seenSchema); seenSchema = true
+              if (at < input.length && input[at] == '"') schema = string() else skipValue()
+            } else skipValue()
+            space()
+          } while (take(','))
+          check(take('}'))
+        }
+        space(); check(at == input.length)
+        return schema
+      }
+
+      /** Same tokens as parse(), with iterative container states and no generic depth limit. */
+      private fun skipValue() {
+        // Object: 0 first key/end, 1 required key, 2 colon/value, 3 comma/end.
+        // Array: 4 first value/end, 5 required value, 6 comma/end.
+        val states = java.util.ArrayDeque<Int>()
+        fun token() {
+          space(); check(at < input.length)
+          when (input[at]) {
+            '{' -> { at++; states.addLast(0) }
+            '[' -> { at++; states.addLast(4) }
+            '"' -> string()
+            't' -> literal("true")
+            'f' -> literal("false")
+            'n' -> literal("null")
+            else -> number()
+          }
+        }
+        token()
+        while (states.isNotEmpty()) {
+          space()
+          when (val state = states.removeLast()) {
+            0, 1 -> {
+              if (state == 0 && take('}')) continue
+              string(); states.addLast(2)
+            }
+            2 -> { check(take(':')); states.addLast(3); token() }
+            3 -> if (take(',')) states.addLast(1) else check(take('}'))
+            4, 5 -> {
+              if (state == 4 && take(']')) continue
+              states.addLast(6); token()
+            }
+            6 -> if (take(',')) states.addLast(5) else check(take(']'))
+          }
+        }
       }
       private fun space() { while (at < input.length && input[at] in " \t\r\n") at++ }
       private fun value(depth: Int): Any? {

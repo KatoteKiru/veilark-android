@@ -184,6 +184,7 @@ import com.example.veilark.BuildConfig
 import com.example.veilark.R
 import com.example.veilark.diagnostics.TechnicalLogEntry
 import com.example.veilark.profile.ConnectionNode
+import com.example.veilark.profile.CoreProfileKind
 import com.example.veilark.profile.InstalledApp
 import com.example.veilark.profile.InstalledAppLoader
 import com.example.veilark.profile.ProfileSelection
@@ -3254,10 +3255,11 @@ private fun ImportDialog(
               if (importing) R.string.profile_importing else R.string.profile_import,
             ),
             confirmIcon = Icons.Rounded.FileDownload,
-            confirmEnabled = !importing && (subscriptionUrl.contains("://") ||
-              (subscriptionUrl.trimStart().startsWith("{") &&
-                (subscriptionUrl.contains("veilark-core-beta-profile-v1") ||
-                  subscriptionUrl.contains("veilark-argon-profile-v1")))),
+            confirmEnabled = !importing && remember(subscriptionUrl) {
+              subscriptionUrl.contains("://") || runCatching {
+                CoreProfileKind.classifyImport(subscriptionUrl.toByteArray(Charsets.UTF_8)) != null
+              }.getOrDefault(false)
+            },
             loading = importing,
             onConfirm = onImportUrl,
           )

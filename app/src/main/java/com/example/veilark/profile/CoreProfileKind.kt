@@ -13,6 +13,25 @@ enum class CoreProfileKind(val preferenceValue: String) {
     private const val CHOICE_ERROR = "Invalid Veilark Core profile selection."
     private const val MAX_BYTES = 16 * 1024
 
+    /** Null means another import format, never a failed reserved Core schema. */
+    fun classifyImport(payload: ByteArray): CoreProfileKind? {
+      try {
+        val text = Charsets.UTF_8.newDecoder()
+          .onMalformedInput(CodingErrorAction.REPORT)
+          .onUnmappableCharacter(CodingErrorAction.REPORT)
+          .decode(ByteBuffer.wrap(payload)).toString()
+        // Generic import already handles BOMs. Core validation still sees original bytes.
+        val probe = text.removePrefix("\uFEFF")
+        val first = probe.indexOfFirst { it !in " \t\r\n" }
+        if (first < 0 || probe[first] != '{') return null
+        val schema = CoreProfileJson.topLevelSchema(probe) ?: return null
+        if (!schema.startsWith("veilark-core-") && !schema.startsWith("veilark-argon-")) return null
+        return recognize(payload)
+      } catch (_: Exception) {
+        throw IllegalArgumentException(ERROR)
+      }
+    }
+
     /** Missing explicit choices never fall back to a different identity. */
     fun resolve(saved: Any?, legacyExists: Boolean, argonExists: Boolean): CoreProfileKind? {
       val choice = when (saved) {

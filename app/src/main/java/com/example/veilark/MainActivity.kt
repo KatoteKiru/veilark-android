@@ -59,6 +59,7 @@ import com.example.veilark.vpn.LatencyMonitor
 import com.example.veilark.vpn.EndpointLatencyProbe
 import com.example.veilark.io.readAtMost
 import com.example.veilark.profile.CoreProfileStore
+import com.example.veilark.profile.CoreProfileKind
 import com.example.veilark.core.runtime.CoreBetaManager
 import com.example.veilark.core.runtime.CoreL3DnsPolicy
 import com.example.veilark.core.runtime.CoreRoutingPlan
@@ -585,8 +586,7 @@ class MainActivity : ComponentActivity() {
       }
 
       suspend fun importCorePayload(payload: ByteArray): Boolean {
-        val text = payload.toString(Charsets.UTF_8)
-        if (!text.contains("veilark-core-beta-profile-v1") && !text.contains("veilark-argon-profile-v1")) return false
+        if (CoreProfileKind.classifyImport(payload) == null) return false
         check(coreConnectionState == ConnectionState.Disconnected || coreConnectionState == ConnectionState.Failed) {
           getString(R.string.engine_switch_disconnect_first)
         }
