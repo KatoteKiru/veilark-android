@@ -285,7 +285,7 @@ acceptance, authenticated trust bootstrap and gated caller integration remain
 before activation. No APK/OTA or
 current-profile/server change follows from this source step.
 
-### Isolated record store implemented; platform acceptance pending
+### Isolated record store implemented; scoped platform results below
 
 `EnrollmentV2RecordStore.kt` now keeps profile, verified provenance, signed-content
 digest and highest revision in ONE bounded private binary record. Same content/
@@ -355,3 +355,29 @@ confirmed no live server/credential/lookup/NAT changes during source fairness wo
 - [RFC8725](https://www.rfc-editor.org/rfc/rfc8725.html), sections 3.1/3.3/3.11:
   fixed algorithm policy, validation of both nested operations and explicit typing.
   This is not a JWT authentication token; those defensive composition rules apply.
+
+## 2026-10-23 Android platform storage closeout
+
+Closed Vector P2: public SecureProfileStore exists/save/load/delete accept only
+the original six legacy IDs. Enrollment bytes use dedicated internal methods;
+encrypt/decrypt are private. Generic delete cannot erase the enrollment revision
+floor. Existing format, paths and legacy alias remain compatible.
+
+Seven actual API35 x86_64 emulator instrumentation cases PASS: real Keystore and
+encrypted record roundtrip; four generic API rejections; corrupt ciphertext
+fail-closed; AtomicFile failWrite and backup artifacts; independent old formatter
+and decoder with current CoreArgonProfileStore; separate OS-process lock; persist
+and reopen across different process IDs 4488 -> 4545. Private release Kotlin
+compilation PASS. Independent bounded source review found no concrete error.
+Evidence: C:/AI-Agent/reports/enrollment-platform-20261023/verification.json,
+raw logs and frozen test-only APKs. Not physical-device/VPN traffic/power-cut/TEE
+acceptance. Registry remains EMPTY; no production handler, network, issuer keys,
+publisher or OTA activated. Published83 and existing server unchanged.
+
+Next: isolated fixed-origin, no-redirect bounded JWE retrieval and secure facade
+integration, then authenticated issuer bootstrap and operator publication gates.
+Cleanup of owned emulator-5584 / Veilark_Enrollment_20261023 remains unconfirmed:
+an earlier final ADB request failed automatic approval because of reviewer quota,
+not an unsafe-action verdict. Do not bypass that failed check. Source closeout
+continues independently. Vector chat resume RPC failed with no active turn id;
+the shared Atlas-to-Vector handoff carries this status.

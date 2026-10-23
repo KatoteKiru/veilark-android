@@ -19,15 +19,30 @@ object SecureProfileStore {
   const val CORE_BETA = "veilark-core-beta-profile"
   const val CORE_ARGON = "veilark-argon-profile"
 
-  fun exists(context: Context, id: String): Boolean = encryptedFile(context, id).isFile
+  fun exists(context: Context, id: String): Boolean {
+    requireLegacyId(id)
+    return encryptedFile(context, id).isFile
+  }
 
   fun save(context: Context, id: String, plaintext: String) {
+    requireLegacyId(id)
     val bytes = plaintext.toByteArray(Charsets.UTF_8)
-    try { saveBytes(context, id, bytes) } finally { bytes.fill(0) }
+    try { encryptBytes(context, id, bytes) } finally { bytes.fill(0) }
+  }
+
+  /** Enrollment backend only: caller must hold its transaction lock. No generic delete API. */
+  internal fun saveEnrollmentBytes(context: Context, id: String, plaintext: ByteArray) {
+    require(isEnrollmentRecord(id)) { "Неизвестный тип профиля" }
+    encryptBytes(context, id, plaintext)
+  }
+
+  internal fun loadEnrollmentBytes(context: Context, id: String): ByteArray {
+    require(isEnrollmentRecord(id)) { "Неизвестный тип профиля" }
+    return decryptBytes(context, id)
   }
 
   /** Borrowed input; caller retains ownership. Existing encrypted format/AAD unchanged. */
-  internal fun saveBytes(context: Context, id: String, plaintext: ByteArray) {
+  private fun encryptBytes(context: Context, id: String, plaintext: ByteArray) {
     val destination = encryptedFile(context, id) // Validate identity before touching the key.
     val cipher = Cipher.getInstance(TRANSFORMATION)
     cipher.init(Cipher.ENCRYPT_MODE, getOrCreateKey(id))
@@ -50,13 +65,14 @@ object SecureProfileStore {
   }
 
   fun load(context: Context, id: String): String {
-    val plaintextBytes = loadBytes(context, id)
+    requireLegacyId(id)
+    val plaintextBytes = decryptBytes(context, id)
     return try { plaintextBytes.toString(Charsets.UTF_8) }
       finally { plaintextBytes.fill(0) }
   }
 
   /** Returns owned decrypted bytes; caller must erase after use. Reads never create keys. */
-  internal fun loadBytes(context: Context, id: String): ByteArray {
+  private fun decryptBytes(context: Context, id: String): ByteArray {
     val payload = AtomicFile(encryptedFile(context, id)).readFully()
     require(payload.size > 2 && payload[0] == FORMAT_VERSION) {
       "Формат защищённого профиля не поддерживается"
@@ -75,7 +91,10 @@ object SecureProfileStore {
     return cipher.doFinal(payload.copyOfRange(2 + ivSize, payload.size))
   }
 
-  fun delete(context: Context, id: String): Boolean = encryptedFile(context, id).delete()
+  fun delete(context: Context, id: String): Boolean {
+    requireLegacyId(id)
+    return encryptedFile(context, id).delete()
+  }
 
   fun migrateLegacy(context: Context) {
     migrate(context, SING_BOX, File(context.filesDir, "profiles/active.json"))
@@ -107,6 +126,12 @@ object SecureProfileStore {
 
   private fun isEnrollmentRecord(id: String): Boolean =
     id.matches(Regex("veilark-enrollment-v2-[0-9a-f]{64}"))
+
+  private fun requireLegacyId(id: String) {
+    require(id in setOf(SING_BOX, TRUST_TUNNEL, SING_BOX_CATALOG, TRUST_TUNNEL_CATALOG, CORE_BETA, CORE_ARGON)) {
+      "Неизвестный тип профиля"
+    }
+  }
 
   private fun getOrCreateKey(id: String): SecretKey {
     val alias = keyAlias(id)

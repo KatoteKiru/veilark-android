@@ -45,7 +45,9 @@ internal object EnrollmentV2Store {
    * One common lock also serializes first creation of the dedicated enrollment key.
    * Imports are occasional IO work; this never participates in packet forwarding.
    */
-  private class AndroidBackend(private val context: Context) : EnrollmentV2RecordStore.Backend {
+  // Storage primitive only, NOT issuer authority. Production imports go through the
+  // facade above; module visibility allows real platform tests without key-map overrides.
+  internal class AndroidBackend(private val context: Context) : EnrollmentV2RecordStore.Backend {
     override fun <T> transaction(recordKey: String, action: (EnrollmentV2RecordStore.Transaction) -> T): T =
       synchronized(processLock) {
         val destination = SecureProfileStore.profileFile(context.noBackupFilesDir, recordKey)
@@ -65,14 +67,14 @@ internal object EnrollmentV2Store {
                   }
                   // An uncommitted initial .new is not a durable revision floor.
                   if (!destination.exists() && !backup.exists()) return null
-                  return SecureProfileStore.loadBytes(context, recordKey).also {
+                  return SecureProfileStore.loadEnrollmentBytes(context, recordKey).also {
                     if (it.size > MAX_RECORD_BYTES) { it.fill(0); error(ERROR) }
                   }
                 }
 
                 override fun write(record: ByteArray) {
                   check(record.size in 1..MAX_RECORD_BYTES) { ERROR }
-                  SecureProfileStore.saveBytes(context, recordKey, record)
+                  SecureProfileStore.saveEnrollmentBytes(context, recordKey, record)
                   // A thrown readback may follow a committed write. The engine always
                   // rereads on retry and must never assume exception == rollback.
                   val readback = read() ?: error(ERROR)
