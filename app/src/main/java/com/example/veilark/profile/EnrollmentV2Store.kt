@@ -8,11 +8,21 @@ import kotlinx.coroutines.withContext
 
 /** Unactivated production trust boundary. No caller-supplied key map or verified flag.
  * Only a separately authenticated app release may populate this registry; NOT remote data.
- * No UI, fetcher, engine selection or automatic raw-profile migration calls this facade.
+ * No UI, engine selection or automatic raw-profile migration calls this facade.
  */
 internal object EnrollmentV2Store {
   private const val ERROR = "Protected enrollment is unavailable."
   private val releaseIssuerKeys: Map<Pair<String, String>, ByteArray> = emptyMap()
+
+  /** Dormant import pipeline. Reject before network IO until release trust is installed.
+   * The delivery key stays in [link]; only the locator reaches the fixed-origin fetcher.
+   */
+  suspend fun importLink(context: Context, link: String): EnrollmentV2RecordStore.ImportResult {
+    check(releaseIssuerKeys.isNotEmpty()) { ERROR }
+    val ciphertext = EnrollmentV2Fetcher.fetch(link)
+    try { return import(context, link, ciphertext) }
+    finally { ciphertext.fill(0) }
+  }
 
   suspend fun import(context: Context, link: String, ciphertext: ByteArray): EnrollmentV2RecordStore.ImportResult =
     withContext(Dispatchers.IO) {

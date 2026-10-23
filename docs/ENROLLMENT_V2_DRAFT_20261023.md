@@ -382,3 +382,33 @@ transient AVD directories removed; frozen APKs and logs preserved. Earlier revie
 quota failure did not affect the application result. Vector chat resume RPC twice
 returned "Cannot steer conversation without an active turn id"; message was NOT
 delivered. Shared Atlas-to-Vector handoff is updated; no claim Vector resumed.
+
+## 2026-10-23 isolated enrollment retrieval and facade
+
+Implemented EnrollmentV2Fetcher and dormant EnrollmentV2Store.importLink.
+Canonical 111-byte URI maps only its locator to the existing fixed HTTPS origin
+and lower-case hex .jwe path. Delivery key never enters URL, HTTP headers or
+worker request. No redirects, fallback, cache or transparent decompression;
+bounded ASCII compact-JWE body (65536 bytes), 5s connect/read and 15s caller wait.
+Single-flight stays occupied until network and disconnect actually end, including
+blocked resolver/provider calls. Two bounded daemon workers expire after idle;
+no timer keepalive or data-plane work. Errors redact input/provider causes and
+coroutine cancellation is preserved. Caller-owned ciphertext is erased after
+verification/store attempt. EMPTY private issuer registry rejects before fetch.
+
+Ten focused JVM HTTPS-boundary cases PASS plus privateRelease Kotlin compilation;
+no old green suites repeated. Receipt and XML/build logs:
+C:/AI-Agent/reports/enrollment-fetch-20261023/verification.json.
+Tests inject fake HTTPS connections: NOT live TLS, Android DNS/provider, phone,
+publisher or OTA acceptance. Initial compile caught unsupported Android
+Authenticator.getDefault; removed, no reflection/global mutation. Official API:
+https://developer.android.com/reference/java/net/Authenticator . CookieHandler
+configuration fails closed; auth headers blank. App currently installs no VM-wide
+Authenticator. If that changes, isolate this HTTP client before activating it;
+blank headers are not independent isolation from a global authenticator.
+
+Next: review/manual operator issuer and immutable publication flow, authenticated
+release trust bootstrap, then gated UI import/QR wiring and real transport test.
+No real issuer keys, publisher objects, public routes, profile changes or new OTA.
+Published83 and legacy links remain unchanged. Vector resume RPC failure remains
+unresolved; shared handoff updated, no claim of delivery or resumed work.
