@@ -177,8 +177,7 @@ class CoreBetaVpnService : VpnService() {
         val snapshot = getSharedPreferences("profile_meta", MODE_PRIVATE).all.mapValues { (_, value) ->
           if (value is Set<*>) value.toSet() else value
         }
-        val kind = checkNotNull(CoreProfileKind.resolve(snapshot["core_profile_kind"],
-          CoreBetaProfileStore.exists(this), CoreArgonProfileStore.exists(this)))
+        val kind = checkNotNull(CoreProfileStore.selectedKind(this))
         kind to snapshot
       }
       selected = admission.first
@@ -338,7 +337,7 @@ class CoreBetaVpnService : VpnService() {
       stage(session, "CORE_NATIVE_LOAD")
       check(VeilarkArgonNative.isAbiAvailable())
       stage(session, "CORE_PROFILE_STORE")
-      val profile = CoreArgonProfileStore.load(this)
+      val profile = CoreProfileStore.loadSelectedArgon(this)
       loadedProfile = profile
       // Defence in depth for direct service entry; the manager checks this
       // before handing over an existing VPN. A v2 profile cannot downgrade.

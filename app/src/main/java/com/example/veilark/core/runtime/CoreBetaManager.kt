@@ -9,6 +9,7 @@ import com.example.veilark.BuildConfig
 import com.example.veilark.lifecycle.AndroidTunnelLifecycleOwner
 import com.example.veilark.lifecycle.LifecycleAttempt
 import com.example.veilark.profile.CoreProfileStore
+import com.example.veilark.profile.EnrollmentV2Store
 import com.example.veilark.profile.CoreProfileKind
 import com.example.veilark.R
 import com.example.veilark.vpn.ConnectionState
@@ -73,6 +74,15 @@ object CoreBetaManager {
       CoreProfileStore.import(context, payload)
     }
     finally { startCommands.resume() }
+  }
+
+  suspend fun importEnrollmentWhenStopped(context: Context, link: String) = withContext(Dispatchers.IO) {
+    startCommands.pauseWhen { mutableStopped.value }
+    try {
+      mutableState.value = ConnectionState.Disconnected
+      mutableFailure.value = null
+      EnrollmentV2Store.importSelectedLink(context, link)
+    } finally { startCommands.resume() }
   }
 
   /** Recheck before owner handover. Service dispatches each kind to its own JNI. */

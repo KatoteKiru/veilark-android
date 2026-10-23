@@ -10,8 +10,8 @@ import java.util.Base64
 /**
  * Validates Veilark-owned import intents before they reach the subscription parser.
  *
- * The app deliberately accepts only the two import payload families it can process:
- * an HTTPS subscription URL or a protocol-native TrustTunnel link.  Keeping this
+ * The app accepts HTTPS subscriptions, native TrustTunnel links and the canonical
+ * protected enrollment envelope. Keeping this
  * boundary separate from the parser makes exported intent handling easy to test and
  * prevents arbitrary URI schemes, userinfo, or oversized intent extras from entering
  * the import flow.
@@ -36,6 +36,9 @@ internal object ImportDeepLink {
 
   /** Pure URI boundary used by the Android intent adapter and local regression tests. */
   internal fun parseUri(raw: String): String? {
+    // Preserve the complete bearer envelope for the dedicated local verifier;
+    // never unwrap its key into a URL or treat it as a legacy import token.
+    if (EnrollmentV2Store.isCanonicalLink(raw)) return raw
     return parseEnvelope(raw)?.let(::validatePayload)
   }
 
@@ -130,6 +133,7 @@ internal object ImportDeepLink {
     ) {
       return null
     }
+    if (EnrollmentV2Store.isCanonicalLink(value)) return value
     val unwrapped = if (value.startsWith("$SCHEME://", ignoreCase = true)) {
       parseEnvelope(value) ?: return null
     } else {

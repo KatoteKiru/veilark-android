@@ -14,6 +14,22 @@ internal object EnrollmentV2Store {
   private const val ERROR = "Protected enrollment is unavailable."
   private val releaseIssuerKeys: Map<Pair<String, String>, ByteArray> = emptyMap()
 
+  fun isCanonicalLink(link: String): Boolean = EnrollmentV2Fetcher.isCanonicalLink(link)
+
+  /** Explicit user import selects the Core source, not the engine and never starts VPN. */
+  suspend fun importSelectedLink(context: Context, link: String): CoreProfileMetadata {
+    check(releaseIssuerKeys.isNotEmpty()) { ERROR }
+    val ciphertext = EnrollmentV2Fetcher.fetch(link)
+    try {
+      return withContext(Dispatchers.IO) {
+        EnrollmentV2DraftConsumer.verify(link, ciphertext, releaseIssuerKeys, epochSeconds()).use { verified ->
+          store(context).import(verified, ::epochSeconds)
+          CoreProfileStore.selectEnrollment(context, verified.issuer, verified.profileId)
+        }
+      }
+    } finally { ciphertext.fill(0) }
+  }
+
   /** Dormant import pipeline. Reject before network IO until release trust is installed.
    * The delivery key stays in [link]; only the locator reaches the fixed-origin fetcher.
    */
@@ -33,15 +49,25 @@ internal object EnrollmentV2Store {
     }
 
   suspend fun load(context: Context, issuer: String, profileId: String): EnrollmentV2RecordStore.StoredRecord? =
-    withContext(Dispatchers.IO) {
+    withContext(Dispatchers.IO) { loadBlocking(context, issuer, profileId) }
+
+  /** Service/metadata callers already use the existing profile IO boundary. */
+  internal fun loadBlocking(context: Context, issuer: String, profileId: String): EnrollmentV2RecordStore.StoredRecord? {
       check(releaseIssuerKeys.isNotEmpty()) { ERROR }
-      val value = store(context).load(issuer, profileId) ?: return@withContext null
+      val value = store(context).load(issuer, profileId) ?: return null
       if (!releaseIssuerKeys.containsKey(value.issuer to value.keyId)) {
         value.close()
         error(ERROR)
       }
-      value
-    }
+      return value
+  }
+
+  internal fun deleteBlocking(context: Context, issuer: String, profileId: String): Boolean =
+    store(context).delete(issuer, profileId)
+
+  /** UI deletion affordance only. Never authorizes metadata preflight or connection. */
+  internal fun hasLocalRecord(context: Context, issuer: String, profileId: String): Boolean =
+    store(context).load(issuer, profileId)?.use { true } ?: false
 
   /** Deletion retains the encrypted revision floor even if its issuer is no longer trusted. */
   suspend fun delete(context: Context, issuer: String, profileId: String): Boolean =

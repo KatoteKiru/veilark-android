@@ -38,6 +38,7 @@ import com.example.veilark.vpn.VeilarkVpnService
 import com.example.veilark.profile.SubscriptionFetcher
 import com.example.veilark.profile.SubscriptionParser
 import com.example.veilark.profile.ImportDeepLink
+import com.example.veilark.profile.EnrollmentV2Store
 import com.example.veilark.profile.SubscriptionDeletionPolicy
 import com.example.veilark.profile.SubscriptionSelectionPolicy
 import com.example.veilark.profile.SubscriptionRefreshPolicy
@@ -126,7 +127,7 @@ class MainActivity : ComponentActivity() {
             ?: ProfileEngine.SING_BOX,
         )
       }
-      var coreProfileName by remember { mutableStateOf(runCatching { CoreProfileStore.loadMetadata(this).name }.getOrNull()) }
+      var coreProfileName by remember { mutableStateOf(runCatching { CoreProfileStore.displayName(this) }.getOrNull()) }
       val coreRuntimeAvailable = remember { VeilarkCoreRuntimeNative.loadCandidate() }
       var trustProfiles by remember {
         mutableStateOf(TrustTunnelCatalog.load(this))
@@ -597,13 +598,31 @@ class MainActivity : ComponentActivity() {
           // A disk error while saving selection may follow a successful profile
           // replacement. Reflect the actual selected source even on failure.
           coreProfileName = withContext(Dispatchers.IO) {
-            runCatching { CoreProfileStore.loadMetadata(this@MainActivity).name }.getOrNull()
+            runCatching { CoreProfileStore.displayName(this@MainActivity) }.getOrNull()
           }
           if (profileEngine == ProfileEngine.CORE_BETA) profileName = coreProfileName
         }
         // Import is intentionally separate from selecting or starting the engine.
         importError = null
         return true
+      }
+
+      suspend fun importEnrollmentLink(link: String) {
+        check(EnrollmentV2Store.isCanonicalLink(link)) { getString(R.string.subscription_import_failed) }
+        check(coreConnectionState == ConnectionState.Disconnected || coreConnectionState == ConnectionState.Failed) {
+          getString(R.string.engine_switch_disconnect_first)
+        }
+        check(CoreBetaManager.stopped.value) { getString(R.string.core_beta_cleanup_failed) }
+        try {
+          CoreBetaManager.importEnrollmentWhenStopped(this@MainActivity, link)
+        } finally {
+          coreProfileName = withContext(Dispatchers.IO) {
+            runCatching { CoreProfileStore.displayName(this@MainActivity) }.getOrNull()
+          }
+          if (profileEngine == ProfileEngine.CORE_BETA) profileName = coreProfileName
+        }
+        // Preserve the current engine choice, exactly as for an explicit raw Core import.
+        importError = null
       }
 
       // Both the picker and externally granted content URIs use one bounded reader.
@@ -827,7 +846,11 @@ class MainActivity : ComponentActivity() {
             importError = null
             coroutineScope.launch {
               try {
-              if (importUrl.startsWith("tt://")) {
+              if (importUrl.startsWith("veilark://enroll", ignoreCase = true)) {
+                runCatching { importEnrollmentLink(importUrl) }.onFailure {
+                  importError = it.userMessage(R.string.subscription_import_failed)
+                }
+              } else if (importUrl.startsWith("tt://")) {
                 runCatching {
                   val compiled = withContext(Dispatchers.Default) {
                     TrustTunnelProfile.compile(importUrl)
@@ -1974,7 +1997,7 @@ class MainActivity : ComponentActivity() {
         else -> requestedEngine ?: ProfileEngine.SING_BOX
       }
       val displayName = if (resolvedEngine == ProfileEngine.CORE_BETA) {
-        runCatching { CoreProfileStore.loadMetadata(this).name }.getOrNull()
+        runCatching { CoreProfileStore.displayName(this) }.getOrNull()
       } else if (resolvedEngine == ProfileEngine.TRUST_TUNNEL) {
         trustProfiles.firstOrNull { it.id == trustId }?.name
       } else {

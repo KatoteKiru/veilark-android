@@ -1,0 +1,58 @@
+# Protected enrollment operator and Android integration
+
+The new Android import path accepts the canonical 111-byte `veilark://enroll/v2`
+envelope from paste, QR, file or VIEW intent. Explicit import selects its protected
+Core source; it does not select/start a VPN engine. The VPN service reads the same
+verified record as metadata preflight, without copying credentials into the raw
+profile store. Existing raw profiles and old subscription links remain separate.
+Deletion retains both the revision floor and source marker, preventing fallback to
+a different retained raw identity. A revoked issuer blocks use, while local
+deletion remains available through the existing card.
+
+## Operator staging
+
+`scripts/enrollment_v2_operator.py` is a Linux-root-only local staging tool.
+It takes an existing Ed25519 PKCS8 PEM signing key and a strict Core Argon v1
+profile, both root-owned regular 0600 files outside state/publication directories.
+It does not generate keys, provision VPN credentials, deploy files, perform HTTP
+requests or manage customer accounts.
+
+Required arguments: `--state-dir`, `--publication-dir`, `--signing-key`,
+`--profile`, `--issuer`, `--kid`, `--profile-id`, `--request-id`, `--revision`,
+`--iat`, `--nbf`, `--exp`, `--link-output`. Times are integer Unix seconds;
+`iat <= nbf < exp`, import window at most 30 days. IDs are bounded ASCII identifiers;
+request ID is canonical UUIDv4. First revision is 1, later revisions exactly the
+next reserved revision for that issuer/profile identity.
+
+State must already exist as root-owned 0700; publication must be root-owned and
+not writable by others. The caller-output parent is root-owned 0700 outside both
+roots. The output must not exist. A single complete bearer link is written to that
+new 0600 file; never paste its contents into logs, commits or issue comments.
+The caller file is key custody. Stdout contains only status, revision and SHA.
+
+The locked, fsynced journal reserves revision/locator before encryption and keeps
+only receipt metadata and immutable ciphertext. A crash after reservation burns
+that revision. A retry of a committed request stages the identical ciphertext
+and reports `issued_key_unavailable`; it never reconstructs or discloses the link.
+A durable disclosure-attempt marker precedes caller output. Lost/failed output
+requires an explicit new request and higher revision. Neither reissue nor import
+expiry revokes the underlying VPN credentials.
+
+`staged_link_disclosed_to_caller_file` means local immutable staging and exact
+local SHA readback, not HTTPS publication. Deployment needs create-new copying
+to the existing delivery directory, exact HTTPS readback and a matched app issuer
+public key. Never replace an existing `.jwe` or any legacy `.json` object.
+
+## Current acceptance boundary
+
+Android URI/selection checks and private-release Kotlin compilation pass.
+On Windows, three operator codec/authorization tests pass; six real POSIX journal
+and permission tests require Linux root and are explicitly skipped there.
+The dedicated `Enrollment operator Linux storage` CI runs those tests in a fresh
+Ubuntu worker using temporary synthetic profiles and keys, with no production
+secrets, SSH, public routes or OTA publication.
+
+The app's production issuer registry remains EMPTY. Until the separate issuer
+bootstrap and real transport/device acceptance are complete, the new import fails
+closed before network access. This is integrated source, not a usable issued
+subscription or release approval. Published OTA83 remains unchanged.

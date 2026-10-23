@@ -35,6 +35,9 @@ internal object EnrollmentV2Fetcher {
   suspend fun fetch(link: String): ByteArray = fetchWithTransport(link,
     { url -> url.openConnection() as HttpsURLConnection }, Limits())
 
+  internal fun isCanonicalLink(link: String): Boolean =
+    try { deliveryUrl(link); true } catch (_: Exception) { false }
+
   internal class Limits(val connectMillis: Int = 5_000, val readMillis: Int = 5_000,
     val overallMillis: Int = 15_000)
 

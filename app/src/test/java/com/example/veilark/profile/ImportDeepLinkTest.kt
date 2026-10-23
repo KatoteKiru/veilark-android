@@ -6,6 +6,24 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 
 class ImportDeepLinkTest {
+  @Test fun protectedLinkSurvivesQrAndIntentWithoutUnwrappingKey() {
+    val value = java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(ByteArray(32))
+    val link = "veilark://enroll/v2?t=$value#k=$value"
+    assertEquals(link, ImportDeepLink.parseUri(link))
+    assertEquals(link, ImportDeepLink.parseQrPayload(link))
+    assertEquals(111, link.length)
+    assertNull(ImportDeepLink.parseUri("veilark://import?url=" + java.net.URLEncoder.encode(link, "UTF-8")))
+  }
+
+  @Test fun malformedProtectedLinksNeverBecomeLegacySubscriptions() {
+    val value = java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(ByteArray(32))
+    for (link in listOf("veilark://enroll/v2?t=$value", "veilark://enroll/v2?t=$value#k=${value}B",
+      "veilark://enroll/v3?t=$value#k=$value", "veilark://enroll/v2?t=$value&extra=x#k=$value")) {
+      assertNull(ImportDeepLink.parseUri(link))
+      assertNull(ImportDeepLink.parseQrPayload(link))
+    }
+  }
+
   @Test fun compactTokenUsesOnlyPinnedProfileOriginAndRetainsLegacyImport() {
     val bytes = ByteArray(32) { it.toByte() }
     val token = java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(bytes)

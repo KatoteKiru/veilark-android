@@ -1,0 +1,29 @@
+name: Enrollment operator Linux storage
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [codex/post-beta13-import-20261023]
+    paths:
+      - scripts/enrollment_v2_operator.py
+      - scripts/test_enrollment_v2_operator.py
+      - .github/workflows/enrollment-operator.yml
+
+permissions:
+  contents: read
+
+jobs:
+  posix-storage:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Ensure distro cryptography for isolated root filesystem checks
+        run: |
+          if ! sudo /usr/bin/python3 -c 'import cryptography'; then
+            sudo apt-get update -qq
+            sudo apt-get install -y python3-cryptography
+          fi
+          sudo /usr/bin/python3 -c 'import os,sys,cryptography; assert sys.platform == "linux" and os.geteuid() == 0; print("Linux root; cryptography=" + cryptography.__version__)'
+      - name: Exercise only synthetic issuer and temporary filesystem state
+        run: sudo /usr/bin/python3 -I -m unittest discover -s scripts -p test_enrollment_v2_operator.py -v
