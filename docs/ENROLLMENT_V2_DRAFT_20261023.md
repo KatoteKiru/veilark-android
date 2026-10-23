@@ -52,8 +52,13 @@ An old app must report unsupported enrollment, never decode it as legacy JSON.
 The app maps the locator to ONE embedded active HTTPS delivery origin and a fixed
 enrollment path; it never uses an arbitrary URL from the link or decrypted data.
 The new link has no issuer/origin selector: multiple origins or trial fetches
-would be ambiguous before decryption. Exact origin/path configuration must be
-jointly frozen before implementation; it is not a new public endpoint here.
+would be ambiguous before decryption. The existing Android origin and operator
+publisher agree on `https://nl2.senyasenyavski.uk:2096/veilark/`. Proposed v2 fetch
+is that exact origin/path prefix plus `hex(decodedLocator) + ".jwe"`, lower-case
+64-character hex. Legacy `hex(token) + ".json"` remains untouched. `.jwe` and
+`.json` are distinct immutable objects; never try one when the other fails.
+This is a concrete candidate using the existing delivery origin, not a deployed
+route/file. Vector must jointly accept this mapping before implementation.
 The 32-byte delivery key stays in the app: never attach it to HTTP, Referer,
 redirects, analytics, exception messages or browser navigation. No redirects,
 automatic cross-origin fallback, WebView or third-party QR service. A browser
@@ -228,6 +233,32 @@ inner/outer lengths are 33,539 / 45,504 bytes. Locator-mismatch and expired entr
 are proposed semantic vectors, **not executed importer acceptance**. No Kotlin/
 backend interoperable consumer, backend lifecycle, APK, native or server change
 is implied by these fixtures. Do not deploy the fixture keys or locator.
+
+### Existing integration and legacy compatibility checked
+
+`ImportDeepLink.kt` hardcodes the existing operator origin and maps a canonical
+32-byte `import?t=` token to lower-case hex `.json`. HTTPS `?code=` and direct
+HTTPS imports have separate unchanged handling. The legacy `SubscriptionFetcher`
+allows bounded HTTPS redirects and negotiates generic subscription formats; it
+must NOT be reused unchanged for v2's no-redirect/fixed-origin JWE fetch contract.
+
+Operator script `C:/AI-Agent/scripts/deliver-core-beta10-profile-20261016.py`
+publishes an existing private profile through a pinned SSH/SFTP connection to
+`/var/www/html/veilark/`, refuses differing bytes at an existing locator and
+checks HTTPS readback. This is an operator-side static publisher, not evidence of
+an authenticated customer issuance/revocation API, owner/request-ID database,
+backend key vault or renewal worker. Those proposed lifecycle pieces cannot be
+treated as existing infrastructure. Do not execute the old publisher as a check:
+it can write files and state. Any v2 pilot publisher must remain separately gated
+and cannot overwrite its `.json` profiles or rotate existing credentials.
+
+Read-only verification on 23 October fetched one retained owner test profile:
+HTTP200, exact original bytes, legacy Argonv1 schema, and its old compact token
+still resolves to that same URL. New aggregate report is
+`C:/AI-Agent/reports/enrollment-v2-draft-20261023/legacy-link-readonly-20261023.json`;
+bearer URLs/keys are excluded. This does not certify all testers' links, their
+individual subscription expiry or an actual VPN session. Vector separately
+confirmed no live server/credential/lookup/NAT changes during source fairness work.
 
 ## Primary references checked
 
