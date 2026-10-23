@@ -82,9 +82,16 @@ read back its exact SHA-256, and keep a durable request/revision receipt for cra
 recovery. This does not assume a customer API, identity database or key vault.
 The customer-API transaction below is a future extension, not a pilot prerequisite
 implemented by merely renaming the current static publisher. The pilot must
-either implement bounded protected recovery custody or report issued/key
-unavailable and require explicit reissue with a higher revision. Never silently
+report issued/key unavailable if the caller loses the key, and require explicit
+reissue with a higher revision. Vector accepted **no managed backend CEK custody**
+for the initial pilot: no recovery vault or expiry timer. Never silently
 regenerate a key or object under the same locator/revision after a crash.
+After durable object/revision commit, retry only the same ciphertext/publication
+and receipt. Make at most one disclosure attempt to an explicitly protected
+caller output; never send the complete link to stdout, journal, chat or logs.
+Exactly-once external delivery cannot be guaranteed across a crash. If that
+output contains the complete link it is caller key custody, so this policy is
+not a claim that no copy of the CEK exists anywhere.
 
 An authenticated owner requests issuance using a random request ID. A unique
 `(owner,request_id)` record binds the exact normalized request digest; retries
@@ -97,15 +104,16 @@ object, not sign new content under the reserved revision. Credential provisionin
 is a separately tracked transaction, never an implicit side effect of reissuing
 an enrollment link. Compensation cannot revoke another revision's credentials.
 
-To replay the identical link after a lost response, the backend must retain its
-delivery key temporarily. Proposed policy: encrypted at rest under a backend
+For a FUTURE customer API to replay the identical link after a lost response,
+the backend would have to retain its delivery key temporarily. Alternative
+not selected for the initial pilot: encrypted at rest under a backend
 secret-management key, accessible only to the authenticated issuing owner for a
 fixed 10-minute retry window. Purge that recoverable key after the window; retain
 the nonsecret issuance receipt and immutable ciphertext. Later retries report
 already issued/key unavailable; an explicit new request creates a higher revision
 for the same profile ID, never a duplicate account/profile or silent key rotation.
-This is disclosed temporary key custody, not zero knowledge. Retention, publication
-worker and crash recovery must be agreed and implemented before activating v2.
+That alternative would be disclosed temporary key custody, not zero knowledge.
+It needs a separate retention/worker/recovery review if introduced later.
 
 ## Exact candidate cryptographic bytes
 
@@ -217,9 +225,11 @@ managed-memory zeroization is best effort, never promise perfect key erasure.
 Vector conditionally accepted composition, the standard JWS purpose refinement,
 the explicit portable-bearer model, and the exact single-origin `.jwe` mapping for
 an authenticated manual operator pilot. Still to jointly freeze: schema allowlist,
-operator authorization/crash journal and recovery custody policy; 30-day import window/renewal and independent
+operator authorization/crash journal and protected caller-output handling;
+30-day import window/renewal and independent
 backend session entitlement; bootstrap/key rotation; transactional issue/revoke
-and temporary key-retention behavior. No production producer/consumer is enabled.
+and any future customer key-retention behavior. Initial pilot no-managed-CEK
+custody is agreed; no production producer/consumer is enabled.
 Issuer rotation ships authenticated app trust-map changes before issuing new
 `kid`; retain explicitly authorized previous keys during migration, never TOFU.
 Shipping must wait for agreed lifecycle and matched producer/consumer fixtures,
