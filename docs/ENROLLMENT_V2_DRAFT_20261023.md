@@ -1,7 +1,11 @@
 # Protected subscription enrollment: joint review draft
 
-23 October 2026. Atlas proposal with Vector's conditional composition review.
-**Not frozen, implemented, enabled or released.** OTA83, legacy import and deployed wire1 remain unchanged.
+23 October 2026. Atlas / Vector joint offline pilot contract.
+**Codec, limits and synthetic-fixture contract FROZEN for isolated matched
+implementations only. Not enabled or released.** Vector acknowledged exact
+pre-status document SHA-256
+`fe33668a1a358d03babcf2183c3fa418f54e04cbb8c257d3b76c366d4cc5a44e`.
+OTA83, legacy import and deployed wire1 remain unchanged.
 This is application provisioning, not a replacement VPN carrier or routing plan.
 
 ## Decision proposed
@@ -15,10 +19,10 @@ This deliberately proposes one refinement to the older carrier-host draft:
 standard JWS signs its encoded protected header and payload, without a custom
 prefix. Purpose separation instead uses a dedicated issuer key, an exact signed
 `typ`, and an exact signed payload purpose. Vector accepted that refinement;
-the remaining lifecycle gates still precede byte freeze. Appending a custom prefix while calling it standard JWS
+the separate runtime activation gates remain. Appending a custom prefix while calling it standard JWS
 would be incorrect. A separately designed prefix format is not a second fallback.
-Vector accepted this refinement in the joint review; lifecycle/bootstrap and
-matched-consumer gates below still prevent byte freeze or activation.
+Vector accepted this refinement in the joint review and froze the offline pilot
+codec. Lifecycle/bootstrap and matched-consumer gates still prevent activation.
 
 ## Threat boundary and trust bootstrap
 
@@ -222,17 +226,24 @@ managed-memory zeroization is best effort, never promise perfect key erasure.
 
 ## Review decisions and implementation gate
 
-Vector conditionally accepted composition, the standard JWS purpose refinement,
-the explicit portable-bearer model, and the exact single-origin `.jwe` mapping for
-an authenticated manual operator pilot. Still to jointly freeze: schema allowlist,
-operator authorization/crash journal and protected caller-output handling;
-30-day import window/renewal and independent
-backend session entitlement; bootstrap/key rotation; transactional issue/revoke
-and any future customer key-retention behavior. Initial pilot no-managed-CEK
-custody is agreed; no production producer/consumer is enabled.
+Vector accepted the offline pilot freeze: exact nested codec/limits; initial
+Argonv1 legacy-wire1 allowlist; 30-day import window and 300-second skew; existing
+fixed-origin lower-case-hex `.jwe` mapping; dedicated issuer trust shipped through
+an authenticated app release; no managed backend CEK custody and at-most-once
+protected caller output. Pilot tooling is authorized Linux root only with an
+owner-controlled 0700 directory, 0600 journal, immutable create and SHA readback.
+No customer API/database/vault or global exactly-once delivery is implied.
+
+The production issuer allowlist stays EMPTY/fail-closed until a separate reviewed
+dedicated profile key is generated and its public trust entry delivered through
+an authenticated app release BEFORE usable v2 publication. No OTA key reuse/TOFU.
+Offline codec implementation/fixtures may proceed; UI handler, networking,
+usable publisher, real issuer keys and public activation each need their separate
+implementation/acceptance gate. Independent backend session entitlement,
+renewal/revocation and any future customer key retention remain separate scope.
 Issuer rotation ships authenticated app trust-map changes before issuing new
 `kid`; retain explicitly authorized previous keys during migration, never TOFU.
-Shipping must wait for agreed lifecycle and matched producer/consumer fixtures,
+Shipping must wait for implemented lifecycle and matched producer/consumer fixtures,
 not merely agreement that AES-GCM and Ed25519 are available.
 
 Shared deterministic fixtures must include valid round trip, key/IV/tag/locator
@@ -255,6 +266,24 @@ inner/outer lengths are 33,539 / 45,504 bytes. Locator-mismatch and expired entr
 are proposed semantic vectors, **not executed importer acceptance**. No Kotlin/
 backend interoperable consumer, backend lifecycle, APK, native or server change
 is implied by these fixtures. Do not deploy the fixture keys or locator.
+
+### Isolated Kotlin consumer implemented and checked
+
+`EnrollmentV2DraftConsumer.kt` now verifies this frozen offline contract using
+the existing strict JSON/profile parsers, existing Tink Ed25519 verifier and JCA
+AES-GCM. It has no network, UI, manifest, persistent store, installed trust keys
+or application call site. It returns an owned closeable verified result with
+defensive profile/digest copies and redacted diagnostics. Import-window checking
+does not advance a rollback floor or assert credential/session entitlement.
+
+Six targeted JVM tests consume the actual Python fixture and exercise its four
+negative cases, independently JDK-signed adversarial payloads, exact clock/skew,
+trust, canonical encoding/size limits and result ownership. All six PASS;
+`compilePrivateReleaseKotlin` PASS. These establish offline byte interoperability,
+not device/network acceptance or an active feature. Atomic verified metadata/
+profile persistence, revision idempotence/conflict/rollback, authenticated trust
+bootstrap and gated caller integration remain before activation. No APK/OTA or
+current-profile/server change follows from this source step.
 
 ### Existing integration and legacy compatibility checked
 
