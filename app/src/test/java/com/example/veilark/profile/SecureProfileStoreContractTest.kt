@@ -24,4 +24,15 @@ class SecureProfileStoreContractTest {
       catch (_: IllegalArgumentException) { }
     }
   }
+
+  @Test fun enrollmentRecordsHaveOnlyCanonicalHashedIdentities() {
+    val id = "veilark-enrollment-v2-" + "a".repeat(64)
+    assertEquals(File("private-files/secure-profiles/$id.vlk"),
+      SecureProfileStore.profileFile(File("private-files"), id))
+    for (bad in listOf("veilark-enrollment-v2-", id.dropLast(1), id + "0",
+        "veilark-enrollment-v2-" + "A".repeat(64), id + "/../other")) {
+      try { SecureProfileStore.profileFile(File("private-files"), bad); fail("Noncanonical record identity accepted") }
+      catch (_: IllegalArgumentException) { }
+    }
+  }
 }

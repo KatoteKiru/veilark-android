@@ -22,13 +22,17 @@ object SecureProfileStore {
   fun exists(context: Context, id: String): Boolean = encryptedFile(context, id).isFile
 
   fun save(context: Context, id: String, plaintext: String) {
+    val bytes = plaintext.toByteArray(Charsets.UTF_8)
+    try { saveBytes(context, id, bytes) } finally { bytes.fill(0) }
+  }
+
+  /** Borrowed input; caller retains ownership. Existing encrypted format/AAD unchanged. */
+  internal fun saveBytes(context: Context, id: String, plaintext: ByteArray) {
+    val destination = encryptedFile(context, id) // Validate identity before touching the key.
     val cipher = Cipher.getInstance(TRANSFORMATION)
-    cipher.init(Cipher.ENCRYPT_MODE, getOrCreateKey())
+    cipher.init(Cipher.ENCRYPT_MODE, getOrCreateKey(id))
     cipher.updateAAD(id.toByteArray(Charsets.UTF_8))
-    val plaintextBytes = plaintext.toByteArray(Charsets.UTF_8)
-    val ciphertext = try { cipher.doFinal(plaintextBytes) }
-      finally { plaintextBytes.fill(0) }
-    val destination = encryptedFile(context, id)
+    val ciphertext = cipher.doFinal(plaintext)
     destination.parentFile?.mkdirs()
     val atomicFile = AtomicFile(destination)
     val output = atomicFile.startWrite()
@@ -46,6 +50,13 @@ object SecureProfileStore {
   }
 
   fun load(context: Context, id: String): String {
+    val plaintextBytes = loadBytes(context, id)
+    return try { plaintextBytes.toString(Charsets.UTF_8) }
+      finally { plaintextBytes.fill(0) }
+  }
+
+  /** Returns owned decrypted bytes; caller must erase after use. Reads never create keys. */
+  internal fun loadBytes(context: Context, id: String): ByteArray {
     val payload = AtomicFile(encryptedFile(context, id)).readFully()
     require(payload.size > 2 && payload[0] == FORMAT_VERSION) {
       "Формат защищённого профиля не поддерживается"
@@ -57,13 +68,11 @@ object SecureProfileStore {
     val cipher = Cipher.getInstance(TRANSFORMATION)
     cipher.init(
       Cipher.DECRYPT_MODE,
-      existingKey(),
+      existingKey(id),
       GCMParameterSpec(128, payload.copyOfRange(2, 2 + ivSize)),
     )
     cipher.updateAAD(id.toByteArray(Charsets.UTF_8))
-    val plaintextBytes = cipher.doFinal(payload.copyOfRange(2 + ivSize, payload.size))
-    return try { plaintextBytes.toString(Charsets.UTF_8) }
-      finally { plaintextBytes.fill(0) }
+    return cipher.doFinal(payload.copyOfRange(2 + ivSize, payload.size))
   }
 
   fun delete(context: Context, id: String): Boolean = encryptedFile(context, id).delete()
@@ -80,7 +89,7 @@ object SecureProfileStore {
   }
 
   private fun encryptedFile(context: Context, id: String): File =
-    profileFile(if (id == CORE_ARGON) context.noBackupFilesDir else context.filesDir, id)
+    profileFile(if (id == CORE_ARGON || isEnrollmentRecord(id)) context.noBackupFilesDir else context.filesDir, id)
 
   internal fun profileFile(filesDir: File, id: String): File {
     require(
@@ -89,20 +98,24 @@ object SecureProfileStore {
         id == TRUST_TUNNEL_CATALOG ||
         id == SING_BOX_CATALOG ||
         id == CORE_BETA ||
-        id == CORE_ARGON,
+        id == CORE_ARGON || isEnrollmentRecord(id),
     ) {
       "Неизвестный тип профиля"
     }
     return File(filesDir, "secure-profiles/$id.vlk")
   }
 
-  private fun getOrCreateKey(): SecretKey {
+  private fun isEnrollmentRecord(id: String): Boolean =
+    id.matches(Regex("veilark-enrollment-v2-[0-9a-f]{64}"))
+
+  private fun getOrCreateKey(id: String): SecretKey {
+    val alias = keyAlias(id)
     val store = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
-    (store.getKey(KEY_ALIAS, null) as? SecretKey)?.let { return it }
+    (store.getKey(alias, null) as? SecretKey)?.let { return it }
     return KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore").run {
       init(
         KeyGenParameterSpec.Builder(
-          KEY_ALIAS,
+          alias,
           KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT,
         )
           .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
@@ -115,11 +128,14 @@ object SecureProfileStore {
   }
 
   /** Reading never creates a replacement key for an existing encrypted profile. */
-  private fun existingKey(): SecretKey {
+  private fun existingKey(id: String): SecretKey {
     val store = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
-    return store.getKey(KEY_ALIAS, null) as? SecretKey
+    return store.getKey(keyAlias(id), null) as? SecretKey
       ?: error("Ключ защищённого профиля недоступен")
   }
+
+  private fun keyAlias(id: String): String =
+    if (isEnrollmentRecord(id)) "veilark_enrollment_v2" else KEY_ALIAS
 
   private const val KEY_ALIAS = "veilark_profile_v1"
   private const val TRANSFORMATION = "AES/GCM/NoPadding"

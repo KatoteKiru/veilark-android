@@ -280,10 +280,41 @@ Six targeted JVM tests consume the actual Python fixture and exercise its four
 negative cases, independently JDK-signed adversarial payloads, exact clock/skew,
 trust, canonical encoding/size limits and result ownership. All six PASS;
 `compilePrivateReleaseKotlin` PASS. These establish offline byte interoperability,
-not device/network acceptance or an active feature. Atomic verified metadata/
-profile persistence, revision idempotence/conflict/rollback, authenticated trust
-bootstrap and gated caller integration remain before activation. No APK/OTA or
+not device/network acceptance or an active feature. Persistent-store platform
+acceptance, authenticated trust bootstrap and gated caller integration remain
+before activation. No APK/OTA or
 current-profile/server change follows from this source step.
+
+### Isolated record store implemented; platform acceptance pending
+
+`EnrollmentV2RecordStore.kt` now keeps profile, verified provenance, signed-content
+digest and highest revision in ONE bounded private binary record. Same content/
+revision is idempotent; different content at equal revision and lower revisions
+are rejected. Deletion writes a tombstone retaining the floor; explicit reimport
+of the same still-valid signed content can restore it. Every operation rereads
+state under the backend transaction: a write exception may mean old OR new state,
+so retries reconcile rather than advance an in-memory floor. Import time is
+checked again inside the transaction, after reading state, to reject queued
+imports that expire while waiting.
+
+`EnrollmentV2Store.kt` is the unactivated application facade: it verifies with a
+PRIVATE EMPTY release-only issuer registry, offers no caller-key-map/verified-flag
+override, and performs IO off the main thread. Its Android adapter uses a common
+process/OS lock, bounded records, AtomicFile replacement and decrypted readback.
+New records use noBackupFilesDir, hashed identities bound by AEAD AAD, and a
+dedicated Android Keystore alias. Existing encrypted-profile header, legacy key
+alias and legacy paths retain their format; raw imports are not upgraded to
+issuer-authenticated profiles or automatically selected.
+
+Nine JVM record-store cases, six codec cases and three store-path contract cases
+PASS (18 total), plus release Kotlin compilation. Fault injection covers errors
+before/after commit, concurrent engine instances, stale/conflicting revisions,
+tombstone restoration, corrupt records, and expiry during transaction entry.
+These use an in-memory transactional backend: they are NOT proof of actual
+Android Keystore, OS file-lock, filesystem power-loss recovery or old-profile
+device migration. Those platform checks and separately gated issuer/handler/
+network/operator publication remain before activation. Local data reset or
+filesystem rollback is not prevented by an application-level stored floor.
 
 ### Existing integration and legacy compatibility checked
 
