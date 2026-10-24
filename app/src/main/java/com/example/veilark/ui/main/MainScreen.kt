@@ -338,6 +338,7 @@ fun MainScreen(
   val clipboard = LocalClipboardManager.current
   val activeSubscriptions = remember(
     coreBetaActive,
+    coreBetaProfileName,
     trustTunnelActive,
     trustSubscriptions,
     singBoxSubscriptions,
