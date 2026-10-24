@@ -18,6 +18,7 @@ object SecureProfileStore {
   const val SING_BOX_CATALOG = "sing-box-catalog"
   const val CORE_BETA = "veilark-core-beta-profile"
   const val CORE_ARGON = "veilark-argon-profile"
+  const val CORE_ARGON_RELAY = "veilark-argon-relay-profile"
 
   fun exists(context: Context, id: String): Boolean {
     requireLegacyId(id)
@@ -108,7 +109,7 @@ object SecureProfileStore {
   }
 
   private fun encryptedFile(context: Context, id: String): File =
-    profileFile(if (id == CORE_ARGON || isEnrollmentRecord(id)) context.noBackupFilesDir else context.filesDir, id)
+    profileFile(if (id == CORE_ARGON || id == CORE_ARGON_RELAY || isEnrollmentRecord(id)) context.noBackupFilesDir else context.filesDir, id)
 
   internal fun profileFile(filesDir: File, id: String): File {
     require(
@@ -117,7 +118,7 @@ object SecureProfileStore {
         id == TRUST_TUNNEL_CATALOG ||
         id == SING_BOX_CATALOG ||
         id == CORE_BETA ||
-        id == CORE_ARGON || isEnrollmentRecord(id),
+        id == CORE_ARGON || id == CORE_ARGON_RELAY || isEnrollmentRecord(id),
     ) {
       "Неизвестный тип профиля"
     }
@@ -128,7 +129,7 @@ object SecureProfileStore {
     id.matches(Regex("veilark-enrollment-v2-[0-9a-f]{64}"))
 
   private fun requireLegacyId(id: String) {
-    require(id in setOf(SING_BOX, TRUST_TUNNEL, SING_BOX_CATALOG, TRUST_TUNNEL_CATALOG, CORE_BETA, CORE_ARGON)) {
+    require(id in setOf(SING_BOX, TRUST_TUNNEL, SING_BOX_CATALOG, TRUST_TUNNEL_CATALOG, CORE_BETA, CORE_ARGON, CORE_ARGON_RELAY)) {
       "Неизвестный тип профиля"
     }
   }

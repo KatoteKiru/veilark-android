@@ -6,7 +6,9 @@ import java.nio.charset.CodingErrorAction
 /** Persisted profile choice is independent of engine activation. */
 enum class CoreProfileKind(val preferenceValue: String) {
   LEGACY_V1("legacy_v1"),
-  ARGON_V1("argon_v1");
+  ARGON_V1("argon_v1"),
+  /** The whitelist-mode route over TURN relays; selected separately, see CoreProfileStore. */
+  ARGON_RELAY_V1("argon_relay_v1");
 
   companion object {
     private const val ERROR = "Invalid Veilark Core profile."
@@ -43,7 +45,7 @@ enum class CoreProfileKind(val preferenceValue: String) {
       return when (choice) {
         LEGACY_V1 -> if (legacyExists) choice else null
         ARGON_V1 -> if (argonExists) choice else null
-        null -> null
+        ARGON_RELAY_V1, null -> null
       }
     }
 
@@ -61,6 +63,7 @@ enum class CoreProfileKind(val preferenceValue: String) {
         return when (root["schema"]) {
           "veilark-core-beta-profile-v1" -> LEGACY_V1
           "veilark-argon-profile-v1", "veilark-argon-profile-v2" -> ARGON_V1
+          CoreArgonRelayProfile.SCHEMA -> ARGON_RELAY_V1
           else -> throw IllegalArgumentException(ERROR)
         }
       } catch (_: Exception) {

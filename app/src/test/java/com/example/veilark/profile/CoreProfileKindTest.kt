@@ -8,6 +8,12 @@ class CoreProfileKindTest {
     org.junit.Assert.assertEquals(CoreProfileKind.ARGON_V1,
       CoreProfileKind.recognize("""{"schema":"veilark-argon-profile-v2"}""".toByteArray()))
   }
+  @Test fun relaySchemaIsItsOwnKindAndNeverADirectChoice() {
+    assertEquals(CoreProfileKind.ARGON_RELAY_V1,
+      CoreProfileKind.recognize("""{"schema":"veilark-argon-relay-profile-v1"}""".toByteArray()))
+    assertThrows(IllegalArgumentException::class.java) { CoreProfileKind.resolve("argon_relay_v1", true, true) }
+  }
+
   @Test fun absentChoicePrefersLegacyAndUsesArgonOnlyWhenAlone() {
     assertNull(CoreProfileKind.resolve(null, false, false))
     assertEquals(CoreProfileKind.LEGACY_V1, CoreProfileKind.resolve(null, true, false))
@@ -16,7 +22,8 @@ class CoreProfileKindTest {
   }
 
   @Test fun explicitChoiceNeverFallsBackForEveryAvailabilityCombination() {
-    for (kind in CoreProfileKind.values()) {
+    // The relay route is chosen by its own key in CoreProfileStore, never by this direct-route choice.
+    for (kind in listOf(CoreProfileKind.LEGACY_V1, CoreProfileKind.ARGON_V1)) {
       for (legacy in listOf(false, true)) for (argon in listOf(false, true)) {
         val available = if (kind == CoreProfileKind.LEGACY_V1) legacy else argon
         assertEquals(if (available) kind else null,

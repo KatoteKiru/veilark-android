@@ -13,17 +13,26 @@ data class CoreProfileMetadata(
 
 /** Selection/import facade. Existing profile files stay separate and are never migrated.
  * Import validates and encrypts before persisting the selected kind; it never starts an engine.
+ *
+ * Two routes are kept side by side: the direct route (legacy, Argon or an
+ * enrollment record, chosen as before) and the relay route for whitelists.
+ * Which one is used is a separate choice, so importing or picking one route
+ * never discards the other route's profile or selection.
  */
 object CoreProfileStore {
   private const val PREFERENCES = "profile_meta"
   private const val KIND_KEY = "core_profile_kind"
   private const val ENROLLMENT_ISSUER = "core_enrollment_issuer"
   private const val ENROLLMENT_PROFILE = "core_enrollment_profile"
+  private const val ROUTE_KEY = "core_route"
+  private const val ROUTE_RELAY = "relay"
   private const val LOAD_ERROR = "Unable to load selected Veilark Core profile."
   private const val IMPORT_ERROR = "Unable to import Veilark Core profile."
   private const val SELECTION_ERROR = "Unable to save Veilark Core profile selection."
 
   @Synchronized fun selectedKind(context: Context): CoreProfileKind? {
+    // A deleted relay profile stays selected as a tombstone, never falling back to the direct route.
+    if (relaySelected(context)) return CoreProfileKind.ARGON_RELAY_V1.takeIf { CoreArgonRelayProfileStore.exists(context) }
     val identity = selectedEnrollment(context)
     if (identity != null) {
       return EnrollmentV2Store.loadBlocking(context, identity.first, identity.second)?.use { CoreProfileKind.ARGON_V1 }
@@ -31,6 +40,39 @@ object CoreProfileStore {
     return CoreProfileKind.resolve(
       context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE).all[KIND_KEY],
       CoreBetaProfileStore.exists(context), CoreArgonProfileStore.exists(context))
+  }
+
+  private fun relaySelected(context: Context): Boolean =
+    context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE).getString(ROUTE_KEY, null) == ROUTE_RELAY
+
+  /** Both routes may be stored; the UI offers a choice only between existing ones. */
+  @Synchronized fun hasRelayProfile(context: Context): Boolean = CoreArgonRelayProfileStore.exists(context)
+  @Synchronized fun hasDirectProfile(context: Context): Boolean = directKind(context) != null
+  @Synchronized fun relayRouteSelected(context: Context): Boolean = relaySelected(context)
+
+  private fun directKind(context: Context): CoreProfileKind? {
+    val identity = selectedEnrollment(context)
+    if (identity != null) return CoreProfileKind.ARGON_V1.takeIf { EnrollmentV2Store.hasLocalRecord(context, identity.first, identity.second) }
+    return CoreProfileKind.resolve(
+      context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE).all[KIND_KEY],
+      CoreBetaProfileStore.exists(context), CoreArgonProfileStore.exists(context))
+  }
+
+  /** Switches between stored routes; the caller must first establish that the Core service has stopped. */
+  @Synchronized fun selectRoute(context: Context, relay: Boolean) {
+    check(if (relay) CoreArgonRelayProfileStore.exists(context) else directKind(context) != null) { SELECTION_ERROR }
+    commitRoute(context, relay)
+  }
+
+  private fun commitRoute(context: Context, relay: Boolean) {
+    val editor = context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE).edit()
+    if (relay) editor.putString(ROUTE_KEY, ROUTE_RELAY) else editor.remove(ROUTE_KEY)
+    check(editor.commit()) { SELECTION_ERROR }
+  }
+
+  @Synchronized fun loadSelectedRelay(context: Context): CoreArgonRelayProfile {
+    check(relaySelected(context)) { LOAD_ERROR }
+    return CoreArgonRelayProfileStore.load(context)
   }
 
   private fun selectedEnrollment(context: Context): Pair<String, String>? {
@@ -57,12 +99,14 @@ object CoreProfileStore {
     }
     check(context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE).edit()
       .putString(KIND_KEY, CoreProfileKind.ARGON_V1.preferenceValue)
-      .putString(ENROLLMENT_ISSUER, issuer).putString(ENROLLMENT_PROFILE, profileId).commit()) { SELECTION_ERROR }
+      .putString(ENROLLMENT_ISSUER, issuer).putString(ENROLLMENT_PROFILE, profileId)
+      .remove(ROUTE_KEY).commit()) { SELECTION_ERROR }
     return metadata
   }
 
   /** One selected-source resolver used by metadata and the real Core service. */
   @Synchronized fun loadSelectedArgon(context: Context): CoreArgonProfile {
+    check(!relaySelected(context)) { LOAD_ERROR }
     val identity = selectedEnrollment(context) ?: return CoreArgonProfileStore.load(context)
     val value = EnrollmentV2Store.loadBlocking(context, identity.first, identity.second) ?: error(LOAD_ERROR)
     return value.use {
@@ -89,6 +133,10 @@ object CoreProfileStore {
    * Caller must first establish that the Core service has stopped.
    */
   @Synchronized fun deleteSelected(context: Context) {
+    if (relaySelected(context)) {
+      if (CoreArgonRelayProfileStore.exists(context)) check(CoreArgonRelayProfileStore.delete(context)) { "Unable to delete selected Veilark Core profile." }
+      return
+    }
     val identity = selectedEnrollment(context)
     if (identity != null) {
       // Revoking issuer trust must prevent use, not prevent local deletion.
@@ -104,6 +152,7 @@ object CoreProfileStore {
     val removed = when (kind) {
       CoreProfileKind.LEGACY_V1 -> CoreBetaProfileStore.delete(context)
       CoreProfileKind.ARGON_V1 -> CoreArgonProfileStore.delete(context)
+      CoreProfileKind.ARGON_RELAY_V1 -> error(SELECTION_ERROR)
     }
     check(removed) { "Unable to delete selected Veilark Core profile." }
   }
@@ -116,6 +165,9 @@ object CoreProfileStore {
         }
         CoreProfileKind.ARGON_V1 -> loadSelectedArgon(context).use {
           CoreProfileMetadata(CoreProfileKind.ARGON_V1, it.name, it.dnsIpv4, it.handshakeProfile)
+        }
+        CoreProfileKind.ARGON_RELAY_V1 -> loadSelectedRelay(context).use {
+          CoreProfileMetadata(CoreProfileKind.ARGON_RELAY_V1, it.name, it.dnsIpv4, it.handshakeProfile)
         }
         null -> throw IllegalStateException(LOAD_ERROR)
       }
@@ -134,13 +186,21 @@ object CoreProfileStore {
         CoreProfileKind.ARGON_V1 -> CoreArgonProfileStore.import(context, payload).use {
           CoreProfileMetadata(kind, it.name, it.dnsIpv4, it.handshakeProfile)
         }
+        CoreProfileKind.ARGON_RELAY_V1 -> CoreArgonRelayProfileStore.import(context, payload).use {
+          CoreProfileMetadata(kind, it.name, it.dnsIpv4, it.handshakeProfile)
+        }
       }
     } catch (_: Exception) {
       throw IllegalArgumentException(IMPORT_ERROR)
     }
+    if (kind == CoreProfileKind.ARGON_RELAY_V1) {
+      // The direct route's kind and enrollment pointer stay as they were.
+      commitRoute(context, relay = true)
+      return metadata
+    }
     check(context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE).edit()
       .putString(KIND_KEY, kind.preferenceValue)
-      .remove(ENROLLMENT_ISSUER).remove(ENROLLMENT_PROFILE).commit()) { SELECTION_ERROR }
+      .remove(ENROLLMENT_ISSUER).remove(ENROLLMENT_PROFILE).remove(ROUTE_KEY).commit()) { SELECTION_ERROR }
     return metadata
   }
 }

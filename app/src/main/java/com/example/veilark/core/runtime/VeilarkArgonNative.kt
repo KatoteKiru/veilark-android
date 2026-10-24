@@ -38,6 +38,15 @@ internal object VeilarkArgonNative {
     } catch (_: UnsatisfiedLinkError) { false }
   }
 
+  /** The relay route needs begin_v3 (profile ABI 3); below that the route stays unavailable.
+   * Today's begin_v3 entry point is not bound yet, so this is false for every shipped library.
+   */
+  fun isRelayAbiAvailable(): Boolean = RELAY_BINDING_PRESENT && isAbiAvailable() && try {
+    nativeProfileAbiVersion() >= 3
+  } catch (_: UnsatisfiedLinkError) { false }
+
+  private const val RELAY_BINDING_PRESENT = false
+
   @JvmStatic external fun nativeAbiVersion(): Int
   @JvmStatic external fun nativeBegin(
     borrowedUdpFd: Int, serverIpv4: ByteArray, serverPort: Int, mtu: Int,

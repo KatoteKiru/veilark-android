@@ -197,6 +197,8 @@ class CoreBetaVpnService : VpnService() {
     when (selected) {
       CoreProfileKind.LEGACY_V1 -> runLegacyTunnel(session, routingSnapshot)
       CoreProfileKind.ARGON_V1 -> runArgonTunnel(session, routingSnapshot)
+      // Unreachable while isRelayAbiAvailable() is false: the preflight above refuses it.
+      CoreProfileKind.ARGON_RELAY_V1 -> error("Relay route requires begin_v3")
     }
   }
 

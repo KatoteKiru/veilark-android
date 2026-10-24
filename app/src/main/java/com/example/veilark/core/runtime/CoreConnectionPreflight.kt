@@ -39,7 +39,8 @@ internal object CoreConnectionPreflight {
       text("core_routing_mode", ProfileSelection.ROUTING_ALL),
       text("core_direct_routes", ""), text("core_vpn_routes", ""),
       CoreL3DnsPolicy.effective(configuredDns).resolvers, api,
-      commonFairway && kind == CoreProfileKind.ARGON_V1, readAsset,
+      // Fairway is carrier-agnostic: "Russia direct" works the same over the relay route.
+      commonFairway && kind != CoreProfileKind.LEGACY_V1, readAsset,
     )
     val packages = snapshot["selected_applications"]
     require(packages == null || packages is Set<*> && packages.all { it is String }) {
