@@ -55,9 +55,6 @@
     <string name="vpn_off">VPN выключен</string>
     <string name="vpn_protected">Соединение защищено</string>
     <string name="vpn_connect_failed">Не удалось подключиться</string>
-    <string name="vpn_add_profile_hint">Добавьте подписку или профиль</string>
-    <string name="vpn_connecting_hint">Это может занять несколько секунд</string>
-    <string name="vpn_ready_hint">Готово к безопасному подключению</string>
     <string name="latency_ms">%1$d мс</string>
     <string name="profile_checking">Проверяем профиль…</string>
     <string name="profile_add">Добавить профиль</string>
@@ -74,8 +71,6 @@
     <string name="run_diagnostics">Проверить внешние сервисы</string>
     <string name="clear_log">Очистить журнал</string>
     <string name="technical_log_empty">Ошибок и сетевых событий пока нет</string>
-    <string name="trust_profile">Профиль TrustTunnel</string>
-    <string name="singbox_profile">Профиль sing-box</string>
     <string name="expanded">Развёрнуто</string>
     <string name="collapsed">Свёрнуто</string>
     <string name="profile_missing">Профиль не добавлен</string>
@@ -95,11 +90,7 @@
     <string name="dpi_protection">Защита от DPI</string>
     <string name="tls_fragmentation">Фрагментация TLS</string>
     <string name="standard">Стандартная</string>
-    <string name="dns">DNS</string>
-    <string name="protected_value">Защищённый</string>
     <string name="kill_switch">Защита при обрыве</string>
-    <string name="enabled_value">Включена</string>
-    <string name="disabled_value">Выключена</string>
     <string name="kill_switch_description">Блокировать интернет-трафик при обрыве VPN, пока вы не переподключитесь или не отключитесь</string>
     <string name="kill_switch_blocking">Нет защищённого соединения — трафик заблокирован</string>
     <string name="system_vpn_settings">Открыть настройки VPN Android</string>
@@ -125,7 +116,6 @@
     <string name="standard_description">Максимальная совместимость и скорость</string>
     <string name="tls_fragmentation_description">Дробит ClientHello TCP-профилей; подключение может стать немного дольше</string>
     <string name="apply_routing">Применить маршрутизацию</string>
-    <string name="connection_failed_title">Подключение не выполнено</string>
     <string name="attention_title">Требует внимания</string>
     <string name="error_code">Код: %1$s</string>
     <string name="copy_diagnostics">Скопировать диагностику</string>

@@ -56,9 +56,6 @@
     <string name="vpn_off">VPN is off</string>
     <string name="vpn_protected">Connection protected</string>
     <string name="vpn_connect_failed">Could not connect</string>
-    <string name="vpn_add_profile_hint">Add a subscription or profile</string>
-    <string name="vpn_connecting_hint">This may take a few seconds</string>
-    <string name="vpn_ready_hint">Ready for a secure connection</string>
     <string name="latency_ms">%1$d ms</string>
     <string name="profile_checking">Checking profile…</string>
     <string name="profile_add">Add profile</string>
@@ -75,8 +72,6 @@
     <string name="run_diagnostics">Test external services</string>
     <string name="clear_log">Clear log</string>
     <string name="technical_log_empty">No errors or network events yet</string>
-    <string name="trust_profile">TrustTunnel profile</string>
-    <string name="singbox_profile">sing-box profile</string>
     <string name="expanded">Expanded</string>
     <string name="collapsed">Collapsed</string>
     <string name="profile_missing">No profile added</string>
@@ -96,11 +91,7 @@
     <string name="dpi_protection">DPI protection</string>
     <string name="tls_fragmentation">TLS fragmentation</string>
     <string name="standard">Standard</string>
-    <string name="dns">DNS</string>
-    <string name="protected_value">Protected</string>
     <string name="kill_switch">Kill switch</string>
-    <string name="enabled_value">Enabled</string>
-    <string name="disabled_value">Disabled</string>
     <string name="kill_switch_description">Block internet traffic if the VPN connection is lost, until you reconnect or disconnect</string>
     <string name="kill_switch_blocking">No protected connection — traffic blocked</string>
     <string name="system_vpn_settings">Open Android VPN settings</string>
@@ -126,7 +117,6 @@
     <string name="standard_description">Maximum compatibility and speed</string>
     <string name="tls_fragmentation_description">Splits ClientHello for TCP profiles; connecting may take slightly longer</string>
     <string name="apply_routing">Apply routing</string>
-    <string name="connection_failed_title">Connection failed</string>
     <string name="attention_title">Needs attention</string>
     <string name="error_code">Code: %1$s</string>
     <string name="copy_diagnostics">Copy diagnostics</string>
