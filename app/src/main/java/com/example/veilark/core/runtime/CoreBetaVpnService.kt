@@ -881,8 +881,8 @@ class CoreBetaVpnService : VpnService() {
     return value as? String ?: throw IllegalArgumentException("Invalid Core routing setting")
   }
 
-  // No legitimate-service adapter is registered yet; lab builds can use static relay credentials.
-  private val relayCredentials = CoreRelayCredentials(emptyList())
+  // Our own coturn relays; lab builds may still use a static pair for a scratch relay.
+  private val relayCredentials = CoreRelayCredentials(listOf(CoreCoturnRestCredentials()))
 
   companion object {
     internal const val ACTION_STOP = "uk.senyasenyavski.veilark.CORE_BETA_STOP"

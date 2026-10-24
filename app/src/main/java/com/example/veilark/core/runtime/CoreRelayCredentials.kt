@@ -3,11 +3,11 @@ package com.example.veilark.core.runtime
 import com.example.veilark.profile.CoreArgonRelayProfile
 
 /**
- * Obtains short-lived TURN credentials for a Veilark Passage relay on the phone,
- * from the legitimate service that runs the relay. Under a whitelist that service
- * is reachable while our control plane may not be, so nothing here calls Veilark
- * servers. Each service has one adapter; the core stays service-agnostic and only
- * receives the resulting username and password through begin_v3.
+ * Obtains short-lived TURN credentials for a Veilark Passage relay on the phone.
+ * Under a whitelist our control plane may be unreachable, so an adapter works from
+ * what the signed profile carries and the relay itself. Each relay kind has one
+ * adapter; the core stays agnostic and only receives the resulting username and
+ * password through begin_v3.
  */
 internal interface CoreRelayCredentialAdapter {
   /** Matches [CoreArgonRelayProfile.Credential.Service.service]. */
