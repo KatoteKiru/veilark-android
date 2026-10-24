@@ -101,10 +101,8 @@
     <string name="protected_value">Защищённый</string>
     <string name="kill_switch">Защита при обрыве</string>
     <string name="enabled_value">Включена</string>
-    <string name="trust_full_tunnel">Полный туннель через TrustTunnel</string>
     <string name="trust_russia_direct_description">Российские сети IPv4/IPv6 идут напрямую, остальной трафик — через TrustTunnel</string>
     <string name="trust_routing_mode_unsupported">Выбранный режим не поддерживается установленным ядром TrustTunnel.</string>
-    <string name="protection">Защита</string>
     <string name="close_routing">Закрыть настройки маршрутизации</string>
     <string name="custom_rules_description">Укажите, что направлять напрямую или через VPN</string>
     <string name="direct_without_vpn">Напрямую, без VPN</string>
@@ -125,6 +123,7 @@
     <string name="tls_fragmentation_description">Дробит ClientHello TCP-профилей; подключение может стать немного дольше</string>
     <string name="apply_routing">Применить маршрутизацию</string>
     <string name="connection_failed_title">Подключение не выполнено</string>
+    <string name="attention_title">Требует внимания</string>
     <string name="error_code">Код: %1$s</string>
     <string name="copy_diagnostics">Скопировать диагностику</string>
     <string name="paste_from_clipboard">Вставить ссылку из буфера обмена</string>
@@ -147,7 +146,7 @@
     <string name="veilark_license_title">Veilark · GPL-3.0-or-later</string>
     <string name="trust_license_title">TrustTunnelClient · Apache-2.0</string>
     <string name="third_party_notices_title">Уведомления сторонних компонентов</string>
-    <string name="trust_attribution">Veilark включает изменённый Android-адаптер и нативное ядро TrustTunnelClient v1.1.5, Copyright 2020 Adguard Software Ltd, лицензия Apache License 2.0. В Android-адаптере сохранены исправления жизненного цикла и добавлена маршрутизация по приложениям.</string>
+    <string name="trust_attribution">Veilark включает изменённый Android-адаптер и нативное ядро TrustTunnelClient v1.1.7, Copyright 2020 Adguard Software Ltd, лицензия Apache License 2.0. В Android-адаптере сохранены исправления жизненного цикла и добавлена маршрутизация по приложениям.</string>
     <string name="independent_project_notice">Veilark — независимый проект сообщества. Он не связан с AdGuard, TrustTunnel, SagerNet или sing-box и не одобрен ими.</string>
     <string name="legal_document_back">Назад к лицензиям</string>
     <string name="qr_permission_required">Для сканирования QR разрешите доступ к камере</string>
@@ -181,6 +180,7 @@
     <string name="trust_refreshed_source_empty">Обновлённый источник TrustTunnel пуст</string>
     <string name="subscription_removed_refresh">Подписка была удалена до завершения обновления</string>
     <string name="subscription_import_failed">Не удалось импортировать подписку</string>
+    <string name="subscription_import_partial">Импортировано серверов: %1$d. Пропущено неподдерживаемых: %2$d.</string>
     <string name="subscription_refresh_failed">Не удалось обновить подписку</string>
     <string name="node_select_failed">Не удалось выбрать узел</string>
     <string name="trust_subscription_missing">Подписка TrustTunnel больше не найдена</string>

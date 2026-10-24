@@ -116,7 +116,7 @@ class AndroidTunnelLifecycleCoordinator internal constructor(
         val pending = allocateAttempt(nextEngine)
           ?: return LifecycleAction.Ignored(IgnoreReason.AttemptIdExhausted)
         state = current.copy(afterStop = AfterStop.Start(pending))
-      LifecycleAction.QueuedAfterStop(pending)
+        LifecycleAction.QueuedAfterStop(pending)
       }
 
       AfterStop.Stop -> ignoredStaleOrIllegal()
