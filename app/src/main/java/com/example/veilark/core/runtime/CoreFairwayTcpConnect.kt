@@ -7,6 +7,7 @@ import android.system.ErrnoException
 import android.system.Os
 import android.system.OsConstants
 import android.system.StructPollfd
+import java.io.FileDescriptor
 import java.io.IOException
 import java.net.Inet4Address
 import java.net.InetSocketAddress
@@ -100,17 +101,19 @@ internal class CoreFairwayTcpConnect {
   }
 
   private fun publishWakePipe() {
-    val raw = ParcelFileDescriptor.createPipe()
+    // A nonblocking socket pair instead of a pipe: setting O_NONBLOCK on an
+    // existing descriptor needs Os.fcntlInt, which is public only from API 30,
+    // while socketpair takes the flags atomically on minSdk 29.
+    val rawRead = FileDescriptor()
+    val rawWrite = FileDescriptor()
+    Os.socketpair(OsConstants.AF_UNIX,
+      OsConstants.SOCK_STREAM or OsConstants.SOCK_NONBLOCK or OsConstants.SOCK_CLOEXEC,
+      0, rawRead, rawWrite)
     var read: ParcelFileDescriptor? = null
     var write: ParcelFileDescriptor? = null
     try {
-      for (descriptor in raw) {
-        val fd = descriptor.fileDescriptor
-        Os.fcntlInt(fd, OsConstants.F_SETFL, Os.fcntlInt(fd, OsConstants.F_GETFL, 0) or OsConstants.O_NONBLOCK)
-        Os.fcntlInt(fd, OsConstants.F_SETFD, Os.fcntlInt(fd, OsConstants.F_GETFD, 0) or OsConstants.FD_CLOEXEC)
-      }
-      read = ParcelFileDescriptor.dup(raw[0].fileDescriptor)
-      write = ParcelFileDescriptor.dup(raw[1].fileDescriptor)
+      read = ParcelFileDescriptor.dup(rawRead)
+      write = ParcelFileDescriptor.dup(rawWrite)
       synchronized(lock) {
         checkCancelledLocked()
         wakeRead = read
@@ -121,7 +124,7 @@ internal class CoreFairwayTcpConnect {
     } finally {
       try { read?.close() } finally {
         try { write?.close() } finally {
-          try { raw[0].close() } finally { raw[1].close() }
+          try { Os.close(rawRead) } finally { Os.close(rawWrite) }
         }
       }
     }
