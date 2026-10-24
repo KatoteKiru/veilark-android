@@ -1,9 +1,11 @@
 package com.example.veilark.core.runtime
 
 import android.net.ConnectivityManager
+import android.net.DnsResolver
 import android.net.Network
 import android.net.NetworkCapabilities
 import android.os.Looper
+import android.os.CancellationSignal
 import android.os.ParcelFileDescriptor
 import android.system.ErrnoException
 import android.system.Os
@@ -11,6 +13,9 @@ import android.system.OsConstants
 import java.io.FileDescriptor
 import java.io.IOException
 import java.net.InetAddress
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 
 /** A specific non-VPN Network, captured by the attempt's network-epoch owner. */
 internal class CoreFairwayAndroidNetworkBinding(
@@ -27,6 +32,29 @@ internal class CoreFairwayAndroidNetworkBinding(
 
   override fun bind(fd: FileDescriptor) = network.bindSocket(fd)
   override fun protect(fd: Int): Boolean = protectSocket(fd)
+  override suspend fun resolveIpv4(host: String): List<java.net.Inet4Address> {
+    check(isUsable()) { "Captured network unavailable" }
+    return suspendCancellableCoroutine { continuation ->
+      val cancellation = CancellationSignal()
+      continuation.invokeOnCancellation { cancellation.cancel() }
+      if (continuation.isActive) try {
+        DnsResolver.getInstance().query(network, host, DnsResolver.TYPE_A, DnsResolver.FLAG_EMPTY,
+          java.util.concurrent.Executor { it.run() }, cancellation,
+          object : DnsResolver.Callback<List<InetAddress>> {
+            override fun onAnswer(answer: List<InetAddress>, rcode: Int) {
+              if (!continuation.isActive) return
+              if (rcode != 0) continuation.resumeWithException(IOException("Captured network lookup failed"))
+              else continuation.resume(answer.asSequence().filterIsInstance<java.net.Inet4Address>().take(16).toList())
+            }
+            override fun onError(error: DnsResolver.DnsException) {
+              if (continuation.isActive) continuation.resumeWithException(IOException("Captured network lookup failed"))
+            }
+          })
+      } catch (_: Exception) {
+        if (continuation.isActive) continuation.resumeWithException(IOException("Captured network lookup failed"))
+      }
+    }
+  }
 }
 
 /**

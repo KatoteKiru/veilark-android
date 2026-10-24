@@ -31,6 +31,9 @@ internal interface CoreFairwayNetworkBinding {
   fun isUsable(): Boolean
   @Throws(IOException::class) fun bind(fd: FileDescriptor)
   fun protect(fd: Int): Boolean
+  /** Explicit captured-network lookup. Unsupported bindings fail closed. */
+  suspend fun resolveIpv4(host: String): List<java.net.Inet4Address> =
+    throw IOException("Captured network resolution unavailable")
 }
 
 internal enum class CoreFairwayFdFailureReason {
