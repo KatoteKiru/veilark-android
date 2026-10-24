@@ -39,6 +39,7 @@ class EnrollmentV2DraftConsumerTest {
       assertEquals(1792713600L, result.issuedAt)
       assertEquals(1792713600L, result.notBefore)
       assertEquals(1792800000L, result.expiresAt)
+      assertFalse(result.relayRoute)
       val profile = result.profileCopy()
       assertArrayEquals((valid["profile_utf8"] as String).toByteArray(), profile)
       profile.fill(0)
@@ -103,6 +104,21 @@ class EnrollmentV2DraftConsumerTest {
     rejects(bytes = malformed.first, keys = malformed.second)
     val duplicateProfile = "{\"schema\":\"veilark-argon-profile-v1\"," + (valid["profile_utf8"] as String).drop(1)
     signedReject(payload = (valid["payload_utf8"] as String).replace(oldProfile, b64(duplicateProfile.toByteArray())))
+  }
+
+  @Test fun signedPassageProfileIsFlaggedAndMayCarryLabRelayCredentials() {
+    val key = Base64.getEncoder().encodeToString(ByteArray(32) { 3 })
+    val passage = """{"schema":"veilark-argon-relay-profile-v1","engine":"argon-v1","beta":true,"name":"Passage lab",""" +
+      """"exits":[{"ipv4":"192.0.2.1","port":3478}],"relays":[{"uri":"turn:192.0.2.9",""" +
+      """"credential":{"source":"static","username":"lab","password":"secret"}}],""" +
+      """"identity":{"client_static_private_base64":"$key","server_static_public_base64":"$key"},""" +
+      """"network":{"mtu":1280,"dns_ipv4":["1.1.1.1"]}}"""
+    val oldProfile = b64((valid["profile_utf8"] as String).toByteArray())
+    val signed = signedCandidate((valid["payload_utf8"] as String).replace(oldProfile, b64(passage.toByteArray())))
+    EnrollmentV2DraftConsumer.verify(uri, signed.first, signed.second, now).use {
+      assertTrue(it.relayRoute)
+      assertArrayEquals(passage.toByteArray(), it.profileCopy())
+    }
   }
 
   @Test fun importWindowSkewHasExactBoundaries() {

@@ -20,6 +20,8 @@ internal class EnrollmentV2DraftConsumer private constructor(
   val issuedAt: Long,
   val notBefore: Long,
   val expiresAt: Long,
+  /** The payload is a Veilark Passage profile, which goes to its own slot. */
+  val relayRoute: Boolean,
   private val profile: ByteArray,
   private val digest: ByteArray,
 ) : AutoCloseable {
@@ -100,10 +102,18 @@ internal class EnrollmentV2DraftConsumer private constructor(
         val profileBytes = decode(payload["profile_b64"] as? String ?: error(ERROR), 16_384)
         val profileText = strictUtf8(profileBytes)
         val profileObject = CoreProfileJson.parse(profileText) as? Map<*, *> ?: error(ERROR)
-        check(profileObject["schema"] == "veilark-argon-profile-v1")
-        CoreArgonProfile.parse(profileText).use { check(it.handshakeProfile == CoreArgonHandshakeProfile.LEGACY) }
+        val relayRoute = when (profileObject["schema"]) {
+          "veilark-argon-profile-v1" -> {
+            CoreArgonProfile.parse(profileText).use { check(it.handshakeProfile == CoreArgonHandshakeProfile.LEGACY) }
+            false
+          }
+          // Signed by our issuer, so a lab relay's static credentials are acceptable here.
+          CoreArgonRelayProfile.SCHEMA -> { CoreArgonRelayProfile.parse(profileText, true).close(); true }
+          else -> error(ERROR)
+        }
         val digest = own(MessageDigest.getInstance("SHA-256").digest(signingInput))
-        return EnrollmentV2DraftConsumer(issuer, kid, profileId, revision, iat, nbf, exp, profileBytes.copyOf(), digest.copyOf())
+        return EnrollmentV2DraftConsumer(issuer, kid, profileId, revision, iat, nbf, exp, relayRoute,
+          profileBytes.copyOf(), digest.copyOf())
       } catch (_: Exception) {
         // No causes/messages from provider, JSON, link, profile, or key input escape.
         throw IllegalArgumentException(ERROR)

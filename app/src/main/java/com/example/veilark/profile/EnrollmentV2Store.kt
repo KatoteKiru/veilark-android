@@ -30,8 +30,15 @@ internal object EnrollmentV2Store {
     try {
       return withContext(Dispatchers.IO) {
         EnrollmentV2DraftConsumer.verify(link, ciphertext, releaseIssuerKeys, epochSeconds()).use { verified ->
-          store(context).import(verified, ::epochSeconds)
-          CoreProfileStore.selectEnrollment(context, verified.issuer, verified.profileId)
+          if (verified.relayRoute) {
+            // Passage lives in its own slot; the enrollment records (and their revision
+            // floor) belong to the direct route, which this import leaves untouched.
+            val profile = verified.profileCopy()
+            try { CoreProfileStore.importSignedRelay(context, profile) } finally { profile.fill(0) }
+          } else {
+            store(context).import(verified, ::epochSeconds)
+            CoreProfileStore.selectEnrollment(context, verified.issuer, verified.profileId)
+          }
         }
       }
     } finally { ciphertext.fill(0) }
@@ -51,6 +58,7 @@ internal object EnrollmentV2Store {
     withContext(Dispatchers.IO) {
       check(releaseIssuerKeys.isNotEmpty()) { ERROR }
       EnrollmentV2DraftConsumer.verify(link, ciphertext, releaseIssuerKeys, epochSeconds()).use {
+        require(!it.relayRoute) { ERROR } // Records hold direct profiles only.
         store(context).import(it, ::epochSeconds)
       }
     }

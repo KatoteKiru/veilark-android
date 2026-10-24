@@ -70,6 +70,20 @@ object CoreProfileStore {
     check(editor.commit()) { SELECTION_ERROR }
   }
 
+  /** A Passage profile delivered by a verified enroll/v2 link. It replaces the Passage slot
+   * and selects that route, leaving the direct route's kind and enrollment pointer alone. */
+  @Synchronized internal fun importSignedRelay(context: Context, payload: ByteArray): CoreProfileMetadata {
+    val metadata = try {
+      CoreArgonRelayProfileStore.import(context, payload, allowStaticCredentials = true).use {
+        CoreProfileMetadata(CoreProfileKind.ARGON_RELAY_V1, it.name, it.dnsIpv4, it.handshakeProfile)
+      }
+    } catch (_: Exception) {
+      throw IllegalArgumentException(IMPORT_ERROR)
+    }
+    commitRoute(context, relay = true)
+    return metadata
+  }
+
   @Synchronized fun loadSelectedRelay(context: Context): CoreArgonRelayProfile {
     check(relaySelected(context)) { LOAD_ERROR }
     return CoreArgonRelayProfileStore.load(context)

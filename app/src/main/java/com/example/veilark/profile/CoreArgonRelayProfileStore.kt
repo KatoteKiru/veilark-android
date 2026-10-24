@@ -7,8 +7,12 @@ import com.example.veilark.BuildConfig
 object CoreArgonRelayProfileStore {
   private const val ID = SecureProfileStore.CORE_ARGON_RELAY
 
-  fun import(context: Context, payload: ByteArray): CoreArgonRelayProfile {
-    val checked = CoreArgonRelayProfile.parse(payload, BuildConfig.DEBUG)
+  /** Static lab credentials pass only where the caller vouches for the source: a debug
+   * build, or an enroll/v2 payload signed by our issuer. */
+  fun import(
+    context: Context, payload: ByteArray, allowStaticCredentials: Boolean = BuildConfig.DEBUG,
+  ): CoreArgonRelayProfile {
+    val checked = CoreArgonRelayProfile.parse(payload, allowStaticCredentials)
     try {
       SecureProfileStore.save(context, ID, checked.validatedEnvelope())
       checked.discardEnvelope()
@@ -19,8 +23,10 @@ object CoreArgonRelayProfileStore {
     }
   }
 
+  // The import gate above is the policy; the slot is authenticated encryption under the
+  // Keystore, so whatever it holds already passed that gate.
   fun load(context: Context): CoreArgonRelayProfile =
-    CoreArgonRelayProfile.parse(SecureProfileStore.load(context, ID), BuildConfig.DEBUG).also { it.discardEnvelope() }
+    CoreArgonRelayProfile.parse(SecureProfileStore.load(context, ID), true).also { it.discardEnvelope() }
 
   fun exists(context: Context): Boolean = SecureProfileStore.exists(context, ID)
   fun delete(context: Context): Boolean = SecureProfileStore.delete(context, ID)
