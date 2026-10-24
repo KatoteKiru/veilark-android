@@ -40,11 +40,12 @@ internal object VeilarkArgonNative {
 
   /** Veilark Passage needs begin_v3, probed separately so that the profile ABI
    * stays at 2 and older app builds keep their exact check against new libraries.
-   * A library without the probe symbol simply has no relay route.
+   * A library without the probe symbol simply has no relay route. The relay version only
+   * grows (4 adds the Passage wire profile), so each feature checks its own minimum.
    */
   fun isRelayAbiAvailable(profile: CoreArgonHandshakeProfile = CoreArgonHandshakeProfile.LEGACY): Boolean =
     isProfileAbiAvailable(profile) && try {
-      nativeRelayAbiVersion() == RELAY_ABI_VERSION
+      nativeRelayAbiVersion() >= RELAY_ABI_VERSION
     } catch (_: UnsatisfiedLinkError) { false }
 
   private const val RELAY_ABI_VERSION = 3
