@@ -34,6 +34,7 @@ import com.example.veilark.diagnostics.TunnelDiagnostics
 import com.example.veilark.ui.main.MainScreen
 import com.example.veilark.ui.main.SubscriptionUiItem
 import com.example.veilark.vpn.ConnectionState
+import com.example.veilark.vpn.KillSwitchVpnService
 import com.example.veilark.vpn.VeilarkVpnService
 import com.example.veilark.profile.SubscriptionFetcher
 import com.example.veilark.profile.SubscriptionParser
@@ -287,6 +288,7 @@ class MainActivity : ComponentActivity() {
             ?: emptySet(),
         )
       }
+      var killSwitchEnabled by remember { mutableStateOf(KillSwitchVpnService.isEnabled(this)) }
       var installedApplications by remember { mutableStateOf<List<InstalledApp>>(emptyList()) }
       val coroutineScope = rememberCoroutineScope()
       fun storedRoutingModeFor(engine: String, fallback: String): String {
@@ -781,6 +783,7 @@ class MainActivity : ComponentActivity() {
           vpnRoutes = vpnRoutes,
           applicationMode = applicationMode,
           dpiMode = dpiMode,
+          killSwitchEnabled = killSwitchEnabled,
           selectedApplications = selectedApplications,
           installedApplications = installedApplications,
           geoUpdating = geoUpdating,
@@ -1653,6 +1656,10 @@ class MainActivity : ComponentActivity() {
                 geoStatus = withContext(Dispatchers.IO) { GeoRoutingAssets.status(this@MainActivity) }
               }
             }
+          },
+          onKillSwitchChange = { enabled ->
+            KillSwitchVpnService.setEnabled(this, enabled)
+            killSwitchEnabled = enabled
           },
           onApplyRouting = {
               newRoutingMode,

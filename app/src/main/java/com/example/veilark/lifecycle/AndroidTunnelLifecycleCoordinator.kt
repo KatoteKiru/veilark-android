@@ -1,14 +1,20 @@
 package com.example.veilark.lifecycle
 
 import android.content.Context
+import android.net.VpnService
 import com.example.veilark.diagnostics.TechnicalLogStore
+import com.example.veilark.profile.CoreProfileStore
+import com.example.veilark.profile.SecureProfileStore
+import com.example.veilark.protocol.ProfileEngine
 import com.example.veilark.protocol.TrustTunnelManager
 import com.example.veilark.core.runtime.CoreBetaManager
 import com.example.veilark.vpn.ConnectionState
+import com.example.veilark.vpn.KillSwitchVpnService
 import com.example.veilark.vpn.VeilarkVpnService
 import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.Flow
@@ -17,6 +23,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 
 /**
@@ -476,6 +483,7 @@ object AndroidTunnelLifecycleOwner {
   private val coordinator = AndroidTunnelLifecycleCoordinator(
     engineEpoch = (System.nanoTime() and Long.MAX_VALUE).coerceAtLeast(1L),
   )
+  private var connectedWatch: Job? = null
 
   fun startSingBox(context: Context, configPath: String) {
     submit(
@@ -500,6 +508,61 @@ object AndroidTunnelLifecycleOwner {
     submit(context, OwnerCommand.Stop)
   }
 
+  /**
+   * Called from an engine's onRevoke. The user disconnected Veilark in system
+   * settings or another VPN app took over; recording it as a command keeps the
+   * teardown from being read as an engine failure the kill switch blocks over.
+   */
+  fun revoked(context: Context) {
+    submit(context, OwnerCommand.Revoke)
+  }
+
+  /**
+   * Restores the stored profile when Android starts Veilark as the Always-on
+   * VPN or restarts its blocking service. An engine that already owns or is
+   * acquiring the tunnel, and any command submitted meanwhile, take precedence.
+   */
+  fun startStoredProfile(context: Context) {
+    val appContext = context.applicationContext
+    val observedSequence = commandSequence.get()
+    scope.launch {
+      val idle = mutex.withLock {
+        coordinator.state.let { it is LifecycleState.Stopped || it is LifecycleState.Failed }
+      }
+      if (!idle || observedSequence != commandSequence.get()) return@launch
+      val started = runCatching { withContext(Dispatchers.IO) { startStoredEngine(appContext) } }
+        .onFailure {
+          TechnicalLogStore.error("LIFECYCLE", "Stored profile did not start: ${it.javaClass.simpleName}")
+        }
+        .getOrDefault(false)
+      if (!started) {
+        TechnicalLogStore.warning("LIFECYCLE", "No stored profile is available for an Android-initiated start")
+      }
+    }
+  }
+
+  private suspend fun startStoredEngine(context: Context): Boolean {
+    val engine = context.getSharedPreferences("profile_meta", Context.MODE_PRIVATE)
+      .getString("profile_engine", ProfileEngine.SING_BOX)
+    when (engine) {
+      ProfileEngine.CORE_BETA -> {
+        if (!CoreBetaManager.isAvailable() || !CoreProfileStore.exists(context)) return false
+        CoreBetaManager.start(context)
+      }
+
+      ProfileEngine.TRUST_TUNNEL -> {
+        if (!SecureProfileStore.exists(context, SecureProfileStore.TRUST_TUNNEL)) return false
+        TrustTunnelManager.start(context, SecureProfileStore.load(context, SecureProfileStore.TRUST_TUNNEL))
+      }
+
+      else -> {
+        if (!SecureProfileStore.exists(context, SecureProfileStore.SING_BOX)) return false
+        VeilarkVpnService.start(context, SecureProfileStore.SING_BOX)
+      }
+    }
+    return true
+  }
+
   private fun submit(context: Context, command: OwnerCommand) {
     val sequence = commandSequence.incrementAndGet()
     commandVersion.value = sequence
@@ -510,6 +573,7 @@ object AndroidTunnelLifecycleOwner {
         when (command) {
           is OwnerCommand.Start -> executeStart(appContext, command, sequence)
           OwnerCommand.Stop -> executeStop(appContext, sequence)
+          OwnerCommand.Revoke -> executeRevoke(appContext, sequence)
         }
       }
     }
@@ -544,6 +608,13 @@ object AndroidTunnelLifecycleOwner {
     executeAction(context, command = null, sequence = sequence, action = action)
     // Reconcile a service restored by Android after this process lost its model.
     stopForeignOrUntracked(context, keep = null)
+    KillSwitchVpnService.release(context)
+  }
+
+  private suspend fun executeRevoke(context: Context, sequence: Long) {
+    val action = coordinator.dispatch(LifecycleInput.Revoke).action
+    executeAction(context, command = null, sequence = sequence, action = action)
+    KillSwitchVpnService.release(context)
   }
 
   private suspend fun executeAction(
@@ -572,6 +643,8 @@ object AndroidTunnelLifecycleOwner {
           cancelSupersededAttempt(context, sequence)
           return
         }
+        // From here on the engine may own the VPN interface at any moment.
+        KillSwitchVpnService.admitEngine()
         val launched = runCatching {
           when (action.attempt.engine) {
             EngineId.SingBox -> VeilarkVpnService.startEngine(
@@ -616,13 +689,58 @@ object AndroidTunnelLifecycleOwner {
         )
       }
 
+      is LifecycleAction.Connected -> {
+        // The engine's establish() has replaced any blocking interface.
+        KillSwitchVpnService.release(context)
+        watchForUnrequestedStop(context, action.attempt, sequence)
+      }
+
+      is LifecycleAction.Stopped -> KillSwitchVpnService.engineReleased()
+
+      is LifecycleAction.Failed -> {
+        KillSwitchVpnService.engineReleased()
+        val consentHeld = runCatching { VpnService.prepare(context) == null }.getOrDefault(false)
+        if (killSwitchShouldBlock(KillSwitchVpnService.isEnabled(context), action.reason, consentHeld)) {
+          KillSwitchVpnService.hold(context)
+        } else {
+          KillSwitchVpnService.release(context)
+        }
+      }
+
       is LifecycleAction.QueuedAfterStop,
       is LifecycleAction.PendingStartCancelled,
-      is LifecycleAction.Connected,
-      is LifecycleAction.Stopped,
-      is LifecycleAction.Failed,
       is LifecycleAction.Ignored,
       -> Unit
+    }
+  }
+
+  /**
+   * A connected engine can end on its own: a core crash, an exhausted
+   * reconnect budget or a revoke. Every user stop and switch first submits a
+   * command, so a teardown observed with no newer command is unrequested and
+   * is completed here as an engine failure.
+   */
+  private fun watchForUnrequestedStop(context: Context, attempt: LifecycleAttempt, sequence: Long) {
+    val stopped = when (attempt.engine) {
+      EngineId.SingBox -> VeilarkVpnService.stopped
+      EngineId.TrustTunnel -> TrustTunnelManager.stopped
+      EngineId.CoreBeta -> CoreBetaManager.stopped
+      EngineId.VeilarkCoreCanary -> return
+    }
+    connectedWatch?.cancel()
+    connectedWatch = scope.launch {
+      stopped.first { it }
+      mutex.withLock {
+        if (sequence != commandSequence.get()) return@withLock
+        if (coordinator.state != LifecycleState.Connected(attempt)) return@withLock
+        TechnicalLogStore.warning("LIFECYCLE", "${attempt.engine.name} stopped without a user request")
+        executeAction(
+          context,
+          command = null,
+          sequence = sequence,
+          action = coordinator.dispatch(LifecycleInput.EngineFailed(attempt)).action,
+        )
+      }
     }
   }
 
@@ -720,5 +838,6 @@ object AndroidTunnelLifecycleOwner {
   private sealed interface OwnerCommand {
     data class Start(val engine: EngineId, val payload: String) : OwnerCommand
     data object Stop : OwnerCommand
+    data object Revoke : OwnerCommand
   }
 }

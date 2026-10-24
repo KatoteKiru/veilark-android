@@ -3,6 +3,8 @@
 package com.example.veilark.ui.main
 
 import android.annotation.SuppressLint
+import android.content.Intent
+import android.provider.Settings
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateColorAsState
@@ -106,6 +108,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.ToggleButton
@@ -245,6 +248,7 @@ fun MainScreen(
   vpnRoutes: String = "",
   applicationMode: String = ProfileSelection.APPS_ALL,
   dpiMode: String = ProfileSelection.DPI_OFF,
+  killSwitchEnabled: Boolean = true,
   selectedApplications: Set<String> = emptySet(),
   installedApplications: List<InstalledApp> = emptyList(),
   geoUpdating: Boolean = false,
@@ -286,6 +290,7 @@ fun MainScreen(
   onRefreshGeo: () -> Unit = {},
   onApplyRouting: (String, String, String, String, String, Set<String>) -> Boolean =
     { _, _, _, _, _, _ -> true },
+  onKillSwitchChange: (Boolean) -> Unit = {},
   onCopyDiagnostic: () -> Unit = {},
   onClearTechnicalLogs: () -> Unit = {},
   onRunDiagnostics: () -> Unit = {},
@@ -481,6 +486,7 @@ fun MainScreen(
       vpnRoutes = vpnRoutes,
       applicationMode = applicationMode,
       dpiMode = dpiMode,
+      killSwitchEnabled = killSwitchEnabled,
       selectedApplications = selectedApplications,
       installedApplications = installedApplications,
       trustTunnelActive = trustTunnelActive,
@@ -491,6 +497,7 @@ fun MainScreen(
       geoUpdateMessage = geoUpdateMessage,
       geoStatusDescription = geoStatusDescription,
       onRefreshGeo = onRefreshGeo,
+      onKillSwitchChange = onKillSwitchChange,
       onApply = { route, direct, vpn, apps, dpi, packages ->
         val reconnectRequired = connectionState != ConnectionState.Disconnected &&
           connectionState != ConnectionState.Failed
@@ -678,6 +685,7 @@ fun MainScreen(
           dpiMode = if (coreBetaActive) ProfileSelection.DPI_OFF else dpiMode,
           selectedApplicationCount = selectedApplications.size,
           coreBetaActive = coreBetaActive,
+          killSwitchEnabled = killSwitchEnabled,
           onClick = {
             onOpenRouting()
             showRouting = true
@@ -2235,6 +2243,7 @@ private fun RoutingCard(
   dpiMode: String,
   selectedApplicationCount: Int,
   coreBetaActive: Boolean,
+  killSwitchEnabled: Boolean,
   onClick: () -> Unit,
 ) {
   Column {
@@ -2285,7 +2294,14 @@ private fun RoutingCard(
         }
         InfoRow(stringResource(R.string.dns), stringResource(if (coreBetaActive) R.string.core_profile_dns else R.string.protected_value))
         HorizontalDivider(modifier = Modifier.padding(horizontal = 20.dp))
-        InfoRow(stringResource(if (coreBetaActive) R.string.core_ipv6_blocked else R.string.kill_switch), stringResource(R.string.enabled_value))
+        if (coreBetaActive) {
+          InfoRow(stringResource(R.string.core_ipv6_blocked), stringResource(R.string.enabled_value))
+          HorizontalDivider(modifier = Modifier.padding(horizontal = 20.dp))
+        }
+        InfoRow(
+          stringResource(R.string.kill_switch),
+          stringResource(if (killSwitchEnabled) R.string.enabled_value else R.string.disabled_value),
+        )
       }
     }
   }
@@ -2437,6 +2453,7 @@ private fun RoutingSettingsDialog(
   vpnRoutes: String,
   applicationMode: String,
   dpiMode: String,
+  killSwitchEnabled: Boolean,
   selectedApplications: Set<String>,
   installedApplications: List<InstalledApp>,
   trustTunnelActive: Boolean,
@@ -2446,6 +2463,7 @@ private fun RoutingSettingsDialog(
   geoUpdateMessage: String?,
   geoStatusDescription: String?,
   onRefreshGeo: () -> Unit,
+  onKillSwitchChange: (Boolean) -> Unit,
   onApply: (String, String, String, String, String, Set<String>) -> Unit,
   onDismiss: () -> Unit,
 ) {
@@ -2775,6 +2793,24 @@ private fun RoutingSettingsDialog(
                 )
               }
             }
+            item { SettingsSectionTitle(stringResource(R.string.kill_switch)) }
+            item { KillSwitchToggle(enabled = killSwitchEnabled, onEnabledChange = onKillSwitchChange) }
+            item {
+              Text(
+                stringResource(R.string.system_vpn_settings_hint),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+              )
+            }
+            item {
+              val context = LocalContext.current
+              OutlinedButton(
+                onClick = { runCatching { context.startActivity(Intent(Settings.ACTION_VPN_SETTINGS)) } },
+                modifier = Modifier.fillMaxWidth(),
+              ) {
+                Text(stringResource(R.string.system_vpn_settings))
+              }
+            }
           }
           HorizontalDivider()
           DialogActions(
@@ -2944,6 +2980,35 @@ private fun ApplicationChoice(
       )
     }
     Checkbox(checked = selected, onCheckedChange = null)
+  }
+}
+
+/** Applied immediately: the kill switch is app policy and needs no reconnect. */
+@Composable
+private fun KillSwitchToggle(
+  enabled: Boolean,
+  onEnabledChange: (Boolean) -> Unit,
+) {
+  Surface(
+    modifier = Modifier
+      .fillMaxWidth()
+      .heightIn(min = 56.dp)
+      .toggleable(value = enabled, role = Role.Switch, onValueChange = onEnabledChange),
+    shape = RoundedCornerShape(16.dp),
+    color = MaterialTheme.colorScheme.surfaceContainerHighest,
+  ) {
+    Row(
+      modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+      verticalAlignment = Alignment.CenterVertically,
+      horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+      Text(
+        stringResource(R.string.kill_switch_description),
+        modifier = Modifier.weight(1f),
+        style = MaterialTheme.typography.bodyMedium,
+      )
+      Switch(checked = enabled, onCheckedChange = null)
+    }
   }
 }
 

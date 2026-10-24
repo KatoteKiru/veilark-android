@@ -101,6 +101,11 @@
     <string name="protected_value">Защищённый</string>
     <string name="kill_switch">Защита при обрыве</string>
     <string name="enabled_value">Включена</string>
+    <string name="disabled_value">Выключена</string>
+    <string name="kill_switch_description">Блокировать интернет-трафик при обрыве VPN, пока вы не переподключитесь или не отключитесь</string>
+    <string name="kill_switch_blocking">Нет защищённого соединения — трафик заблокирован</string>
+    <string name="system_vpn_settings">Открыть настройки VPN Android</string>
+    <string name="system_vpn_settings_hint">Для защиты на уровне системы включите там для Veilark «Постоянная VPN» и «Блокировать соединения без VPN».</string>
     <string name="trust_russia_direct_description">Российские сети IPv4/IPv6 идут напрямую, остальной трафик — через TrustTunnel</string>
     <string name="trust_routing_mode_unsupported">Выбранный режим не поддерживается установленным ядром TrustTunnel.</string>
     <string name="close_routing">Закрыть настройки маршрутизации</string>

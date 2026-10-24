@@ -102,6 +102,11 @@
     <string name="protected_value">Protected</string>
     <string name="kill_switch">Kill switch</string>
     <string name="enabled_value">Enabled</string>
+    <string name="disabled_value">Disabled</string>
+    <string name="kill_switch_description">Block internet traffic if the VPN connection is lost, until you reconnect or disconnect</string>
+    <string name="kill_switch_blocking">No protected connection — traffic blocked</string>
+    <string name="system_vpn_settings">Open Android VPN settings</string>
+    <string name="system_vpn_settings_hint">For protection at the system level, turn on “Always-on VPN” and “Block connections without VPN” for Veilark there.</string>
     <string name="trust_russia_direct_description">Russian IPv4/IPv6 networks go directly; all other traffic uses TrustTunnel</string>
     <string name="trust_routing_mode_unsupported">This routing mode is not supported by the installed TrustTunnel core.</string>
     <string name="close_routing">Close routing settings</string>

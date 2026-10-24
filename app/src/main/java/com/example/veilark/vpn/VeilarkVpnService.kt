@@ -115,6 +115,13 @@ class VeilarkVpnService :
       shutdown()
       return START_NOT_STICKY
     }
+    if (intent?.action == ACTION_DISCONNECT) {
+      // A user stop goes through the lifecycle owner, which tells it apart
+      // from an engine that ended on its own.
+      stop(this)
+      if (stopped.value) stopSelf(startId)
+      return START_NOT_STICKY
+    }
 
     // Every start arrives through startForegroundService(). Android kills the
     // app if the service stops before entering the foreground, so a rejected
@@ -281,6 +288,7 @@ class VeilarkVpnService :
     )
 
   override fun onRevoke() {
+    AndroidTunnelLifecycleOwner.revoked(this)
     shutdown()
     super.onRevoke()
   }
@@ -894,7 +902,7 @@ class VeilarkVpnService :
     val stop = PendingIntent.getService(
       this,
       1,
-      Intent(this, VeilarkVpnService::class.java).setAction(ACTION_STOP),
+      Intent(this, VeilarkVpnService::class.java).setAction(ACTION_DISCONNECT),
       PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
     )
     val notification = NotificationCompat.Builder(this, CHANNEL_ID)
@@ -952,6 +960,7 @@ class VeilarkVpnService :
   companion object {
     private val ACTION_START = "${BuildConfig.APPLICATION_ID}.START"
     private val ACTION_STOP = "${BuildConfig.APPLICATION_ID}.STOP"
+    private val ACTION_DISCONNECT = "${BuildConfig.APPLICATION_ID}.DISCONNECT"
     private const val EXTRA_CONFIG_PATH = "config_path"
     private const val EXTRA_ATTEMPT_ID = "lifecycle_attempt_id"
     private const val EXTRA_ENGINE_EPOCH = "lifecycle_engine_epoch"

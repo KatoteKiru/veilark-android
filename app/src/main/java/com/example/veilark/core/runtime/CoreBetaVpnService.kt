@@ -20,6 +20,7 @@ import com.example.veilark.MainActivity
 import com.example.veilark.R
 import com.example.veilark.diagnostics.TechnicalLogStore
 import com.example.veilark.BuildConfig
+import com.example.veilark.lifecycle.AndroidTunnelLifecycleOwner
 import com.example.veilark.lifecycle.LifecycleAttempt
 import com.example.veilark.profile.CoreBetaProfile
 import com.example.veilark.profile.CoreArgonProfile
@@ -697,6 +698,7 @@ class CoreBetaVpnService : VpnService() {
 
   override fun onRevoke() {
     coreInfo("service_event=revoke")
+    AndroidTunnelLifecycleOwner.revoked(this)
     sessions.current()?.scope?.cancel()
     super.onRevoke()
   }

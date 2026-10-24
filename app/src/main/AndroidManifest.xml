@@ -97,10 +97,29 @@
             </intent-filter>
             <meta-data
                 android:name="android.net.VpnService.SUPPORTS_ALWAYS_ON"
-                android:value="false" />
+                android:value="true" />
             <property
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="Maintains a user-requested encrypted VPN tunnel" />
+        </service>
+        <!-- Android starts the highest-priority android.net.VpnService handler
+             for Always-on VPN; it must be the kill-switch entry point, which
+             dispatches to the selected engine. Always-on is offered only if
+             every handler in the package supports it. -->
+        <service
+            android:name="com.example.veilark.vpn.KillSwitchVpnService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse"
+            android:permission="android.permission.BIND_VPN_SERVICE">
+            <intent-filter android:priority="10">
+                <action android:name="android.net.VpnService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.net.VpnService.SUPPORTS_ALWAYS_ON"
+                android:value="true" />
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Blocks traffic while the user-requested VPN tunnel is unavailable" />
         </service>
         <service
             android:name="com.example.veilark.core.runtime.CoreBetaVpnService"
@@ -110,7 +129,7 @@
             <intent-filter>
                 <action android:name="android.net.VpnService" />
             </intent-filter>
-            <meta-data android:name="android.net.VpnService.SUPPORTS_ALWAYS_ON" android:value="false" />
+            <meta-data android:name="android.net.VpnService.SUPPORTS_ALWAYS_ON" android:value="true" />
             <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="Maintains a user-requested Veilark Core VPN tunnel with Fairway routing" />
         </service>
@@ -143,7 +162,7 @@
             </intent-filter>
             <meta-data
                 android:name="android.net.VpnService.SUPPORTS_ALWAYS_ON"
-                android:value="false" />
+                android:value="true" />
             <property
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="Maintains a user-requested TrustTunnel VPN connection" />
