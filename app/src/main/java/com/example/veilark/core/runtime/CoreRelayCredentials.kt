@@ -42,13 +42,14 @@ internal class CoreRelayCredentials(adapters: List<CoreRelayCredentialAdapter>) 
     is CoreArgonRelayProfile.Credential.Service ->
       checkNotNull(byService[credential.service]) { "No credential adapter for this relay" }
         .fetch(relay, credential.parameters, binding, nowMillis)
-    // A lab relay's fixed pair, given the shortest lifetime that covers one connection attempt.
+    // A lab relay's pair never expires on the server, so it gets the longest grant the core accepts:
+    // native does not re-authenticate inside a handle, and a short grant would end every session early.
     is CoreArgonRelayProfile.Credential.Static -> credential.withBytes { username, password ->
       CoreTurnGrant.create(relay.uri, username, password, STATIC_LIFETIME_SECONDS, nowMillis)
     }
   }
 
   private companion object {
-    const val STATIC_LIFETIME_SECONDS = 600L
+    const val STATIC_LIFETIME_SECONDS = 86_400L
   }
 }
