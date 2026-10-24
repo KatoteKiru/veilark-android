@@ -711,6 +711,8 @@ fun MainScreen(
                   trustTunnelAvailable = trustTunnelAvailable,
                   connectionState = connectionState,
                   onSelectEngine = onSelectEngine,
+                  coreRouteChoice = coreRouteChoice,
+                  onSelectCoreRoute = onSelectCoreRoute,
                 )
               },
             )
@@ -725,6 +727,9 @@ fun MainScreen(
             onKillSwitchChange = onKillSwitchChange,
             onOpenRouting = openRouting,
           )
+          if (killSwitchBlocking) {
+            RoutingNoticeCard(message = stringResource(R.string.kill_switch_blocking))
+          }
           if (routingNotice != null) {
             RoutingNoticeCard(message = routingNotice)
           }
@@ -1293,6 +1298,8 @@ private fun EngineSelectorCard(
   trustTunnelAvailable: Boolean,
   connectionState: ConnectionState,
   onSelectEngine: (String) -> Unit,
+  coreRouteChoice: CoreRouteChoice?,
+  onSelectCoreRoute: (Boolean) -> Unit,
 ) {
   val alternativeAvailable = if (trustTunnelActive) singBoxAvailable else trustTunnelAvailable
   val idle = connectionState.allowsProfileSwitch()
@@ -1372,6 +1379,34 @@ private fun EngineSelectorCard(
             modifier = Modifier.fillMaxWidth().testTag("engine_core_beta"),
           ) {
             Text(stringResource(R.string.core_beta_title))
+          }
+          if (coreBetaActive && coreRouteChoice != null) {
+            val canChangeRoute = idle && coreRouteChoice.coreStopped
+            Row(
+              modifier = Modifier
+                .fillMaxWidth()
+                .testTag("core_route_choice")
+                .padding(horizontal = 4.dp),
+              horizontalArrangement = Arrangement.spacedBy(12.dp),
+              verticalAlignment = Alignment.CenterVertically,
+            ) {
+              Text("Fairway", style = MaterialTheme.typography.labelLarge)
+              Switch(
+                checked = coreRouteChoice.relaySelected,
+                onCheckedChange = { relay ->
+                  if (canChangeRoute && (!relay || coreRouteChoice.relayAvailable)) {
+                    onSelectCoreRoute(relay)
+                  }
+                },
+                // An unavailable relay must still allow returning to Fairway.
+                enabled = canChangeRoute &&
+                  (coreRouteChoice.relaySelected || coreRouteChoice.relayAvailable),
+                modifier = Modifier
+                  .testTag("core_route_passage")
+                  .semantics { contentDescription = "Fairway / Passage" },
+              )
+              Text("Passage", style = MaterialTheme.typography.labelLarge)
+            }
           }
           Text(
             stringResource(if (!coreBetaRuntimeAvailable) R.string.core_beta_unavailable else if (!coreBetaAvailable) R.string.core_beta_add_profile else R.string.core_beta_scope),

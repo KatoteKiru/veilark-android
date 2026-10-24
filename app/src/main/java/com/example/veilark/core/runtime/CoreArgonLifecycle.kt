@@ -87,7 +87,7 @@ internal class CoreArgonLifecycle(private val api: CoreArgonHandleApi) {
   }
 
   suspend fun awaitAuthenticated(ticket: CoreArgonHandleTicket): CoreArgonAuthenticated {
-    val v2 = ticket.handshakeProfile == CoreArgonHandshakeProfile.CARRIER2_LAB1
+    val v2 = ticket.handshakeProfile != CoreArgonHandshakeProfile.LEGACY
     val output = IntArray(if (v2) 7 else 5)
     try {
       waitNative(ticket) {
@@ -95,7 +95,7 @@ internal class CoreArgonLifecycle(private val api: CoreArgonHandleApi) {
         else api.awaitAuthenticated(ticket.handle, output)
       }
       check(output.take(4).all { it in 0..255 } && output[0] in 1..223 && output[0] != 127 &&
-        output[4] in 1280..1360) { "Invalid authenticated Veilark Core configuration" }
+        output[4] in 1280..ticket.handshakeProfile.maximumMtu) { "Invalid authenticated Veilark Core configuration" }
       check(!v2 || output[5] == ticket.handshakeProfile.wireProfile &&
         output[6] == ticket.handshakeProfile.feedbackVersion) { "Veilark Core authenticated profile mismatch" }
       return CoreArgonAuthenticated(output.take(4).joinToString("."), output[4])
@@ -245,7 +245,7 @@ internal class CoreArgonLifecycle(private val api: CoreArgonHandleApi) {
         // failed reads keep recovery conservative but must not prevent disposal.
         val outcome = runCatching { api.terminalOutcome(admitted.ticket.handle) }.getOrNull()
           ?.takeIf { it == 2 || it == 3 || it == 24 || it == 26 ||
-            admitted.ticket.handshakeProfile == CoreArgonHandshakeProfile.CARRIER2_LAB1 && (it == 28 || it == 29) }
+            admitted.ticket.handshakeProfile.feedbackVersion == 1 && (it == 28 || it == 29) }
         // Status reads are short but may not race disposal.
         ownershipMutex.withLock {
           if (api.release(admitted.ticket.handle) == 0) {

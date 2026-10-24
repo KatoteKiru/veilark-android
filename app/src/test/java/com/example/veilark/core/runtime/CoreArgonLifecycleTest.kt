@@ -14,6 +14,30 @@ import org.junit.Test
 
 /** Deterministic lifecycle mocks; these do not establish native TUN or device acceptance. */
 class CoreArgonLifecycleTest {
+  @Test fun passageAuthenticatesOnlyItsOwnPairAndMtuWithoutLegacyFallback() = runBlocking {
+    for ((mtu, wire, feedback) in listOf(Triple(1357, 3, 1), Triple(1358, 3, 1),
+      Triple(1280, 2, 1), Triple(1280, 3, 0))) {
+      val fake = object : Fake() {
+        override fun awaitAuthenticated(handle: Long, output: IntArray): Int = error("Legacy downgrade")
+        override fun awaitAuthenticatedV2(handle: Long, output: IntArray): Int {
+          assertEquals(7, output.size)
+          intArrayOf(10, 0, 0, 1, mtu, wire, feedback).copyInto(output)
+          return 0
+        }
+      }
+      val owner = CoreArgonLifecycle(fake)
+      val ticket = owner.startBorrowedWithProfile(CoreArgonHandshakeProfile.PASSAGE_V1, { 7L }, {})
+      if (mtu == 1357 && wire == 3 && feedback == 1) {
+        assertEquals(CoreArgonAuthenticated("10.0.0.1", mtu), owner.awaitAuthenticated(ticket))
+        assertTrue(owner.stopAndRelease(ticket))
+      } else {
+        try { owner.awaitAuthenticated(ticket); fail("Invalid Passage authentication") }
+        catch (_: IllegalStateException) { }
+        assertNull(owner.status())
+      }
+      assertEquals(1, fake.releases.get())
+    }
+  }
   @Test fun explicitV2UsesOnlyAuthenticatedV2AndValidatesTheBoundPair() = runBlocking {
     val fake = object : Fake() {
       override fun awaitAuthenticated(handle: Long, output: IntArray): Int = error("Legacy downgrade")
@@ -61,7 +85,7 @@ class CoreArgonLifecycleTest {
       val owner = CoreArgonLifecycle(object : Fake() { override fun terminalOutcome(handle: Long) = code })
       val ticket = owner.startBorrowedWithProfile(profile, { 7L }, {})
       assertTrue(owner.stopAndRelease(ticket))
-      assertEquals(if (profile == CoreArgonHandshakeProfile.CARRIER2_LAB1) code else null,
+      assertEquals(if (profile.feedbackVersion == 1) code else null,
         ticket.releasedTerminalOutcome)
     }
   }

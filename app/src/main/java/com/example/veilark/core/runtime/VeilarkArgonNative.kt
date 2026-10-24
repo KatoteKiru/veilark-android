@@ -31,6 +31,8 @@ internal object VeilarkArgonNative {
    * The capability query performs no admission or descriptor operations.
    */
   fun isProfileAbiAvailable(profile: CoreArgonHandshakeProfile): Boolean {
+    // Passage is relay-only; it must never be admitted through direct begin_v2.
+    if (profile == CoreArgonHandshakeProfile.PASSAGE_V1) return false
     if (profile == CoreArgonHandshakeProfile.LEGACY) return isAbiAvailable()
     if (!BuildConfig.ARGON_ACTIVE_FEEDBACK_ENABLED || !isAbiAvailable()) return false
     return try {
@@ -44,11 +46,11 @@ internal object VeilarkArgonNative {
    * grows (4 adds the Passage wire profile), so each feature checks its own minimum.
    */
   fun isRelayAbiAvailable(profile: CoreArgonHandshakeProfile = CoreArgonHandshakeProfile.LEGACY): Boolean =
-    isProfileAbiAvailable(profile) && try {
-      nativeRelayAbiVersion() >= RELAY_ABI_VERSION
+    (if (profile == CoreArgonHandshakeProfile.PASSAGE_V1)
+      BuildConfig.ARGON_ACTIVE_FEEDBACK_ENABLED && isAbiAvailable()
+    else isProfileAbiAvailable(profile)) && try {
+      nativeRelayAbiVersion() >= profile.minimumRelayAbi
     } catch (_: UnsatisfiedLinkError) { false }
-
-  private const val RELAY_ABI_VERSION = 3
 
   @JvmStatic external fun nativeAbiVersion(): Int
   @JvmStatic external fun nativeBegin(

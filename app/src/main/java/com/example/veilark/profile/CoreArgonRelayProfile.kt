@@ -100,8 +100,9 @@ class CoreArgonRelayProfile private constructor(
         check(root["schema"] == SCHEMA && root["engine"] == "argon-v1" && root["beta"] == true)
         val handshake = if ("wire_profile" in root) {
           val wire = root["wire_profile"].obj(setOf("id", "feedback_version"))
-          wire["id"].integer(2, 2); wire["feedback_version"].integer(1, 1)
-          CoreArgonHandshakeProfile.CARRIER2_LAB1
+          val id = wire["id"].integer(2, 3)
+          wire["feedback_version"].integer(1, 1)
+          if (id == 3) CoreArgonHandshakeProfile.PASSAGE_V1 else CoreArgonHandshakeProfile.CARRIER2_LAB1
         } else CoreArgonHandshakeProfile.LEGACY
         val name = root["name"].str()
         check(name.codePointCount(0, name.length) in 1..80)
@@ -133,7 +134,7 @@ class CoreArgonRelayProfile private constructor(
         client = key(identity["client_static_private_base64"].str())
         server = key(identity["server_static_public_base64"].str())
         val network = root["network"].obj(setOf("mtu", "dns_ipv4"))
-        val mtu = network["mtu"].integer(1280, 1360)
+        val mtu = network["mtu"].integer(1280, handshake.maximumMtu)
         val dns = network["dns_ipv4"] as? List<*> ?: error("invalid")
         check(dns.size in 1..3)
         val resolvers = dns.map { it.str().also(::ipv4) }

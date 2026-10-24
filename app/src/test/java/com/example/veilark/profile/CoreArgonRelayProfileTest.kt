@@ -15,6 +15,32 @@ class CoreArgonRelayProfileTest {
     catch (error: IllegalArgumentException) { assertEquals("Invalid Veilark Core profile.", error.message) }
   }
 
+  @Test fun passageRequiresExplicitPairAndItsOwnMtuBudget() {
+    fun passage(mtu: Int, id: Int = 3, feedback: Int = 1) = profile()
+      .replace("\"mtu\":1360", "\"mtu\":$mtu")
+      .replace("\"schema\":", "\"wire_profile\":{\"id\":$id,\"feedback_version\":$feedback},\"schema\":")
+    for (mtu in listOf(1280, 1357)) {
+      CoreArgonRelayProfile.parse(passage(mtu), false).use {
+        assertEquals(CoreArgonHandshakeProfile.PASSAGE_V1, it.handshakeProfile)
+        assertEquals(4, it.handshakeProfile.minimumRelayAbi)
+        assertEquals(mtu, it.mtu)
+      }
+    }
+    rejected(passage(1358))
+    rejected(passage(1360))
+    rejected(passage(1280, feedback = 0))
+    rejected(passage(1280, id = 4))
+    CoreArgonRelayProfile.parse(profile(), false).use {
+      assertEquals(CoreArgonHandshakeProfile.LEGACY, it.handshakeProfile)
+      assertEquals(1360, it.mtu)
+      assertEquals(3, it.handshakeProfile.minimumRelayAbi)
+    }
+    CoreArgonRelayProfile.parse(passage(1360, id = 2), false).use {
+      assertEquals(CoreArgonHandshakeProfile.CARRIER2_LAB1, it.handshakeProfile)
+      assertEquals(3, it.handshakeProfile.minimumRelayAbi)
+    }
+  }
+
   @Test fun unusableRelaysAreSkippedAndCountedButNeverTheOnlyOnes() {
     val tcp = """{"uri":"turn:relay.example.net:443?transport=tcp","credential":{"source":"service","service":"telemost"}}"""
     val tls = """{"uri":"turns:relay.example.net:443","credential":{"source":"service","service":"telemost"}}"""

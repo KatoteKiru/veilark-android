@@ -7,7 +7,10 @@ import java.util.Collections
 
 /** Explicit wire contract; never inferred from routing mode or a failed handshake. */
 enum class CoreArgonHandshakeProfile(val wireProfile: Int, val feedbackVersion: Int) {
-  LEGACY(0, 0), CARRIER2_LAB1(2, 1),
+  LEGACY(0, 0), CARRIER2_LAB1(2, 1), PASSAGE_V1(3, 1);
+
+  val maximumMtu: Int get() = if (this == PASSAGE_V1) 1357 else 1360
+  val minimumRelayAbi: Int get() = if (this == PASSAGE_V1) 4 else 3
 }
 
 /** Argon identity/configuration, never a legacy PSK conversion or authenticated

@@ -541,6 +541,7 @@ class CoreBetaVpnService : VpnService() {
                 profile = handshake,
                 begin = {
                   when (handshake) {
+                    CoreArgonHandshakeProfile.PASSAGE_V1 -> error("Passage requires a relay profile")
                     CoreArgonHandshakeProfile.LEGACY -> VeilarkArgonNative.nativeBegin(
                       socket.fd, peer.address, profile.endpointPort, profile.mtu,
                       privateKey, publicPin, nativeRoutingMode)
