@@ -34,9 +34,7 @@
     <string name="subscription_source_local">local file</string>
     <string name="profiles_empty_title">No profiles yet</string>
     <string name="profiles_empty_message">Add a link, paste one from the clipboard, or scan a QR code.</string>
-    <string name="open_technical_log">Open technical log</string>
     <string name="add_subscription_or_profile">Add a subscription or profile</string>
-    <string name="open_about">About Veilark and open-source licenses</string>
     <string name="core_footer">Network engine: %1$s · access credentials are redacted from the log</string>
     <string name="update_confirm_title">Update Veilark?</string>
     <string name="update_notes_missing">No release notes were provided for this version.</string>
@@ -236,6 +234,23 @@
     <string name="action_apply">Apply</string>
     <string name="action_import">Import</string>
     <string name="action_enter_link">Enter link</string>
-    <string name="fab_menu_close">Close add menu</string>
     <string name="connection_picker_actions">Subscription actions</string>
+    <string name="connecting_title">Connecting…</string>
+    <string name="connection_step">Step %1$d of %2$d · %3$s</string>
+    <string name="import_hint_short">Paste a subscription link, scan a QR code or open a file</string>
+    <string name="tap_to_connect">Tap to connect</string>
+    <string name="retry">Try again</string>
+    <string name="no_subscription_get_one">No subscription? Get one</string>
+    <string name="more_options">More options</string>
+    <string name="menu_technical_log">Technical log</string>
+    <string name="menu_about">About</string>
+    <string name="check_updates">Check for updates</string>
+    <string name="automatic_node_current">Automatic · %1$s</string>
+    <string name="connection_change">Change</string>
+    <string name="engine_label_singbox" translatable="false">sing-box</string>
+    <string name="engine_label_trust" translatable="false">TrustTunnel</string>
+    <string name="engine_label_core" translatable="false">Veilark Core β</string>
+    <string name="russia_direct_row_description">Russian sites and services bypass the VPN</string>
+    <string name="kill_switch_row_description">Block the internet if the VPN drops</string>
+    <string name="routing_and_apps">Routing and apps</string>
 </resources>

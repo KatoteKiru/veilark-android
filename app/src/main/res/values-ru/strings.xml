@@ -33,9 +33,7 @@
     <string name="subscription_source_local">локальный файл</string>
     <string name="profiles_empty_title">Профилей пока нет</string>
     <string name="profiles_empty_message">Добавьте ссылку, вставьте её из буфера или отсканируйте QR-код.</string>
-    <string name="open_technical_log">Открыть технический журнал</string>
     <string name="add_subscription_or_profile">Добавить подписку или профиль</string>
-    <string name="open_about">О Veilark и лицензии открытого ПО</string>
     <string name="core_footer">Сетевое ядро: %1$s · журнал не содержит ключей доступа</string>
     <string name="update_confirm_title">Обновить Veilark?</string>
     <string name="update_notes_missing">Описание изменений для этой версии не указано.</string>
@@ -235,6 +233,20 @@
     <string name="action_apply">Применить</string>
     <string name="action_import">Импортировать</string>
     <string name="action_enter_link">Ввести ссылку</string>
-    <string name="fab_menu_close">Закрыть меню добавления</string>
     <string name="connection_picker_actions">Действия с подписками</string>
+    <string name="connecting_title">Подключаемся…</string>
+    <string name="connection_step">Шаг %1$d из %2$d · %3$s</string>
+    <string name="import_hint_short">Вставьте ссылку на подписку, отсканируйте QR-код или откройте файл</string>
+    <string name="tap_to_connect">Нажмите, чтобы подключиться</string>
+    <string name="retry">Повторить</string>
+    <string name="no_subscription_get_one">Нет подписки? Получить</string>
+    <string name="more_options">Ещё</string>
+    <string name="menu_technical_log">Технический журнал</string>
+    <string name="menu_about">О приложении</string>
+    <string name="check_updates">Проверить обновления</string>
+    <string name="automatic_node_current">Автоматически · %1$s</string>
+    <string name="connection_change">Сменить</string>
+    <string name="russia_direct_row_description">Российские сайты и сервисы работают без VPN</string>
+    <string name="kill_switch_row_description">Блокировать интернет, если VPN оборвётся</string>
+    <string name="routing_and_apps">Маршрутизация и приложения</string>
 </resources>
