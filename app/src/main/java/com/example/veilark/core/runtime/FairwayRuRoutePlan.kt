@@ -55,6 +55,29 @@ internal class FairwayRuRoutePlan private constructor(
       )
     }
 
+    /**
+     * Routes for the kill-switch block in RU-direct mode. The same RU subset
+     * stays outside the block, so it keeps working while the tunnel is down,
+     * and so do the underlying network's resolvers, without which no RU name
+     * resolves. Everything else is captured and dropped.
+     */
+    fun blocking(api: Int, exactBytes: ByteArray, legacyBytes: ByteArray, resolvers: Collection<String>): FairwayRuRoutePlan {
+      require(resolvers.size <= 8) { "Too many resolvers" }
+      val hosts = resolvers.map(::ipv4).distinct().map { Range(it, it) }
+      val open = (preparedDirectRanges(exactBytes, legacyBytes) + hosts).sortedBy { it.first }
+        .fold(mutableListOf<Range>()) { merged, block ->
+          val last = merged.lastOrNull()
+          if (last != null && block.first <= last.last + 1) merged[merged.lastIndex] = Range(last.first, maxOf(last.last, block.last))
+          else merged += block
+          merged
+        }
+      val covered = open.sumOf { it.last - it.first + 1 }
+      val exclusions = if (api >= 33) cidrs(open) else emptyList()
+      val includes = if (api >= 33) listOf(CoreIpv4Route("0.0.0.0", 0)) else cidrs(complement(open))
+      require(includes.size + exclusions.size <= MAX_ROUTES) { "Fairway route budget exceeded" }
+      return FairwayRuRoutePlan(immutable(includes), immutable(exclusions), covered, TOTAL_RU_IPV4 - covered, true)
+    }
+
     private fun immutable(routes: List<CoreIpv4Route>): List<CoreIpv4Route> =
       Collections.unmodifiableList(ArrayList(routes))
 

@@ -32,6 +32,18 @@ class FairwayRuRoutePlanTest {
     assertExactSubsetPolicyAtEveryBoundary(vpn)
   }
 
+  @Test fun killSwitchBlockLeavesTheRuSubsetAndLocalResolversOutside() {
+    val lan = "192.168.1.1"
+    for (api in listOf(29, 33)) {
+      val plan = FairwayRuRoutePlan.blocking(api, exact, legacy, dns + lan)
+      val blocked = if (api >= 33) gaps(ranges(plan.excluded)) else ranges(plan.included)
+      // The whole subset, its three addresses kept in the VPN by prepare() included, plus the LAN resolver.
+      assertEquals(27_492_353L, (1L shl 32) - size(blocked))
+      (dns + lan).forEach { assertFalse(contains(blocked, ip(it))) }
+      assertTrue(contains(blocked, ip("8.8.8.8")))
+    }
+  }
+
   @Test fun everySupportedApiUsesSameBoundedSubsetIncludingThreeDnsOverrides() {
     for (api in listOf(29, 32, 33, 37)) {
       val plan = FairwayRuRoutePlan.prepare(api, exact, legacy, dns)

@@ -6,6 +6,11 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.net.ConnectivityManager
+import android.net.IpPrefix
+import android.net.LinkProperties
+import android.net.Network
+import android.net.NetworkRequest
 import android.net.VpnService
 import android.os.Build
 import android.os.Handler
@@ -16,9 +21,14 @@ import androidx.core.content.ContextCompat
 import com.example.veilark.BuildConfig
 import com.example.veilark.MainActivity
 import com.example.veilark.R
+import com.example.veilark.core.runtime.FairwayRuRoutePlan
 import com.example.veilark.diagnostics.TechnicalLogStore
 import com.example.veilark.lifecycle.AndroidTunnelLifecycleOwner
 import com.example.veilark.lifecycle.TunnelBlockFence
+import com.example.veilark.profile.ProfileSelection
+import com.example.veilark.protocol.ProfileEngine
+import java.net.Inet4Address
+import java.net.InetAddress
 
 /**
  * Kill-switch interface and Always-on VPN entry point.
@@ -33,11 +43,20 @@ import com.example.veilark.lifecycle.TunnelBlockFence
  * session state with the engines, one of which is a vendored library service.
  * It is also the highest-priority `android.net.VpnService` handler, which makes
  * it the component Android starts for Always-on VPN.
+ *
+ * In "Russia direct" mode RU traffic never enters the tunnel, so blocking it
+ * would protect nothing: the block then leaves the pinned RU IPv4 subset and
+ * the physical networks' resolvers outside, and is rebuilt when those
+ * resolvers change. RU over IPv6 stays blocked, as no RU IPv6 set is pinned.
  */
 class KillSwitchVpnService : VpnService() {
   private val mainHandler = Handler(Looper.getMainLooper())
   // Accessed on the main thread only.
   private var descriptor: ParcelFileDescriptor? = null
+  private var heldGeneration = 0L
+  private var heldResolvers: Set<InetAddress> = emptySet()
+  private val networkResolvers = mutableMapOf<Network, List<InetAddress>>()
+  private var resolverWatch: ConnectivityManager.NetworkCallback? = null
 
   override fun onCreate() {
     super.onCreate()
@@ -72,13 +91,18 @@ class KillSwitchVpnService : VpnService() {
   }
 
   private fun establish(generation: Long) {
+    val ruDirect = ruDirectSelected()
+    if (ruDirect) watchResolvers() else stopWatchingResolvers()
+    val resolvers = if (ruDirect) networkResolvers.values.flatten().toSet() else emptySet()
     val replacement = runCatching {
-      fence.establishIfCurrent(generation) { blockingInterface().establish() }
+      fence.establishIfCurrent(generation) { blockingInterface(ruDirect, resolvers).establish() }
     }.onFailure {
       TechnicalLogStore.error("KILL-SWITCH", "Android rejected the blocking interface: ${it.javaClass.simpleName}")
     }.getOrNull() ?: return
     val previous = descriptor
     descriptor = replacement
+    heldGeneration = generation
+    heldResolvers = resolvers
     // The earlier interface is closed only after its replacement owns the routes.
     runCatching { previous?.close() }
     if (previous == null) {
@@ -86,7 +110,7 @@ class KillSwitchVpnService : VpnService() {
     }
   }
 
-  private fun blockingInterface(): Builder {
+  private fun blockingInterface(ruDirect: Boolean, resolvers: Set<InetAddress>): Builder {
     val open = PendingIntent.getActivity(
       this,
       0,
@@ -94,17 +118,87 @@ class KillSwitchVpnService : VpnService() {
       PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
     )
     // No DNS server and no bypass; packets routed here are never read.
-    return Builder()
+    val builder = Builder()
       .setSession(getString(R.string.kill_switch))
       .setConfigureIntent(open)
       .addAddress(BLOCK_ADDRESS_V4, 32)
       .addAddress(BLOCK_ADDRESS_V6, 128)
-      .addRoute("0.0.0.0", 0)
       .addRoute("::", 0)
       .addDisallowedApplication(packageName)
+    val ruRoutes = if (ruDirect) runCatching { ruBlockingRoutes(resolvers) }.onFailure {
+      // Blocking everything is the safe side of a missing or corrupt asset.
+      TechnicalLogStore.error("KILL-SWITCH", "RU-direct routes unavailable; blocking all traffic: ${it.javaClass.simpleName}")
+    }.getOrNull() else null
+    if (ruRoutes == null) return builder.addRoute("0.0.0.0", 0)
+    ruRoutes.included.forEach { builder.addRoute(it.address, it.prefixLength) }
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+      ruRoutes.excluded.forEach { builder.excludeRoute(IpPrefix(InetAddress.getByName(it.address), it.prefixLength)) }
+      // Below Android 13 an IPv6 resolver cannot be carved out of ::/0.
+      resolvers.filterNot { it is Inet4Address }.forEach { builder.excludeRoute(IpPrefix(it, 128)) }
+    }
+    return builder
+  }
+
+  private fun ruBlockingRoutes(resolvers: Set<InetAddress>): FairwayRuRoutePlan =
+    FairwayRuRoutePlan.blocking(
+      Build.VERSION.SDK_INT,
+      assets.open(FairwayRuRoutePlan.EXACT_ASSET).use { it.readBytes() },
+      assets.open(FairwayRuRoutePlan.LEGACY_ASSET).use { it.readBytes() },
+      resolvers.filterIsInstance<Inet4Address>().mapNotNull { it.hostAddress },
+    )
+
+  /** The routing mode of the engine that will be restored, read as MainActivity stores it. */
+  private fun ruDirectSelected(): Boolean {
+    val preferences = getSharedPreferences("profile_meta", MODE_PRIVATE)
+    val legacy = preferences.getString("routing_mode", ProfileSelection.ROUTING_ALL)
+    val mode = when (preferences.getString("profile_engine", ProfileEngine.SING_BOX)) {
+      ProfileEngine.CORE_BETA -> preferences.getString("core_routing_mode", ProfileSelection.ROUTING_ALL)
+      ProfileEngine.TRUST_TUNNEL -> preferences.getString("trust_routing_mode", legacy)
+      else -> preferences.getString("sing_routing_mode", legacy)
+    }
+    return mode == ProfileSelection.ROUTING_RU_DIRECT
+  }
+
+  /**
+   * Tracks the resolvers of every non-VPN network. A default request excludes
+   * VPNs, so the block's own interface never feeds back into this set.
+   */
+  private fun watchResolvers() {
+    if (resolverWatch != null) return
+    val callback = object : ConnectivityManager.NetworkCallback() {
+      override fun onLinkPropertiesChanged(network: Network, properties: LinkProperties) {
+        val dns = properties.dnsServers.toList()
+        mainHandler.post { networkResolvers[network] = dns; refreshResolvers() }
+      }
+
+      override fun onLost(network: Network) {
+        mainHandler.post { networkResolvers.remove(network); refreshResolvers() }
+      }
+    }
+    runCatching {
+      getSystemService(ConnectivityManager::class.java).registerNetworkCallback(NetworkRequest.Builder().build(), callback)
+      resolverWatch = callback
+    }.onFailure {
+      TechnicalLogStore.warning("KILL-SWITCH", "Resolver watch unavailable: ${it.javaClass.simpleName}")
+    }
+  }
+
+  private fun stopWatchingResolvers() {
+    val callback = resolverWatch ?: return
+    resolverWatch = null
+    networkResolvers.clear()
+    runCatching { getSystemService(ConnectivityManager::class.java).unregisterNetworkCallback(callback) }
+  }
+
+  private fun refreshResolvers() {
+    if (descriptor == null || networkResolvers.values.flatten().toSet() == heldResolvers) return
+    // A new network brings new resolvers; rebuild for the same request so the
+    // fence still orders it against an engine admission.
+    establish(heldGeneration)
   }
 
   private fun closeBlock() {
+    stopWatchingResolvers()
     val held = descriptor ?: return
     descriptor = null
     runCatching { held.close() }
