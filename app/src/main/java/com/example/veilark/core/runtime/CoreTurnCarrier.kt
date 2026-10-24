@@ -3,14 +3,15 @@ package com.example.veilark.core.runtime
 import android.os.ParcelFileDescriptor
 import android.os.SystemClock
 import java.net.Inet4Address
+import java.net.InetAddress
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withTimeout
 
 /** Android ownership side of the TURN carrier, not an allocation or ready tunnel.
  * The native adapter must do Allocate/CreatePermission/ChannelBind and validate
- * their authenticated responses before reporting readiness. No public mode/UI
- * or unmatched JNI entrypoint is enabled by this component.
+ * their authenticated responses before reporting readiness. Veilark Passage
+ * hands the prepared socket to begin_v3.
  */
 internal object CoreTurnCarrier {
   suspend fun prepare(grant: CoreTurnGrant, binding: CoreFairwayNetworkBinding,
@@ -24,7 +25,10 @@ internal object CoreTurnCarrier {
     requireCurrent()
     // A cancelled/blocked lookup owns no FD. Never resolve through the VPN's
     // process-default network or retry over another network implicitly.
-    val addresses = withTimeout(5_000) { binding.resolveIpv4(grant.endpoint.host) }
+    // CoreTurnEndpoint admits only canonical IPv4 literals, which getByName parses without a lookup.
+    val host = grant.endpoint.host
+    val addresses = if (host.all { it == '.' || it in '0'..'9' }) listOf(InetAddress.getByName(host) as Inet4Address)
+      else withTimeout(5_000) { binding.resolveIpv4(host) }
     requireCurrent()
     val peer = addresses.firstOrNull { !it.isAnyLocalAddress && !it.isMulticastAddress &&
       (it.address[0].toInt() and 255) in 1..223 } ?: error("TURN IPv4 relay unavailable")

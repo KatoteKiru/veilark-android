@@ -185,6 +185,13 @@ internal class CoreFairwayNetworkOwner(
         if (!isUsable()) throw IOException("Fairway network changed during bind")
       }
       override fun protect(fd: Int): Boolean = isUsable() && protectSocket(fd) && isUsable()
+      // Passage resolves its relays here, on the physical network the attempt captured.
+      override suspend fun resolveIpv4(host: String): List<java.net.Inet4Address> {
+        if (!isUsable()) throw IOException("Stale Fairway network binding")
+        return resolveIpv4On(selected.network, host).also {
+          if (!isUsable()) throw IOException("Fairway network changed during lookup")
+        }
+      }
     }
     current.value = CoreFairwayCapturedNetwork(selected.epoch, binding)
   }

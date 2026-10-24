@@ -34,28 +34,32 @@ internal class CoreFairwayAndroidNetworkBinding(
   override fun protect(fd: Int): Boolean = protectSocket(fd)
   override suspend fun resolveIpv4(host: String): List<java.net.Inet4Address> {
     check(isUsable()) { "Captured network unavailable" }
-    return suspendCancellableCoroutine { continuation ->
-      val cancellation = CancellationSignal()
-      continuation.invokeOnCancellation { cancellation.cancel() }
-      if (continuation.isActive) try {
-        DnsResolver.getInstance().query(network, host, DnsResolver.TYPE_A, DnsResolver.FLAG_EMPTY,
-          java.util.concurrent.Executor { it.run() }, cancellation,
-          object : DnsResolver.Callback<List<InetAddress>> {
-            override fun onAnswer(answer: List<InetAddress>, rcode: Int) {
-              if (!continuation.isActive) return
-              if (rcode != 0) continuation.resumeWithException(IOException("Captured network lookup failed"))
-              else continuation.resume(answer.asSequence().filterIsInstance<java.net.Inet4Address>().take(16).toList())
-            }
-            override fun onError(error: DnsResolver.DnsException) {
-              if (continuation.isActive) continuation.resumeWithException(IOException("Captured network lookup failed"))
-            }
-          })
-      } catch (_: Exception) {
-        if (continuation.isActive) continuation.resumeWithException(IOException("Captured network lookup failed"))
-      }
-    }
+    return resolveIpv4On(network, host)
   }
 }
+
+/** A-record lookup on [network] alone, never through the process default (the VPN). */
+internal suspend fun resolveIpv4On(network: Network, host: String): List<java.net.Inet4Address> =
+  suspendCancellableCoroutine { continuation ->
+    val cancellation = CancellationSignal()
+    continuation.invokeOnCancellation { cancellation.cancel() }
+    if (continuation.isActive) try {
+      DnsResolver.getInstance().query(network, host, DnsResolver.TYPE_A, DnsResolver.FLAG_EMPTY,
+        java.util.concurrent.Executor { it.run() }, cancellation,
+        object : DnsResolver.Callback<List<InetAddress>> {
+          override fun onAnswer(answer: List<InetAddress>, rcode: Int) {
+            if (!continuation.isActive) return
+            if (rcode != 0) continuation.resumeWithException(IOException("Captured network lookup failed"))
+            else continuation.resume(answer.asSequence().filterIsInstance<java.net.Inet4Address>().take(16).toList())
+          }
+          override fun onError(error: DnsResolver.DnsException) {
+            if (continuation.isActive) continuation.resumeWithException(IOException("Captured network lookup failed"))
+          }
+        })
+    } catch (_: Exception) {
+      if (continuation.isActive) continuation.resumeWithException(IOException("Captured network lookup failed"))
+    }
+  }
 
 /**
  * Disabled Fairway integration component: not called by the released VPN service.

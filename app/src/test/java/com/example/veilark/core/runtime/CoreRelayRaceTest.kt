@@ -21,7 +21,7 @@ class CoreRelayRaceTest {
   @Test fun fasterRelayInsideSettleWindowWinsAndTheSlowerSessionIsClosed() = runTest {
     val sessions = mutableListOf<Session>()
     val delays = mapOf("a" to 300L, "b" to 100L)
-    val winner = race().run(listOf("a", "b")) { route ->
+    val winner = race().run(listOf("a", "b"), { it.close() }) { route ->
       delay(delays.getValue(route)); Session(route).also { sessions += it }
     }
     // a starts at 0 and finishes first, at 300; b starts at 250 and finishes
@@ -34,7 +34,7 @@ class CoreRelayRaceTest {
 
   @Test fun failureStartsTheNextCandidateWithoutWaitingForTheStagger() = runTest {
     val startedAt = mutableMapOf<String, Long>()
-    val winner = race().run(listOf("a", "b")) { route ->
+    val winner = race().run(listOf("a", "b"), { it.close() }) { route ->
       startedAt[route] = testScheduler.currentTime
       if (route == "a") { delay(50); error("refused") }
       delay(100); Session(route)
@@ -45,7 +45,7 @@ class CoreRelayRaceTest {
 
   @Test fun deadlineReturnsNoWinnerAndCancelsEveryAttempt() = runTest {
     val cancelled = mutableListOf<String>()
-    val winner = race().run(listOf("a", "b")) { route ->
+    val winner = race().run(listOf("a", "b"), { it.close() }) { route ->
       try { delay(60_000); Session(route) }
       finally { cancelled += route }
     }

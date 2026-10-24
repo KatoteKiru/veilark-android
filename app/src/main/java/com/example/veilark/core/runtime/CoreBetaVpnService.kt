@@ -26,6 +26,7 @@ import com.example.veilark.profile.CoreBetaProfile
 import com.example.veilark.profile.CoreArgonProfile
 import com.example.veilark.profile.CoreArgonHandshakeProfile
 import com.example.veilark.profile.CoreArgonProfileStore
+import com.example.veilark.profile.CoreArgonRelayProfile
 import com.example.veilark.profile.CoreProfileKind
 import com.example.veilark.profile.CoreProfileStore
 import com.example.veilark.profile.ApplicationRoutingPolicy
@@ -64,7 +65,7 @@ class CoreBetaVpnService : VpnService() {
       override fun stop(handle: Long) = VeilarkCoreRuntimeNative.nativeStop(handle)
       override fun release(handle: Long) = VeilarkCoreRuntimeNative.nativeRelease(handle)
     })
-    val argonLifecycle = CoreArgonLifecycle(object : CoreArgonHandleApi {
+    private val argonApi = object : CoreArgonHandleApi {
       override fun awaitAuthenticated(handle: Long, output: IntArray) = VeilarkArgonNative.nativeAwaitAuthenticated(handle, output)
       override fun awaitAuthenticatedV2(handle: Long, output: IntArray) =
         if (BuildConfig.ARGON_ACTIVE_FEEDBACK_ENABLED) VeilarkArgonNative.nativeAwaitAuthenticatedV2(handle, output) else -3
@@ -78,7 +79,24 @@ class CoreBetaVpnService : VpnService() {
       override fun terminalOutcome(handle: Long): Int? =
         if (BuildConfig.ARGON_TERMINAL_OUTCOME_ENABLED) VeilarkArgonNative.nativeTerminalOutcome(handle) else null
       override fun release(handle: Long) = VeilarkArgonNative.nativeRelease(handle)
-    })
+    }
+    val argonLifecycle = CoreArgonLifecycle(argonApi)
+    /** Passage races several relays at once, each with its own native owner. A
+     * lifecycle stays listed until it is released, so no handle escapes cleanup. */
+    private val relayLifecycles = mutableListOf<CoreArgonLifecycle>()
+
+    fun newRelayLifecycle(): CoreArgonLifecycle =
+      CoreArgonLifecycle(argonApi).also { synchronized(relayLifecycles) { relayLifecycles += it } }
+
+    suspend fun releaseRelayLifecycles(): Boolean {
+      var released = true
+      for (lifecycle in synchronized(relayLifecycles) { relayLifecycles.toList() }) {
+        if (runCatching { lifecycle.stopAndRelease() }.getOrDefault(false)) {
+          synchronized(relayLifecycles) { relayLifecycles -= lifecycle }
+        } else released = false
+      }
+      return released
+    }
     var diagnosticStage = "SERVICE"
     var lastFailureCode: String? = null
     @Volatile var networkDiagnostics: CoreNetworkDiagnostics? = null
@@ -196,9 +214,8 @@ class CoreBetaVpnService : VpnService() {
     }
     when (selected) {
       CoreProfileKind.LEGACY_V1 -> runLegacyTunnel(session, routingSnapshot)
-      CoreProfileKind.ARGON_V1 -> runArgonTunnel(session, routingSnapshot)
-      // Unreachable while isRelayAbiAvailable() is false: the preflight above refuses it.
-      CoreProfileKind.ARGON_RELAY_V1 -> error("Relay route requires begin_v3")
+      CoreProfileKind.ARGON_V1 -> runArgonTunnel(session, routingSnapshot, relayRoute = false)
+      CoreProfileKind.ARGON_RELAY_V1 -> runArgonTunnel(session, routingSnapshot, relayRoute = true)
     }
   }
 
@@ -319,6 +336,101 @@ class CoreBetaVpnService : VpnService() {
     }
   }
 
+  private class RelayCandidate(val relay: CoreArgonRelayProfile.Relay, val exit: CoreArgonRelayProfile.Exit)
+
+  /** One raced relay that authenticated. Its callbacks report into its own flags,
+   * which the attempt adopts only if this relay wins. */
+  private class RelaySession(
+    val lifecycle: CoreArgonLifecycle,
+    val ticket: CoreArgonHandleTicket,
+    val authenticated: CoreArgonAuthenticated,
+    val networkStopSucceeded: AtomicBoolean,
+    val callbackFailed: AtomicBoolean,
+  )
+
+  /** Stops an admitted handle as soon as the captured network changes; a parked
+   * native wait cannot notice that by itself. Never joins its own lifecycle. */
+  private suspend fun watchNetwork(
+    session: Session, lifecycle: CoreArgonLifecycle, admitted: CoreArgonHandleTicket,
+    networks: CoreFairwayNetworkOwner, capture: CoreFairwayCapturedNetwork,
+    stopped: AtomicBoolean, failed: AtomicBoolean,
+  ) {
+    lifecycle.startCallbacks(admitted, session.scope) {
+      networks.captures.first { it?.epoch != capture.epoch }
+      val code = VeilarkArgonNative.nativeStop(admitted.handle)
+      if (code == 0) stopped.set(true)
+      if (code != 0) {
+        failed.set(true)
+        recordArgonFailure(session, CoreArgonFailure("network_stop", code.toLong()))
+        session.scope.cancel() // Main owner performs cleanup; this worker never joins itself.
+      }
+    }
+  }
+
+  private suspend fun raceRelays(
+    session: Session, profile: CoreArgonRelayProfile, candidates: List<RelayCandidate>,
+    networks: CoreFairwayNetworkOwner, capture: CoreFairwayCapturedNetwork, routingMode: Int,
+  ): CoreRelayRace.Winner<RelayCandidate, RelaySession>? =
+    CoreRelayRace(deadlineMillis = RELAY_BUDGET_MILLIS).run(candidates,
+      release = { it.lifecycle.stopAndRelease(it.ticket) }) { candidate ->
+      try { connectRelay(session, profile, candidate, networks, capture, routingMode) }
+      catch (failure: Exception) {
+        if (failure !is CancellationException) {
+          val code = (failure as? CoreArgonFailure)?.let { "${it.operation}:${it.code}" } ?: "other"
+          coreInfo("relay_attempt=${candidates.indexOf(candidate)} failed=$code")
+        }
+        throw failure
+      }
+    }
+
+  /** Credentials, relay socket, begin_v3 and authentication for one candidate. */
+  private suspend fun connectRelay(
+    session: Session, profile: CoreArgonRelayProfile, candidate: RelayCandidate,
+    networks: CoreFairwayNetworkOwner, capture: CoreFairwayCapturedNetwork, routingMode: Int,
+  ): RelaySession {
+    val handshake = profile.handshakeProfile
+    val lifecycle = session.newRelayLifecycle()
+    val exit = ipv4(candidate.exit.ipv4).address
+    val grant = try { relayCredentials.grant(candidate.relay, capture.binding, SystemClock.elapsedRealtime()) }
+      catch (failure: Throwable) { exit.fill(0); throw failure }
+    val ticket = try {
+      val prepared = CoreTurnCarrier.prepare(grant, capture.binding, { networks.isCurrent(capture.epoch) }, ::protect)
+      var secret: ByteArray? = null
+      var pin: ByteArray? = null
+      try {
+        secret = profile.clientStaticPrivateCopy()
+        pin = profile.serverStaticPublicCopy()
+        val privateKey = checkNotNull(secret)
+        val publicPin = checkNotNull(pin)
+        lifecycle.startBorrowedWithProfile(
+          profile = handshake,
+          begin = {
+            prepared.beginBorrowed { fd, relayIpv4, relayPort, username, password, remainingMillis ->
+              VeilarkArgonNative.nativeBeginV3(fd, exit, candidate.exit.port, profile.mtu,
+                privateKey, publicPin, routingMode, handshake.wireProfile, handshake.feedbackVersion,
+                relayIpv4, relayPort, username, password, remainingMillis)
+            }
+          },
+          closeOriginals = { prepared.close() },
+        )
+      } finally {
+        secret?.fill(0); pin?.fill(0)
+        prepared.close()
+      }
+    } finally { exit.fill(0); grant.close() }
+    val stopped = AtomicBoolean(false)
+    val failed = AtomicBoolean(false)
+    try {
+      watchNetwork(session, lifecycle, ticket, networks, capture, stopped, failed)
+    } catch (failure: Throwable) {
+      lifecycle.stopAndRelease(ticket)
+      throw failure
+    }
+    // On failure this releases the handle itself; the race moves on to the next relay.
+    val authenticated = lifecycle.awaitAuthenticated(ticket)
+    return RelaySession(lifecycle, ticket, authenticated, stopped, failed)
+  }
+
   private fun recordArgonFailure(session: Session, failure: Throwable) {
     session.lastFailureCode = "CORE-${session.diagnosticStage}"
     val detail = when (failure) {
@@ -329,8 +441,12 @@ class CoreBetaVpnService : VpnService() {
     coreError("stage=${session.diagnosticStage}$detail")
   }
 
-  private suspend fun runArgonTunnel(session: Session, routingSnapshot: Map<String, *>) {
+  /** Veilark Fairway connects to the exit directly; Veilark Passage ([relayRoute])
+   * reaches it through the fastest TURN relay. Everything after authentication,
+   * Russia direct included, is the same for both. */
+  private suspend fun runArgonTunnel(session: Session, routingSnapshot: Map<String, *>, relayRoute: Boolean) {
     var loadedProfile: CoreArgonProfile? = null
+    var relayProfile: CoreArgonRelayProfile? = null
     val originals = mutableListOf<ParcelFileDescriptor>()
     val tunnels = mutableListOf<ParcelFileDescriptor>()
     var activeTun: ParcelFileDescriptor? = null
@@ -340,32 +456,51 @@ class CoreBetaVpnService : VpnService() {
       stage(session, "CORE_NATIVE_LOAD")
       check(VeilarkArgonNative.isAbiAvailable())
       stage(session, "CORE_PROFILE_STORE")
-      val profile = CoreProfileStore.loadSelectedArgon(this)
-      loadedProfile = profile
+      val handshake: CoreArgonHandshakeProfile
+      val dnsIpv4: List<String>
+      if (relayRoute) {
+        val relays = CoreProfileStore.loadSelectedRelay(this)
+        relayProfile = relays
+        handshake = relays.handshakeProfile
+        dnsIpv4 = relays.dnsIpv4
+      } else {
+        val direct = CoreProfileStore.loadSelectedArgon(this)
+        loadedProfile = direct
+        handshake = direct.handshakeProfile
+        dnsIpv4 = direct.dnsIpv4
+      }
       // Defence in depth for direct service entry; the manager checks this
       // before handing over an existing VPN. A v2 profile cannot downgrade.
-      check(VeilarkArgonNative.isProfileAbiAvailable(profile.handshakeProfile))
+      check(if (relayRoute) VeilarkArgonNative.isRelayAbiAvailable(handshake)
+        else VeilarkArgonNative.isProfileAbiAvailable(handshake))
+      val relayCandidates = relayProfile?.let { relays ->
+        // Vary the relay before the exit: under a whitelist the relay is what gets blocked.
+        relays.exits.flatMap { exit ->
+          relays.relays.filter { relayCredentials.supports(it, BuildConfig.DEBUG) }.map { RelayCandidate(it, exit) }
+        }.also { require(it.isNotEmpty()) { "No usable Veilark Passage relay" } }
+      }
       // Validate policy before UDP admission. This does not establish a TUN or
       // infer its address; only authenticated native output may supply that.
       stage(session, "ROUTING_RULES")
-      val dns = CoreL3DnsPolicy.effective(profile.dnsIpv4)
+      val dns = CoreL3DnsPolicy.effective(dnsIpv4)
       val routePlan = prepareRouting(routingSnapshot, dns.resolvers, CoreFairwayIntegration.ENABLED)
       val nativeRoutingMode = routePlan.nativeMode
       val fairwayPolicy = routePlan.fairwayPolicy
-      if (fairwayPolicy != null) {
+      // Relays are resolved and reached only through the captured physical network.
+      if (fairwayPolicy != null || relayRoute) {
         networkOwner = CoreFairwayNetworkOwner(getSystemService(ConnectivityManager::class.java), ::protect)
         networkOwner.start()
       }
-      val peer = ipv4(profile.endpointIpv4) as Inet4Address
       var consecutiveFailures = 0
       var attemptOrdinal = 0L
       while (true) {
         currentCoroutineContext().ensureActive()
         if (attemptOrdinal < Long.MAX_VALUE) attemptOrdinal++
         publish(session, ConnectionState.Connecting)
+        var lifecycle = session.argonLifecycle
         var ticket: CoreArgonHandleTicket? = null
-        val networkStopSucceeded = AtomicBoolean(false)
-        val callbackFailed = AtomicBoolean(false)
+        var networkStopSucceeded = AtomicBoolean(false)
+        var callbackFailed = AtomicBoolean(false)
         var reachedRunning = false
         var terminalStatus: Int? = null
         var attemptFailure: Throwable? = null
@@ -375,52 +510,59 @@ class CoreBetaVpnService : VpnService() {
             stage(session, "CORE_AWAIT_NETWORK")
             networks.captures.filterNotNull().first()
           } else null
-          stage(session, "CORE_UDP_OPEN")
-          val socket = CoreProtectedUdp.open(peer, profile.endpointPort, ::protect, capture?.binding)
-          originals += socket
-          var secret: ByteArray? = null
-          var pin: ByteArray? = null
-          try {
-            secret = profile.clientStaticPrivateCopy()
-            pin = profile.serverStaticPublicCopy()
-            val privateKey = checkNotNull(secret)
-            val publicPin = checkNotNull(pin)
-            stage(session, "CORE_BEGIN")
-            ticket = session.argonLifecycle.startBorrowedWithProfile(
-              profile = profile.handshakeProfile,
-              begin = {
-                when (profile.handshakeProfile) {
-                  CoreArgonHandshakeProfile.LEGACY -> VeilarkArgonNative.nativeBegin(
-                    socket.fd, peer.address, profile.endpointPort, profile.mtu,
-                    privateKey, publicPin, nativeRoutingMode)
-                  CoreArgonHandshakeProfile.CARRIER2_LAB1 -> VeilarkArgonNative.nativeBeginV2(
-                    socket.fd, peer.address, profile.endpointPort, profile.mtu,
-                    privateKey, publicPin, nativeRoutingMode,
-                    profile.handshakeProfile.wireProfile, profile.handshakeProfile.feedbackVersion)
-                }
-              },
-              closeOriginals = { closeTracked(originals, socket) },
-            )
-          } finally {
-            secret?.fill(0); pin?.fill(0)
+          val authenticated: CoreArgonAuthenticated
+          if (relayCandidates != null) {
+            stage(session, "CORE_RELAY_RACE")
+            val winner = raceRelays(session, checkNotNull(relayProfile), relayCandidates,
+              checkNotNull(networks), checkNotNull(capture), nativeRoutingMode)
+              ?: throw CoreArgonFailure("relay", RELAY_SETUP_FAILED)
+            val chosen = winner.session
+            lifecycle = chosen.lifecycle
+            ticket = chosen.ticket
+            networkStopSucceeded = chosen.networkStopSucceeded
+            callbackFailed = chosen.callbackFailed
+            authenticated = chosen.authenticated
+            coreInfo("relay_choice=${relayCandidates.indexOf(winner.route)} relay_elapsed_ms=${winner.elapsedMillis}")
+          } else {
+            val profile = checkNotNull(loadedProfile)
+            val peer = ipv4(profile.endpointIpv4) as Inet4Address
+            stage(session, "CORE_UDP_OPEN")
+            val socket = CoreProtectedUdp.open(peer, profile.endpointPort, ::protect, capture?.binding)
+            originals += socket
+            var secret: ByteArray? = null
+            var pin: ByteArray? = null
+            try {
+              secret = profile.clientStaticPrivateCopy()
+              pin = profile.serverStaticPublicCopy()
+              val privateKey = checkNotNull(secret)
+              val publicPin = checkNotNull(pin)
+              stage(session, "CORE_BEGIN")
+              ticket = lifecycle.startBorrowedWithProfile(
+                profile = handshake,
+                begin = {
+                  when (handshake) {
+                    CoreArgonHandshakeProfile.LEGACY -> VeilarkArgonNative.nativeBegin(
+                      socket.fd, peer.address, profile.endpointPort, profile.mtu,
+                      privateKey, publicPin, nativeRoutingMode)
+                    CoreArgonHandshakeProfile.CARRIER2_LAB1 -> VeilarkArgonNative.nativeBeginV2(
+                      socket.fd, peer.address, profile.endpointPort, profile.mtu,
+                      privateKey, publicPin, nativeRoutingMode,
+                      handshake.wireProfile, handshake.feedbackVersion)
+                  }
+                },
+                closeOriginals = { closeTracked(originals, socket) },
+              )
+            } finally {
+              secret?.fill(0); pin?.fill(0)
+            }
+            val admitted = checkNotNull(ticket)
+            if (capture != null && networks != null) {
+              watchNetwork(session, lifecycle, admitted, networks, capture, networkStopSucceeded, callbackFailed)
+            }
+            stage(session, "CORE_AUTHENTICATING")
+            authenticated = lifecycle.awaitAuthenticated(admitted)
           }
           val admitted = checkNotNull(ticket)
-          if (capture != null && networks != null) {
-            session.argonLifecycle.startCallbacks(admitted, session.scope) {
-              // A lease check alone cannot wake a parked native authentication,
-              // observer or admission ACK. Actively stop this immutable attempt.
-              networks.captures.first { it?.epoch != capture.epoch }
-              val code = VeilarkArgonNative.nativeStop(admitted.handle)
-              if (code == 0) networkStopSucceeded.set(true)
-              if (code != 0) {
-                callbackFailed.set(true)
-                recordArgonFailure(session, CoreArgonFailure("network_stop", code.toLong()))
-                session.scope.cancel() // Main owner performs cleanup; this worker never joins itself.
-              }
-            }
-          }
-          stage(session, "CORE_AUTHENTICATING")
-          val authenticated = session.argonLifecycle.awaitAuthenticated(admitted)
           currentCoroutineContext().ensureActive()
           if (fairwayPolicy != null) {
             stage(session, "FAIRWAY_CONFIGURE")
@@ -428,7 +570,7 @@ class CoreBetaVpnService : VpnService() {
             val host = CoreFairwayNativeHost(CoreFairwayArgonApi, admitted.handle,
               checkNotNull(capture), CoreFairwayIntegration.POLICY_GENERATION, owner::isCurrent)
             host.configure(fairwayPolicy.networks, fairwayPolicy.prefixes)
-            session.argonLifecycle.startCallbacks(admitted, session.scope) {
+            lifecycle.startCallbacks(admitted, session.scope) {
               try {
                 CoreFairwaySocketBroker(opener = CoreFairwaySocketFactory()).run(host)
               } catch (cancelled: CancellationException) { throw cancelled }
@@ -443,10 +585,10 @@ class CoreBetaVpnService : VpnService() {
             val resolver = CoreProtectedUdp.open(ipv4("77.88.8.8") as Inet4Address, 53, ::protect)
             originals += resolver
             stage(session, "FAIRWAY_DNS_ATTACH")
-            session.argonLifecycle.attachRuDnsBorrowed(admitted, resolver.fd) { closeTracked(originals, resolver) }
+            lifecycle.attachRuDnsBorrowed(admitted, resolver.fd) { closeTracked(originals, resolver) }
             currentCoroutineContext().ensureActive()
           }
-          val builder = tunBuilder(session, authenticated.ipv4, authenticated.mtu, profile.dnsIpv4, routingSnapshot, routePlan)
+          val builder = tunBuilder(session, authenticated.ipv4, authenticated.mtu, dnsIpv4, routingSnapshot, routePlan)
           if (capture != null) checkNotNull(networks).applyUnderlying(capture, builder)
           stage(session, "CORE_TUN_ESTABLISH")
           currentCoroutineContext().ensureActive()
@@ -461,14 +603,14 @@ class CoreBetaVpnService : VpnService() {
           stage(session, "CORE_TUN_ATTACH")
           val borrowed = ParcelFileDescriptor.dup(replacement.fileDescriptor)
           originals += borrowed
-          session.argonLifecycle.attachBorrowed(admitted, borrowed.fd) { closeTracked(originals, borrowed) }
+          lifecycle.attachBorrowed(admitted, borrowed.fd) { closeTracked(originals, borrowed) }
           stage(session, "CORE_AWAIT_RUNNING")
-          session.argonLifecycle.awaitRunning(admitted)
+          lifecycle.awaitRunning(admitted)
           currentCoroutineContext().ensureActive()
           reachedRunning = true
           stage(session, "CORE_RUNNING")
           publish(session, ConnectionState.Connected)
-          val terminal = session.argonLifecycle.awaitTerminal(admitted)
+          val terminal = lifecycle.awaitTerminal(admitted)
           terminalStatus = terminal
           currentCoroutineContext().ensureActive()
           // A terminal result in a live owner means the connection ended. User
@@ -483,7 +625,9 @@ class CoreBetaVpnService : VpnService() {
         }
         finally {
           // Cleanup must succeed before another native owner can be admitted.
-          val released = runCatching { session.argonLifecycle.stopAndRelease(ticket) }.getOrDefault(false)
+          // Passage also disposes here of any raced relay whose release failed during the race.
+          val released = if (relayRoute) session.releaseRelayLifecycles()
+            else runCatching { lifecycle.stopAndRelease(ticket) }.getOrDefault(false)
           val closed = closeTracked(originals)
           // Event-local attribution only. Never log exception messages, profile
           // data, addresses or Android Network IDs; no polling/timer is added.
@@ -496,7 +640,7 @@ class CoreBetaVpnService : VpnService() {
           }
           val errorCode = argonFailure?.code ?: (attemptFailure as? ErrnoException)?.errno?.toLong()
           val errorOperation = argonFailure?.operation?.takeIf {
-            it in setOf("begin", "wait", "status", "attach", "attach_dns", "network_stop")
+            it in setOf("begin", "wait", "status", "attach", "attach_dns", "network_stop", "relay")
           } ?: "none"
           val phase = session.diagnosticStage.takeIf { it.matches(Regex("[A-Z0-9_]{1,48}")) } ?: "UNKNOWN"
           coreInfo("attempt_cleanup=$attemptOrdinal reached_running=$reachedRunning " +
@@ -537,11 +681,13 @@ class CoreBetaVpnService : VpnService() {
       publish(session, ConnectionState.Failed, message + " [${session.lastFailureCode ?: "CORE-UNKNOWN"}]")
     } finally {
       runCatching { loadedProfile?.close() }
+      runCatching { relayProfile?.close() }
       suspend fun cleanup(): Boolean {
         // Invalidating the captured Network also wakes its watcher while native
         // ownership still exists. Failed callback unregistration retains custody.
         val networkClosed = runCatching { networkOwner?.close(); true }.getOrDefault(false)
-        val native = runCatching { session.argonLifecycle.stopAndRelease() }.getOrDefault(false) && networkClosed
+        val native = runCatching { session.argonLifecycle.stopAndRelease() }.getOrDefault(false) &&
+          session.releaseRelayLifecycles() && networkClosed
         val originalsClosed = closeTracked(originals)
         val tunnelsClosed = closeTracked(tunnels)
         val descriptorsClosed = originalsClosed && tunnelsClosed
@@ -735,8 +881,15 @@ class CoreBetaVpnService : VpnService() {
     return value as? String ?: throw IllegalArgumentException("Invalid Core routing setting")
   }
 
+  // No legitimate-service adapter is registered yet; lab builds can use static relay credentials.
+  private val relayCredentials = CoreRelayCredentials(emptyList())
+
   companion object {
     internal const val ACTION_STOP = "uk.senyasenyavski.veilark.CORE_BETA_STOP"
+    /** begin_v3's status for a relay that could not be set up. */
+    private const val RELAY_SETUP_FAILED = -30L
+    /** Native gives a relay handle this long to allocate and authenticate; the race never cuts it shorter. */
+    private const val RELAY_BUDGET_MILLIS = 12_000L
     private const val CHANNEL = "veilark-core-beta"
     private const val NOTIFICATION = 3103
   }

@@ -35,7 +35,7 @@ class CoreArgonRelayProfile private constructor(
   class Exit internal constructor(val ipv4: String, val port: Int)
 
   /** [endpoint] is resolved by the app through the captured network; native receives only its IPv4. */
-  class Relay internal constructor(internal val endpoint: CoreTurnEndpoint, val credential: Credential)
+  class Relay internal constructor(internal val uri: String, internal val endpoint: CoreTurnEndpoint, val credential: Credential)
 
   sealed class Credential {
     /** Fetched at connect time by the adapter registered for [service]. */
@@ -121,9 +121,10 @@ class CoreArgonRelayProfile private constructor(
         var skipped = 0
         val relays = relayList.mapNotNull { entry ->
           val relay = entry.obj(setOf("uri", "credential"))
-          val endpoint = runCatching { CoreTurnEndpoint.parse(relay["uri"].str()) }.getOrNull()
+          val uri = relay["uri"].str()
+          val endpoint = runCatching { CoreTurnEndpoint.parse(uri) }.getOrNull()
           if (endpoint == null) { skipped++; null }
-          else Relay(endpoint, credential(relay["credential"], allowStaticCredentials).also {
+          else Relay(uri, endpoint, credential(relay["credential"], allowStaticCredentials).also {
             if (it is Credential.Static) statics += it
           })
         }

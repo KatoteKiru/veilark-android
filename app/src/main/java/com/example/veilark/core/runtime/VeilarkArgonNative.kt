@@ -38,14 +38,16 @@ internal object VeilarkArgonNative {
     } catch (_: UnsatisfiedLinkError) { false }
   }
 
-  /** The relay route needs begin_v3 (profile ABI 3); below that the route stays unavailable.
-   * Today's begin_v3 entry point is not bound yet, so this is false for every shipped library.
+  /** Veilark Passage needs begin_v3, probed separately so that the profile ABI
+   * stays at 2 and older app builds keep their exact check against new libraries.
+   * A library without the probe symbol simply has no relay route.
    */
-  fun isRelayAbiAvailable(): Boolean = RELAY_BINDING_PRESENT && isAbiAvailable() && try {
-    nativeProfileAbiVersion() >= 3
-  } catch (_: UnsatisfiedLinkError) { false }
+  fun isRelayAbiAvailable(profile: CoreArgonHandshakeProfile = CoreArgonHandshakeProfile.LEGACY): Boolean =
+    isProfileAbiAvailable(profile) && try {
+      nativeRelayAbiVersion() == RELAY_ABI_VERSION
+    } catch (_: UnsatisfiedLinkError) { false }
 
-  private const val RELAY_BINDING_PRESENT = false
+  private const val RELAY_ABI_VERSION = 3
 
   @JvmStatic external fun nativeAbiVersion(): Int
   @JvmStatic external fun nativeBegin(
@@ -58,6 +60,19 @@ internal object VeilarkArgonNative {
     borrowedUdpFd: Int, serverIpv4: ByteArray, serverPort: Int, mtu: Int,
     clientStaticPrivate: ByteArray, serverStaticPublic: ByteArray, routingMode: Int,
     wireProfile: Int, feedbackVersion: Int,
+  ): Long
+  @JvmStatic external fun nativeRelayAbiVersion(): Int
+  /** Argon through a TURN relay. The UDP descriptor is protected, non-blocking and
+   * connected to [relayIpv4]:[relayPort]; native allocates on the relay and runs the
+   * handshake to the exit through it. Credentials are printable ASCII that native
+   * copies before returning, valid for [grantMillis] more. Authentication is awaited
+   * with the v1 or v2 call matching the wire profile, as for a direct handle.
+   */
+  @JvmStatic external fun nativeBeginV3(
+    borrowedUdpFd: Int, exitIpv4: ByteArray, exitPort: Int, mtu: Int,
+    clientStaticPrivate: ByteArray, serverStaticPublic: ByteArray, routingMode: Int,
+    wireProfile: Int, feedbackVersion: Int, relayIpv4: ByteArray, relayPort: Int,
+    username: ByteArray, password: ByteArray, grantMillis: Long,
   ): Long
   /** Authenticated output: IPv4 octets, MTU, wireProfile, feedbackVersion. */
   @JvmStatic external fun nativeAwaitAuthenticatedV2(handle: Long, output: IntArray): Int

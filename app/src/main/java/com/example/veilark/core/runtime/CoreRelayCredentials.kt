@@ -37,14 +37,14 @@ internal class CoreRelayCredentials(adapters: List<CoreRelayCredentialAdapter>) 
   }
 
   suspend fun grant(
-    relay: CoreArgonRelayProfile.Relay, uri: String, binding: CoreFairwayNetworkBinding, nowMillis: Long,
+    relay: CoreArgonRelayProfile.Relay, binding: CoreFairwayNetworkBinding, nowMillis: Long,
   ): CoreTurnGrant = when (val credential = relay.credential) {
     is CoreArgonRelayProfile.Credential.Service ->
       checkNotNull(byService[credential.service]) { "No credential adapter for this relay" }
         .fetch(relay, credential.parameters, binding, nowMillis)
     // A lab relay's fixed pair, given the shortest lifetime that covers one connection attempt.
     is CoreArgonRelayProfile.Credential.Static -> credential.withBytes { username, password ->
-      CoreTurnGrant.create(uri, username, password, STATIC_LIFETIME_SECONDS, nowMillis)
+      CoreTurnGrant.create(relay.uri, username, password, STATIC_LIFETIME_SECONDS, nowMillis)
     }
   }
 

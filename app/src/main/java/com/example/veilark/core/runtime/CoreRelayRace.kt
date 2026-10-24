@@ -19,7 +19,7 @@ import kotlinx.coroutines.withTimeoutOrNull
  * attempt starts the next one at once. The first success opens a short settle
  * window so that a slightly slower start does not hide a faster relay, and the
  * fastest success in that window wins, with provisioning order breaking ties.
- * Every other attempt is cancelled, and every session it produced is closed,
+ * Every other attempt is cancelled, and every session it produced is released,
  * including ones that complete while the race is being torn down.
  *
  * The measured time runs from the start of the attempt to an authenticated
@@ -32,12 +32,16 @@ internal class CoreRelayRace(
   private val deadlineMillis: Long = 8_000,
   private val clockMillis: () -> Long = { System.nanoTime() / 1_000_000 },
 ) {
-  class Winner<T, S : AutoCloseable>(val route: T, val session: S, val elapsedMillis: Long)
+  class Winner<T, S>(val route: T, val session: S, val elapsedMillis: Long)
 
   private class Result<T, S>(val index: Int, val route: T, val session: S?, val elapsedMillis: Long)
 
-  /** Null when no candidate reached an authenticated session before the deadline. */
-  suspend fun <T, S : AutoCloseable> run(candidates: List<T>, attempt: suspend (T) -> S): Winner<T, S>? {
+  /**
+   * Null when no candidate reached an authenticated session before the deadline.
+   * [release] disposes of every session but the winner; it runs non-cancellably,
+   * and a failing release does not stop the others.
+   */
+  suspend fun <T, S> run(candidates: List<T>, release: suspend (S) -> Unit, attempt: suspend (T) -> S): Winner<T, S>? {
     if (candidates.isEmpty()) return null
     val results = Channel<Result<T, S>>(Channel.UNLIMITED)
     val received = mutableListOf<Result<T, S>>()
@@ -62,9 +66,10 @@ internal class CoreRelayRace(
           jobs.forEach(Job::cancel)
           jobs.forEach { it.join() }
           results.close()
-          for (result in received) if (result !== chosen) result.session?.close()
+          suspend fun dispose(session: S?) { if (session != null) runCatching { release(session) } }
+          for (result in received) if (result !== chosen) dispose(result.session)
           // Attempts that finished after the decision left their sessions here.
-          for (result in results) result.session?.close()
+          for (result in results) dispose(result.session)
         }
       }
     }
