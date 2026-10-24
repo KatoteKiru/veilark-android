@@ -14,13 +14,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
-import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONObject
-import java.net.InetSocketAddress
-import java.net.Socket
-import kotlin.coroutines.resume
-import kotlin.system.measureTimeMillis
 
 /**
  * A manual, pre-connect reachability check for TCP-based sing-box outbounds.
@@ -109,21 +104,7 @@ object EndpointLatencyProbe {
   }
 
   private suspend fun measure(endpoint: Endpoint): Int? =
-    suspendCancellableCoroutine { continuation ->
-      val socket = Socket()
-      continuation.invokeOnCancellation { runCatching { socket.close() } }
-      var connected = false
-      val elapsed = measureTimeMillis {
-        connected = runCatching {
-          socket.connect(InetSocketAddress(endpoint.host, endpoint.port), TIMEOUT_MS)
-          true
-        }.getOrDefault(false)
-      }
-      runCatching { socket.close() }
-      if (continuation.isActive) {
-        continuation.resume(elapsed.toInt().takeIf { connected })
-      }
-    }
+    TcpConnectLatency.measure(endpoint.host, endpoint.port, TIMEOUT_MS)
 
   private data class Endpoint(
     val tag: String,

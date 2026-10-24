@@ -14,6 +14,7 @@ import com.example.veilark.profile.ProfileSelection
 import com.example.veilark.vpn.ConnectionState
 import com.example.veilark.vpn.EndpointLatencyProbe
 import com.example.veilark.vpn.ManualLatencyPolicy
+import com.example.veilark.vpn.TcpConnectLatency
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -27,13 +28,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
-import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeoutOrNull
 import java.io.File
-import java.net.InetSocketAddress
-import java.net.Socket
-import kotlin.coroutines.resume
-import kotlin.system.measureTimeMillis
 
 object TrustTunnelManager : AppNotifier {
   private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -500,21 +496,7 @@ object TrustTunnelManager : AppNotifier {
 
   private suspend fun measureAddress(address: String): Int? {
     val endpoint = parseAddress(address) ?: return null
-    return suspendCancellableCoroutine { continuation ->
-      val socket = Socket()
-      continuation.invokeOnCancellation { runCatching { socket.close() } }
-      var connected = false
-      val elapsed = measureTimeMillis {
-        connected = runCatching {
-          socket.connect(InetSocketAddress(endpoint.first, endpoint.second), 2_000)
-          true
-        }.getOrDefault(false)
-      }
-      runCatching { socket.close() }
-      if (continuation.isActive) {
-        continuation.resume(elapsed.toInt().takeIf { connected })
-      }
-    }
+    return TcpConnectLatency.measure(endpoint.first, endpoint.second, 2_000)
   }
 
   private fun parseAddress(address: String): Pair<String, Int>? {
