@@ -158,11 +158,15 @@ class EnrollmentV2FetcherTest {
   }
 
   @Test fun cancellationAfterWorkerCompletionDoesNotPublishUnownedResult() = runBlocking {
-    val connection = Fake(wire)
+    val respond = CountDownLatch(1)
+    val connection = Fake(wire).apply { responseGate = respond }
     val delivered = AtomicReference<ByteArray?>()
     val job = launch(start = CoroutineStart.UNDISPATCHED) { delivered.set(perform(connection)) }
-    // Block this event loop until worker completion. Its queued continuation must
-    // observe cancellation instead of publishing the result to the caller.
+    // The gate keeps the worker from finishing before the caller suspends; an
+    // instant worker would let the IO hop return without suspending at all.
+    // Then block this event loop until worker completion. The queued continuation
+    // must observe cancellation instead of publishing the result to the caller.
+    respond.countDown()
     assertTrue(connection.disconnected.await(2, TimeUnit.SECONDS))
     withTimeout(2_000) { job.cancelAndJoin() }
     assertTrue(job.isCancelled); assertNull(delivered.get())
@@ -204,9 +208,13 @@ class EnrollmentV2FetcherTest {
     val disconnectEntered = CountDownLatch(1); val disconnected = CountDownLatch(1)
     var openedUrl: URL? = null
     var responseFailure: Exception? = null
+    var responseGate: CountDownLatch? = null
     var disconnectBlock: CountDownLatch? = null
     var disconnectAction: (() -> Unit)? = null
-    override fun getResponseCode(): Int { responseFailure?.let { throw it }; return status }
+    override fun getResponseCode(): Int {
+      responseGate?.let { awaitUninterruptibly(it) }
+      responseFailure?.let { throw it }; return status
+    }
     override fun getHeaderField(name: String?): String? = if (name == "Content-Encoding") encoding else null
     override fun getContentLengthLong(): Long = declaredLength
     override fun getInputStream(): InputStream { inputOpens.incrementAndGet(); return stream }
