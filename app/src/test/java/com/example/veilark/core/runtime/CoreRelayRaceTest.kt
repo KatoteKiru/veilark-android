@@ -1,5 +1,6 @@
 package com.example.veilark.core.runtime
 
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runTest
@@ -7,6 +8,7 @@ import org.junit.Assert.*
 import org.junit.Test
 
 /** Virtual-time race over fake sessions; no sockets or native handles. */
+@OptIn(ExperimentalCoroutinesApi::class) // testScheduler.currentTime
 class CoreRelayRaceTest {
   private class Session(val route: String) : AutoCloseable {
     var closed = false
