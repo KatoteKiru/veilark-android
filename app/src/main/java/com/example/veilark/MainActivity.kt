@@ -91,7 +91,7 @@ class MainActivity : ComponentActivity() {
     super.onCreate(savedInstanceState)
     consumeTileConnectIntent(intent)
     consumeUpdateNoticeIntent(intent)
-    externalImportRequests.value = ImportDeepLink.parse(intent)
+    externalImportRequests.value = ImportDeepLink.consume(intent)
     consumeFileImportIntent(intent)
     SecureProfileStore.migrateLegacy(this)
     val initialProfilePreferences = getSharedPreferences("profile_meta", MODE_PRIVATE)
@@ -1900,7 +1900,7 @@ class MainActivity : ComponentActivity() {
     setIntent(intent)
     consumeTileConnectIntent(intent)
     consumeUpdateNoticeIntent(intent)
-    ImportDeepLink.parse(intent)?.let { externalImportRequests.value = it }
+    ImportDeepLink.consume(intent)?.let { externalImportRequests.value = it }
     consumeFileImportIntent(intent)
   }
 

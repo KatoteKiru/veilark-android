@@ -34,6 +34,23 @@ internal object ImportDeepLink {
     }
   }
 
+  /** Transfer a recognized bearer to the transient import flow only once.
+   * Clearing our Activity intent prevents re-import on recreation and avoids
+   * retaining another plaintext copy in app-owned intent/ClipData state.
+   * This does not erase copies held by the sender or Android's task manager.
+   * Non-import intents are left intact for file and other intent handlers.
+   */
+  fun consume(intent: Intent?): String? {
+    val target = parse(intent) ?: return null
+    checkNotNull(intent).apply {
+      data = null
+      clipData = null
+      removeExtra(Intent.EXTRA_TEXT)
+      action = null
+    }
+    return target
+  }
+
   /** Pure URI boundary used by the Android intent adapter and local regression tests. */
   internal fun parseUri(raw: String): String? {
     // Preserve the complete bearer envelope for the dedicated local verifier;
