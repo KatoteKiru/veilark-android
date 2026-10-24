@@ -225,6 +225,7 @@ fun MainScreen(
   connectionState: ConnectionState = ConnectionState.Disconnected,
   startupStage: StartupStage = StartupStage.Idle,
   importError: String? = null,
+  connectionError: String? = null,
   routingNotice: String? = null,
   failureCode: String? = null,
   diagnosticReportAvailable: Boolean = false,
@@ -246,7 +247,6 @@ fun MainScreen(
   dpiMode: String = ProfileSelection.DPI_OFF,
   selectedApplications: Set<String> = emptySet(),
   installedApplications: List<InstalledApp> = emptyList(),
-  routingAvailable: Boolean = true,
   geoUpdating: Boolean = false,
   geoUpdateMessage: String? = null,
   geoStatusDescription: String? = null,
@@ -377,14 +377,15 @@ fun MainScreen(
   // A validated deep link uses the same import callback as the reviewed manual
   // surface. LaunchedEffect makes this one-shot for each request value; clearing
   // the request immediately prevents recomposition from importing it twice.
+  // Any web page can open a veilark://import link, and an import replaces the
+  // active profile. The link therefore only pre-fills the import dialog; the
+  // user still reviews the source and confirms it.
   LaunchedEffect(externalImportUrl) {
     externalImportUrl?.let { value ->
       subscriptionUrl = value
-      importAttempted = true
-      importSubmitted = true
+      importAttempted = false
       showImport = true
       onExternalImportConsumed()
-      onImportUrl(value)
     }
   }
 
@@ -599,7 +600,18 @@ fun MainScreen(
       if (importError != null) {
         item {
           ErrorCard(
+            title = stringResource(R.string.attention_title),
             message = importError,
+            code = null,
+            diagnosticReportAvailable = false,
+            onCopyDiagnostic = onCopyDiagnostic,
+          )
+        }
+      } else if (connectionError != null) {
+        item {
+          ErrorCard(
+            title = stringResource(R.string.connection_failed_title),
+            message = connectionError,
             code = failureCode,
             diagnosticReportAvailable = diagnosticReportAvailable,
             onCopyDiagnostic = onCopyDiagnostic,
@@ -665,13 +677,10 @@ fun MainScreen(
           applicationMode = applicationMode,
           dpiMode = if (coreBetaActive) ProfileSelection.DPI_OFF else dpiMode,
           selectedApplicationCount = selectedApplications.size,
-          available = routingAvailable,
           coreBetaActive = coreBetaActive,
           onClick = {
-            if (routingAvailable) {
-              onOpenRouting()
-              showRouting = true
-            }
+            onOpenRouting()
+            showRouting = true
           },
         )
       }
@@ -2225,7 +2234,6 @@ private fun RoutingCard(
   applicationMode: String,
   dpiMode: String,
   selectedApplicationCount: Int,
-  available: Boolean,
   coreBetaActive: Boolean,
   onClick: () -> Unit,
 ) {
@@ -2233,58 +2241,51 @@ private fun RoutingCard(
     SectionHeading(stringResource(R.string.routing))
     Surface(
       onClick = onClick,
-      enabled = available,
       modifier = Modifier.fillMaxWidth().testTag("routing_card").semantics { role = Role.Button },
       shape = MaterialTheme.shapes.large,
       color = MaterialTheme.colorScheme.surfaceContainer,
     ) {
       Column {
-        if (available) {
-          InfoRow(
-            stringResource(R.string.traffic),
-            if (coreBetaActive && routingMode == ProfileSelection.ROUTING_ALL) stringResource(R.string.core_ipv4_mode) else when (routingMode) {
-              ProfileSelection.ROUTING_RU_DIRECT -> stringResource(R.string.russia_direct)
-              ProfileSelection.ROUTING_MANUAL -> stringResource(R.string.custom_rules)
-              else -> stringResource(R.string.all_traffic_vpn)
-            },
-          )
-          HorizontalDivider(modifier = Modifier.padding(horizontal = 20.dp))
-          InfoRow(
-            stringResource(R.string.applications),
-            when (applicationMode) {
-              ProfileSelection.APPS_ONLY -> pluralStringResource(
-                R.plurals.only_selected_count,
-                selectedApplicationCount,
-                selectedApplicationCount,
-              )
-              ProfileSelection.APPS_BYPASS -> pluralStringResource(
-                R.plurals.bypass_selected_count,
-                selectedApplicationCount,
-                selectedApplicationCount,
-              )
-              else -> stringResource(R.string.all_apps)
-            },
-          )
-          HorizontalDivider(modifier = Modifier.padding(horizontal = 20.dp))
-          if (!coreBetaActive) {
-            InfoRow(
-              stringResource(R.string.dpi_protection),
-              if (dpiMode == ProfileSelection.DPI_TLS_FRAGMENT) {
-                stringResource(R.string.tls_fragmentation)
-              } else {
-                stringResource(R.string.standard)
-              },
+        InfoRow(
+          stringResource(R.string.traffic),
+          if (coreBetaActive && routingMode == ProfileSelection.ROUTING_ALL) stringResource(R.string.core_ipv4_mode) else when (routingMode) {
+            ProfileSelection.ROUTING_RU_DIRECT -> stringResource(R.string.russia_direct)
+            ProfileSelection.ROUTING_MANUAL -> stringResource(R.string.custom_rules)
+            else -> stringResource(R.string.all_traffic_vpn)
+          },
+        )
+        HorizontalDivider(modifier = Modifier.padding(horizontal = 20.dp))
+        InfoRow(
+          stringResource(R.string.applications),
+          when (applicationMode) {
+            ProfileSelection.APPS_ONLY -> pluralStringResource(
+              R.plurals.only_selected_count,
+              selectedApplicationCount,
+              selectedApplicationCount,
             )
-            HorizontalDivider(modifier = Modifier.padding(horizontal = 20.dp))
-          }
-          InfoRow(stringResource(R.string.dns), stringResource(if (coreBetaActive) R.string.core_profile_dns else R.string.protected_value))
+            ProfileSelection.APPS_BYPASS -> pluralStringResource(
+              R.plurals.bypass_selected_count,
+              selectedApplicationCount,
+              selectedApplicationCount,
+            )
+            else -> stringResource(R.string.all_apps)
+          },
+        )
+        HorizontalDivider(modifier = Modifier.padding(horizontal = 20.dp))
+        if (!coreBetaActive) {
+          InfoRow(
+            stringResource(R.string.dpi_protection),
+            if (dpiMode == ProfileSelection.DPI_TLS_FRAGMENT) {
+              stringResource(R.string.tls_fragmentation)
+            } else {
+              stringResource(R.string.standard)
+            },
+          )
           HorizontalDivider(modifier = Modifier.padding(horizontal = 20.dp))
-          InfoRow(stringResource(if (coreBetaActive) R.string.core_ipv6_blocked else R.string.kill_switch), stringResource(R.string.enabled_value))
-        } else {
-          InfoRow(stringResource(R.string.traffic), stringResource(R.string.trust_full_tunnel))
-          HorizontalDivider(modifier = Modifier.padding(horizontal = 20.dp))
-          InfoRow(stringResource(R.string.protection), "H2/H3 · Anti-DPI · Kill switch")
         }
+        InfoRow(stringResource(R.string.dns), stringResource(if (coreBetaActive) R.string.core_profile_dns else R.string.protected_value))
+        HorizontalDivider(modifier = Modifier.padding(horizontal = 20.dp))
+        InfoRow(stringResource(if (coreBetaActive) R.string.core_ipv6_blocked else R.string.kill_switch), stringResource(R.string.enabled_value))
       }
     }
   }
@@ -3055,6 +3056,7 @@ private fun InfoRow(label: String, value: String) {
 
 @Composable
 private fun ErrorCard(
+  title: String,
   message: String,
   code: String?,
   diagnosticReportAvailable: Boolean,
@@ -3067,7 +3069,7 @@ private fun ErrorCard(
   ) {
     Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
       Text(
-        text = stringResource(R.string.connection_failed_title),
+        text = title,
         modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
         style = MaterialTheme.typography.titleSmallEmphasized,
         color = MaterialTheme.colorScheme.onErrorContainer,

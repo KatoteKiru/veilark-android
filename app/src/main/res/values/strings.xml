@@ -102,10 +102,8 @@
     <string name="protected_value">Protected</string>
     <string name="kill_switch">Kill switch</string>
     <string name="enabled_value">Enabled</string>
-    <string name="trust_full_tunnel">Full tunnel through TrustTunnel</string>
     <string name="trust_russia_direct_description">Russian IPv4/IPv6 networks go directly; all other traffic uses TrustTunnel</string>
     <string name="trust_routing_mode_unsupported">This routing mode is not supported by the installed TrustTunnel core.</string>
-    <string name="protection">Protection</string>
     <string name="close_routing">Close routing settings</string>
     <string name="custom_rules_description">Choose what should go directly or through the VPN</string>
     <string name="direct_without_vpn">Direct, without VPN</string>
@@ -126,6 +124,7 @@
     <string name="tls_fragmentation_description">Splits ClientHello for TCP profiles; connecting may take slightly longer</string>
     <string name="apply_routing">Apply routing</string>
     <string name="connection_failed_title">Connection failed</string>
+    <string name="attention_title">Needs attention</string>
     <string name="error_code">Code: %1$s</string>
     <string name="copy_diagnostics">Copy diagnostics</string>
     <string name="paste_from_clipboard">Paste a link from the clipboard</string>
@@ -148,7 +147,7 @@
     <string name="veilark_license_title">Veilark · GPL-3.0-or-later</string>
     <string name="trust_license_title">TrustTunnelClient · Apache-2.0</string>
     <string name="third_party_notices_title">Third-party notices</string>
-    <string name="trust_attribution">Veilark includes a modified Android adapter and native core from TrustTunnelClient v1.1.5, Copyright 2020 Adguard Software Ltd, licensed under Apache License 2.0. The Android adapter changes preserve lifecycle fixes and add per-application routing.</string>
+    <string name="trust_attribution">Veilark includes a modified Android adapter and native core from TrustTunnelClient v1.1.7, Copyright 2020 Adguard Software Ltd, licensed under Apache License 2.0. The Android adapter changes preserve lifecycle fixes and add per-application routing.</string>
     <string name="independent_project_notice">Veilark is an independent community project. It is not affiliated with or endorsed by AdGuard, TrustTunnel, SagerNet, or sing-box.</string>
     <string name="legal_document_back">Back to licenses</string>
     <string name="qr_permission_required">Allow camera access to scan QR codes</string>
@@ -182,6 +181,7 @@
     <string name="trust_refreshed_source_empty">The refreshed TrustTunnel source is empty</string>
     <string name="subscription_removed_refresh">The subscription was removed before refresh completed</string>
     <string name="subscription_import_failed">Could not import the subscription</string>
+    <string name="subscription_import_partial">Imported servers: %1$d. Skipped as unsupported: %2$d.</string>
     <string name="subscription_refresh_failed">Could not refresh the subscription</string>
     <string name="node_select_failed">Could not select the server</string>
     <string name="trust_subscription_missing">TrustTunnel subscription no longer found</string>

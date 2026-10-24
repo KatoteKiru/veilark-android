@@ -733,7 +733,8 @@ class MainActivity : ComponentActivity() {
           connectionState = connectionState,
           stopAvailable = coreStopAvailable,
           startupStage = startupStage,
-          importError = importError ?: if (profileEngine == ProfileEngine.CORE_BETA) {
+          importError = importError,
+          connectionError = if (profileEngine == ProfileEngine.CORE_BETA) {
             if (coreConnectionState == ConnectionState.Failed) coreConnectionError ?: getString(R.string.core_beta_connection_failed) else null
           } else if (profileEngine == ProfileEngine.TRUST_TUNNEL) {
             trustTunnelError
@@ -782,7 +783,6 @@ class MainActivity : ComponentActivity() {
           dpiMode = dpiMode,
           selectedApplications = selectedApplications,
           installedApplications = installedApplications,
-          routingAvailable = true,
           geoUpdating = geoUpdating,
           geoUpdateMessage = geoUpdateMessage,
           geoStatusDescription = geoStatusDescription(geoStatus, geoUpdating),
@@ -798,7 +798,7 @@ class MainActivity : ComponentActivity() {
             getString(R.string.core_beta_title)
           } else if (profileEngine == ProfileEngine.TRUST_TUNNEL) {
             buildString {
-              append("TrustTunnel 1.1.5")
+              append("TrustTunnel 1.1.7")
               trustTunnelTransport?.let { append(" · $it") }
             }
           } else {
@@ -1028,7 +1028,11 @@ class MainActivity : ComponentActivity() {
                       selectedSingBoxId,
                     )?.name ?: compiled.displayName
                     importError = if (compiled.rejectedCount > 0) {
-                      "Imported=${compiled.profileCount}; rejected=${compiled.rejectedCount}"
+                      getString(
+                        R.string.subscription_import_partial,
+                        compiled.profileCount,
+                        compiled.rejectedCount,
+                      )
                     } else {
                       null
                     }

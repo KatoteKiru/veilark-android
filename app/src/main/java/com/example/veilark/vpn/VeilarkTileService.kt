@@ -57,7 +57,7 @@ class VeilarkTileService : TileService() {
       scope.launch {
       runCatching { toggleConnection() }
         .onFailure {
-      updateTile(Tile.STATE_INACTIVE, getString(R.string.tile_open_app))
+          updateTile(Tile.STATE_INACTIVE, getString(R.string.tile_open_app))
           openApp(connect = false)
         }
       }
@@ -102,7 +102,7 @@ class VeilarkTileService : TileService() {
       return
     }
 
-      updateTile(Tile.STATE_ACTIVE, getString(R.string.notification_connecting))
+    updateTile(Tile.STATE_ACTIVE, getString(R.string.notification_connecting))
     if (engine == ProfileEngine.TRUST_TUNNEL) {
       TrustTunnelManager.start(this, SecureProfileStore.load(this, profileId))
     } else {
@@ -114,11 +114,11 @@ class VeilarkTileService : TileService() {
     val states = listOf(VeilarkVpnService.state.value, TrustTunnelManager.state.value, CoreBetaManager.state.value)
     when {
       states.any { it == ConnectionState.Connected } ->
-      updateTile(Tile.STATE_ACTIVE, getString(R.string.notification_protected))
+        updateTile(Tile.STATE_ACTIVE, getString(R.string.notification_protected))
       states.any { it == ConnectionState.Connecting } ->
-      updateTile(Tile.STATE_ACTIVE, getString(R.string.notification_connecting))
+        updateTile(Tile.STATE_ACTIVE, getString(R.string.notification_connecting))
       else ->
-      updateTile(Tile.STATE_INACTIVE, getString(R.string.tile_disconnected))
+        updateTile(Tile.STATE_INACTIVE, getString(R.string.tile_disconnected))
     }
   }
 
