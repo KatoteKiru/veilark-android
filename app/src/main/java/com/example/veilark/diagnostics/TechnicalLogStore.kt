@@ -192,6 +192,12 @@ object TechnicalLogStore {
       Regex("""(?i)\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b"""),
       "<uuid-redacted>",
     )
+    // Server and client addresses keep only their network prefix.
+    .replace(Regex("""\b(\d{1,3}\.\d{1,3})\.\d{1,3}\.\d{1,3}\b"""), "$1.x.x")
+    .replace(
+      Regex("""(?i)(?<![0-9a-f:])([0-9a-f]{1,4}:[0-9a-f]{1,4}):(?:[0-9a-f]{0,4}:){1,5}[0-9a-f]{1,4}(?![0-9a-f:])"""),
+      "$1:x:x",
+    )
     .replace('\t', ' ')
     .replace('\r', ' ')
     .replace('\n', ' ')

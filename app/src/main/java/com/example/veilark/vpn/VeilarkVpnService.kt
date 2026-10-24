@@ -116,36 +116,34 @@ class VeilarkVpnService :
       return START_NOT_STICKY
     }
 
-    lifecycleAttempt = intent?.lifecycleAttempt()
-    if (!ownsLifecycleAttempt()) {
+    // Every start arrives through startForegroundService(). Android kills the
+    // app if the service stops before entering the foreground, so a rejected
+    // command must still post the notification first. A stale command must
+    // not replace the attempt token of a tunnel this service is running.
+    val requestedAttempt = intent?.lifecycleAttempt()
+    if (requestedAttempt == null || requestedAttempt != activeLifecycleAttempt) {
       TechnicalLogStore.warning("LIFECYCLE", "Stale sing-box start rejected")
+      enterForeground(currentStatusNotification())
       stopSelf(startId)
       return START_NOT_STICKY
     }
 
+    lifecycleAttempt = requestedAttempt
+    // A new start is admitted only after the process-wide owner observed the
+    // previous terminal fence, which means its resource teardown has finished.
+    teardownRequested.set(false)
+
     val configPath = intent?.getStringExtra(EXTRA_CONFIG_PATH)
     if (configPath.isNullOrBlank()) {
+      enterForeground(currentStatusNotification())
       publishState(ConnectionState.Failed)
       stopSelf()
       return START_NOT_STICKY
     }
 
-    // A new start is admitted only after the process-wide owner observed the
-    // previous terminal fence, which means its resource teardown has finished.
-    teardownRequested.set(false)
-
     activeProfileName = readActiveProfileName()
     connectionStartedAtMillis = 0L
-    val startingNotification = createStatusNotification(getString(R.string.notification_connecting))
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-      startForeground(
-        NOTIFICATION_ID,
-        startingNotification,
-        ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE,
-      )
-    } else {
-      startForeground(NOTIFICATION_ID, startingNotification)
-    }
+    enterForeground(createStatusNotification(getString(R.string.notification_connecting)))
     val attempt = synchronized(startupLock) { ++startupAttempt }
     TechnicalLogStore.info("SING-BOX", "Starting network engine")
     publishState(ConnectionState.Connecting)
@@ -263,6 +261,25 @@ class VeilarkVpnService :
 
   override fun onBind(intent: Intent): IBinder? = super.onBind(intent)
 
+  private fun enterForeground(notification: android.app.Notification) {
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+      startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
+    } else {
+      startForeground(NOTIFICATION_ID, notification)
+    }
+  }
+
+  private fun currentStatusNotification(): android.app.Notification =
+    createStatusNotification(
+      getString(
+        if (connectionStartedAtMillis > 0L) {
+          R.string.notification_protected
+        } else {
+          R.string.notification_connecting
+        },
+      ),
+    )
+
   override fun onRevoke() {
     shutdown()
     super.onRevoke()
@@ -298,10 +315,11 @@ class VeilarkVpnService :
       .setMtu(options.mtu)
       .setBlocking(false)
 
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-      builder.setMetered(false)
-      underlyingNetwork?.let { builder.setUnderlyingNetworks(arrayOf(it)) }
-    }
+    // A target-Q+ VPN is metered by default. Marking it unmetered makes Android
+    // derive metering from the underlying network instead, so cellular and
+    // metered Wi-Fi limits still apply while ordinary Wi-Fi stays unmetered.
+    builder.setMetered(false)
+    underlyingNetwork?.let { builder.setUnderlyingNetworks(arrayOf(it)) }
 
     addAddresses(builder, options)
     if (options.autoRoute) {
@@ -391,7 +409,8 @@ class VeilarkVpnService :
     val interfaces = connectivity.allNetworks.mapNotNull { network ->
       val link = connectivity.getLinkProperties(network) ?: return@mapNotNull null
       val capabilities = connectivity.getNetworkCapabilities(network) ?: return@mapNotNull null
-      val javaInterface = NetworkInterface.getByName(link.interfaceName) ?: return@mapNotNull null
+      val interfaceName = link.interfaceName ?: return@mapNotNull null
+      val javaInterface = NetworkInterface.getByName(interfaceName) ?: return@mapNotNull null
       BoxNetworkInterface().apply {
         name = javaInterface.name
         index = javaInterface.index
@@ -437,24 +456,19 @@ class VeilarkVpnService :
     val callback = object : ConnectivityManager.NetworkCallback() {
       override fun onAvailable(network: Network) = considerUnderlyingNetwork(network)
       override fun onLost(network: Network) {
-        if (network == underlyingNetwork) {
-          TechnicalLogStore.warning("NETWORK", "Physical network lost; finding replacement")
-          underlyingNetwork = findPhysicalNetwork(excluding = network)
-          publishDefaultInterface(underlyingNetwork)
-          updateUnderlyingNetworks(underlyingNetwork)
-      updateNotification(
-        getString(
-          if (underlyingNetwork == null) {
-            R.string.notification_waiting_network
-          } else {
-            R.string.notification_switching_network
-          },
-        ),
-      )
+        if (network != underlyingNetwork) return
+        TechnicalLogStore.warning("NETWORK", "Physical network lost; finding replacement")
+        val replacement = findPhysicalNetwork(excluding = network)
+        underlyingNetwork = replacement
+        publishDefaultInterface(replacement)
+        updateUnderlyingNetworks(replacement)
+        if (replacement == null) {
+          updateNotification(getString(R.string.notification_waiting_network))
           commandServer?.resetNetwork()
-      if (underlyingNetwork != null) {
-        updateNotification(getString(R.string.notification_protected))
-      }
+        } else {
+          updateNotification(getString(R.string.notification_switching_network))
+          commandServer?.resetNetwork()
+          updateNotification(getString(R.string.notification_protected))
         }
       }
       override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) {
@@ -548,10 +562,10 @@ class VeilarkVpnService :
 
   private fun networkType(caps: NetworkCapabilities): String = when {
     caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> "Wi‑Fi"
-      caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) ->
-        getString(R.string.network_cellular)
+    caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) ->
+      getString(R.string.network_cellular)
     caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) -> "Ethernet"
-      else -> getString(R.string.network_physical)
+    else -> getString(R.string.network_physical)
   }
 
   private fun networkPriority(caps: NetworkCapabilities): Int = when {
@@ -699,10 +713,15 @@ class VeilarkVpnService :
   override fun systemCertificates(): StringIterator {
     val store = KeyStore.getInstance("AndroidCAStore")
     store.load(null)
+    // Only the platform's built-in roots. A user-installed CA, such as an
+    // operator- or state-issued MITM root, must never authenticate a tunnel
+    // endpoint; Android applies the same rule to apps targeting API 24+.
     val certificates = buildList {
       val aliases = store.aliases()
       while (aliases.hasMoreElements()) {
-        val certificate = store.getCertificate(aliases.nextElement()) ?: continue
+        val alias = aliases.nextElement()
+        if (!alias.startsWith("system:")) continue
+        val certificate = store.getCertificate(alias) ?: continue
         add(
           "-----BEGIN CERTIFICATE-----\n" +
             Base64.Mime.encode(certificate.encoded) +

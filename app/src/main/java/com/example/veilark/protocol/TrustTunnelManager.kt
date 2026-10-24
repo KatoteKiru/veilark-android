@@ -231,7 +231,7 @@ object TrustTunnelManager : AppNotifier {
     if (!VpnService.stop(context, sessionId)) {
       TechnicalLogStore.error("TRUST", "Stop request rejected; waiting for confirmed resource teardown")
     }
-    TechnicalLogStore.info("TRUST", "Tunnel stop requested by user")
+    TechnicalLogStore.info("TRUST", "Tunnel stop requested")
   }
 
   @Synchronized
