@@ -34,6 +34,11 @@ internal class CoreFairwaySocketFactory(
         return CoreFairwayUdpSocketFactory().deliverAuthorized(binding, request.destinationIpv4,
           request.destinationPort, ::current) { host.deliverBorrowed(request, it) }
       }
+      if (request.protocol == CoreFairwaySocketProtocol.ICMP) {
+        return CoreFairwayUdpSocketFactory().deliverPingAuthorized(binding, ::current) {
+          host.deliverBorrowed(request, it)
+        }
+      }
       var protectionFailed = false
       val fenced = object : CoreFairwayNetworkBinding {
         override fun isUsable() = current() && binding.isUsable()

@@ -12,7 +12,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.withContext
 
-internal enum class CoreFairwaySocketProtocol(val number: Int) { TCP(6), UDP(17) }
+internal enum class CoreFairwaySocketProtocol(val number: Int) { ICMP(1), TCP(6), UDP(17) }
 
 /** Full immutable identity; protocol participates in equality and native fencing. */
 internal data class CoreFairwaySocketRequest(
@@ -27,10 +27,16 @@ internal data class CoreFairwaySocketRequest(
   val protocol: CoreFairwaySocketProtocol,
 ) {
   init {
-    // Reuse the existing port/unicast/positive Long validation, without changing
-    // the legacy UDP request type or assigning it TCP semantics.
-    CoreFairwayFdRequest(attemptHandle, networkEpoch, policyGeneration, flowId,
-      sourceIpv4, sourcePort, destinationIpv4, destinationPort)
+    if (protocol == CoreFairwaySocketProtocol.ICMP) {
+      require(attemptHandle > 0 && networkEpoch > 0 && policyGeneration > 0 && flowId > 0)
+      require(CoreFairwayFdRequest.isUnicast(sourceIpv4) && CoreFairwayFdRequest.isUnicast(destinationIpv4))
+      // The source field is an echo identifier, including zero, not a port.
+      require(sourcePort in 0..65535 && destinationPort == 0)
+    } else {
+      // Preserve the legacy TCP/UDP bounds exactly.
+      CoreFairwayFdRequest(attemptHandle, networkEpoch, policyGeneration, flowId,
+        sourceIpv4, sourcePort, destinationIpv4, destinationPort)
+    }
   }
 }
 

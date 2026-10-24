@@ -28,4 +28,6 @@
     <string name="geo_scenario_operation_failed">Не удалось загрузить или сохранить стратегию. Прежняя маршрутизация сохранена.</string>
     <string name="core_application_rules_note">Core применяет фильтры приложений Android. Сам Veilark остаётся вне туннеля; маршрутизация GEO ещё интегрируется.</string>
     <string name="core_ipv4_mode">IPv4 через Core</string>
+    <string name="core_profile_dns">DNS профиля через туннель</string>
+    <string name="core_ipv6_blocked">IPv6 блокируется для приложений в VPN</string>
 </resources>

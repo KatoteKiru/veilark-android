@@ -5,6 +5,7 @@ internal object CoreFairwayRequestCodec {
   fun decode(values: LongArray): CoreFairwaySocketRequest {
     require(values.size == 9) { "Invalid Fairway request metadata length" }
     val protocol = when (values[8]) {
+      1L -> CoreFairwaySocketProtocol.ICMP
       6L -> CoreFairwaySocketProtocol.TCP
       17L -> CoreFairwaySocketProtocol.UDP
       else -> throw IllegalArgumentException("Invalid Fairway request protocol")
@@ -12,7 +13,10 @@ internal object CoreFairwayRequestCodec {
     require(values[4] in 0L..0xffff_ffffL && values[6] in 0L..0xffff_ffffL) {
       "Invalid Fairway request IPv4 value"
     }
-    require(values[5] in 1L..65535L && values[7] in 1L..65535L) {
+    val validPorts = if (protocol == CoreFairwaySocketProtocol.ICMP) {
+      values[5] in 0L..65535L && values[7] == 0L
+    } else values[5] in 1L..65535L && values[7] in 1L..65535L
+    require(validPorts) {
       "Invalid Fairway request port"
     }
     return CoreFairwaySocketRequest(

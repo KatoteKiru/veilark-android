@@ -92,15 +92,35 @@ internal class CoreFairwayUdpSocketFactory : CoreFairwayFdOpener {
     current: () -> Boolean,
     deliverBorrowed: (Int) -> Int,
   ): CoreFairwayFdFailure? {
+    require(destinationPort in 1..65535)
+    return deliverDatagramAuthorized(binding, OsConstants.IPPROTO_UDP, destinationIpv4,
+      destinationPort, current, deliverBorrowed)
+  }
+
+  /** Native owns destination validation and sends echo messages with send_to. */
+  internal fun deliverPingAuthorized(
+    binding: CoreFairwayNetworkBinding,
+    current: () -> Boolean,
+    deliverBorrowed: (Int) -> Int,
+  ): CoreFairwayFdFailure? = deliverDatagramAuthorized(binding, OsConstants.IPPROTO_ICMP,
+    0, 0, current, deliverBorrowed)
+
+  private fun deliverDatagramAuthorized(
+    binding: CoreFairwayNetworkBinding,
+    protocol: Int,
+    destinationIpv4: Int,
+    destinationPort: Int,
+    current: () -> Boolean,
+    deliverBorrowed: (Int) -> Int,
+  ): CoreFairwayFdFailure? {
     check(Looper.myLooper() != Looper.getMainLooper()) { "Fairway socket creation requires an IO worker" }
     fun failed(reason: CoreFairwayFdFailureReason) = CoreFairwayFdFailure(reason)
     if (!current()) return failed(CoreFairwayFdFailureReason.STALE)
-    require(destinationPort in 1..65535)
     var owned: ParcelFileDescriptor? = null
     try {
       val raw = Os.socket(OsConstants.AF_INET,
         OsConstants.SOCK_DGRAM or OsConstants.SOCK_NONBLOCK or OsConstants.SOCK_CLOEXEC,
-        OsConstants.IPPROTO_UDP)
+        protocol)
       try { owned = ParcelFileDescriptor.dup(raw) } finally { Os.close(raw) }
       val socket = checkNotNull(owned)
       if (!current()) return failed(CoreFairwayFdFailureReason.STALE)
@@ -108,13 +128,17 @@ internal class CoreFairwayUdpSocketFactory : CoreFairwayFdOpener {
       if (!current()) return failed(CoreFairwayFdFailureReason.STALE)
       if (!binding.protect(socket.fd)) return failed(CoreFairwayFdFailureReason.PROTECTION_FAILED)
       if (!current()) return failed(CoreFairwayFdFailureReason.STALE)
-      val ip = destinationIpv4
-      val address = InetAddress.getByAddress(byteArrayOf(
-        (ip ushr 24).toByte(), (ip ushr 16).toByte(), (ip ushr 8).toByte(), ip.toByte(),
-      ))
       // UDP connect sends no packet. No application source-port bind: the native
       // flow engine owns inner/outer tuple translation and packet construction.
-      Os.connect(socket.fileDescriptor, address, destinationPort)
+      // A Linux ping socket has no peer even after connect. Keep it unconnected;
+      // native validates its type/protocol and pins each send/receive to the token.
+      if (protocol == OsConstants.IPPROTO_UDP) {
+        val ip = destinationIpv4
+        val address = InetAddress.getByAddress(byteArrayOf(
+          (ip ushr 24).toByte(), (ip ushr 16).toByte(), (ip ushr 8).toByte(), ip.toByte(),
+        ))
+        Os.connect(socket.fileDescriptor, address, destinationPort)
+      }
       if (!current()) return failed(CoreFairwayFdFailureReason.STALE)
       val code = deliverBorrowed(socket.fd)
       check(code <= 0) { "Invalid Fairway FD admission result" }

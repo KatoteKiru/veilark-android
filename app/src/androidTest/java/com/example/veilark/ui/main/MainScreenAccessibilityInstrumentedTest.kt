@@ -16,7 +16,7 @@ import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
-import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performScrollToIndex
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.espresso.Espresso
@@ -81,7 +81,8 @@ class MainScreenAccessibilityInstrumentedTest {
       }
     }
 
-    composeRule.onNodeWithTag("routing_card").performScrollTo().performClick()
+    composeRule.onNodeWithTag("main_content_list").performScrollToIndex(3)
+    composeRule.onNodeWithTag("routing_card").performClick()
     val routingChoice = hasText(russiaDirect).and(
       SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.RadioButton),
     )
@@ -99,8 +100,6 @@ class MainScreenAccessibilityInstrumentedTest {
       }
     }
 
-    // The engine is chosen inside the connection picker.
-    composeRule.onNodeWithTag("connection_row").performClick()
     val radio = SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.RadioButton)
     composeRule.onNode(hasText("sing-box").and(radio))
       .assert(SemanticsMatcher.expectValue(SemanticsProperties.Selected, true))
@@ -118,8 +117,7 @@ class MainScreenAccessibilityInstrumentedTest {
       }
     }
 
-    composeRule.onNodeWithContentDescription(context.getString(R.string.more_options)).performClick()
-    composeRule.onNodeWithText(context.getString(R.string.menu_about)).performClick()
+    composeRule.onNodeWithContentDescription(context.getString(R.string.open_about)).performClick()
     composeRule.onNodeWithTag("main_content_list").assertDoesNotExist()
     Espresso.pressBack()
     composeRule.onNodeWithTag("main_content_list").assertIsDisplayed()
@@ -136,8 +134,7 @@ class MainScreenAccessibilityInstrumentedTest {
       }
     }
 
-    composeRule.onNodeWithContentDescription(context.getString(R.string.more_options)).performClick()
-    composeRule.onNodeWithText(context.getString(R.string.menu_technical_log)).performClick()
+    composeRule.onNodeWithContentDescription(context.getString(R.string.open_technical_log)).performClick()
     composeRule.onAllNodesWithText("Retrying handshake").assertCountEquals(2)
   }
 }

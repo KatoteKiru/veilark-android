@@ -1,5 +1,14 @@
 # Atlas Android continuation — 24 October 2026
 
+Owner clarification: redesign is NOT approved. Preserve its source on local
+branch local/design-unapproved-20261024 at93b4acf; next candidate uses pre-redesign
+UI5a995a2 plus functional route-choice/blocking notice wiring only. No release of
+the redesign without user review. Paired Android ICMP source implemented: request
+protocol1/echoID0..65535/destination0, capturedNetwork protected nonblocking ping
+socket; TCP/UDP unchanged. Combined compilation and61focused testsPASS/0errors,
+log C:/AI-Agent/reports/fairway-passage-ui-icmp-20261024.log. No phone execution.
+Vector owns Core merge; only use a matched artifact, no native swap/OTA performed.
+
 Working tree local/w31g03-build, base3df5954; contains private local Passage work.
 Do not publish these commits to the public Android repository.
 

@@ -21,7 +21,7 @@ internal data class CoreFairwayFdRequest(
   }
 
   companion object {
-    private fun isUnicast(address: Int): Boolean =
+    internal fun isUnicast(address: Int): Boolean =
       (address ushr 24) in 1..223 && (address ushr 24) != 127
   }
 }

@@ -52,6 +52,22 @@ class CoreFairwaySocketBrokerTest {
     }
   }
 
+  @Test fun pingRequestUsesEchoIdentityWithoutWeakeningLegacyPorts() {
+    val ping = request().copy(protocol = CoreFairwaySocketProtocol.ICMP, sourcePort = 0, destinationPort = 0)
+    assertEquals(1, ping.protocol.number)
+    assertEquals(65535, ping.copy(sourcePort = 65535).sourcePort)
+    assertThrows(IllegalArgumentException::class.java) { ping.copy(sourcePort = -1) }
+    assertThrows(IllegalArgumentException::class.java) { ping.copy(sourcePort = 65536) }
+    assertThrows(IllegalArgumentException::class.java) { ping.copy(destinationPort = 1) }
+    assertThrows(IllegalArgumentException::class.java) { ping.copy(attemptHandle = 0) }
+    assertThrows(IllegalArgumentException::class.java) { ping.copy(sourceIpv4 = 0x7f000001) }
+    assertThrows(IllegalArgumentException::class.java) { ping.copy(protocol = CoreFairwaySocketProtocol.TCP) }
+    assertThrows(IllegalArgumentException::class.java) { ping.copy(protocol = CoreFairwaySocketProtocol.UDP) }
+    assertThrows(IllegalArgumentException::class.java) {
+      CoreFairwayFdRequest(1, 1, 1, 1, 0x0a000001, 0, 0x0a000002, 0)
+    }
+  }
+
   @Test fun stopCancelsAllSixteenBlockedOperationsBeforeJoiningAndBoundsDequeue() = runBlocking {
     val host = Host()
     repeat(32) { host.queue.add(request(it + 1L, if (it % 2 == 0) CoreFairwaySocketProtocol.TCP else CoreFairwaySocketProtocol.UDP)) }

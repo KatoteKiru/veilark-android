@@ -57,6 +57,33 @@ class CoreFairwayRequestCodecTest {
       Long.MIN_VALUE, Long.MAX_VALUE)) rejects(values(invalid))
   }
 
+  @Test fun pingIdentifierIncludesZeroAndHasNoDestinationPort() {
+    for (identifier in listOf(0L, 1L, 65535L)) {
+      val input = values(1).also { it[5] = identifier; it[7] = 0 }
+      val decoded = CoreFairwayRequestCodec.decode(input)
+      assertEquals(CoreFairwaySocketProtocol.ICMP, decoded.protocol)
+      assertEquals(identifier.toInt(), decoded.sourcePort)
+      assertEquals(0, decoded.destinationPort)
+      assertArrayEquals(input, CoreFairwayRequestCodec.encode(decoded))
+    }
+    for (identifier in listOf(-1L, 65536L, 0x1_0000_0001L, Long.MAX_VALUE)) {
+      rejects(values(1).also { it[5] = identifier; it[7] = 0 })
+    }
+    for (port in listOf(-1L, 1L, 65535L, 0x1_0000_0000L)) {
+      rejects(values(1).also { it[5] = 0; it[7] = port })
+    }
+  }
+
+  @Test fun pingStillRejectsBadIdentityAndAddresses() {
+    val ping = values(1).also { it[5] = 0; it[7] = 0 }
+    for (index in 0..3) rejects(ping.copyOf().also { it[index] = 0 })
+    for (index in listOf(4, 6)) {
+      for (address in listOf(0L, 0x7f00_0001L, 0xe000_0001L, 0x1_0000_0000L)) {
+        rejects(ping.copyOf().also { it[index] = address })
+      }
+    }
+  }
+
   @Test fun mutableArraysNeverAliasTheDecodedRequestOrAnotherEncoding() {
     val input = values()
     val saved = input.copyOf()

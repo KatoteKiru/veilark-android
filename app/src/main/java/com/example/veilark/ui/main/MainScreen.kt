@@ -10,12 +10,7 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.animateDpAsState
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
@@ -24,10 +19,7 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
@@ -56,6 +48,7 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.selection.toggleable
@@ -66,7 +59,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.Article
-import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
@@ -77,7 +69,7 @@ import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.FileDownload
 import androidx.compose.material.icons.rounded.Info
-import androidx.compose.material.icons.rounded.MoreVert
+import androidx.compose.material.icons.rounded.Link
 import androidx.compose.material.icons.rounded.PowerSettingsNew
 import androidx.compose.material.icons.rounded.QrCodeScanner
 import androidx.compose.material.icons.rounded.Refresh
@@ -92,16 +84,18 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilledTonalIconButton
+import androidx.compose.material3.FloatingActionButtonMenu
+import androidx.compose.material3.FloatingActionButtonMenuItem
 import androidx.compose.material3.FloatingToolbarDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.HorizontalFloatingToolbar
 import androidx.compose.material3.Icon
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.LargeFlexibleTopAppBar
 import androidx.compose.material3.LinearWavyProgressIndicator
+import androidx.compose.material3.ListItem
+import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialShapes
@@ -120,6 +114,8 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.ToggleButton
 import androidx.compose.material3.ToggleButtonDefaults
 import androidx.compose.material3.ToggleButtonShapes
+import androidx.compose.material3.ToggleFloatingActionButton
+import androidx.compose.material3.ToggleFloatingActionButtonDefaults.animateIcon
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -310,23 +306,27 @@ fun MainScreen(
   // Screen and overlay flags survive rotation, process death and dark-mode
   // switches; transient bookkeeping for in-flight imports stays in remember.
   var showImport by rememberSaveable { mutableStateOf(false) }
+  val mainList = rememberLazyListState()
   var consumedNoticeRequest by rememberSaveable { mutableLongStateOf(0L) }
   LaunchedEffect(updateNoticeRequest) {
     if (updateNoticeRequest > 0 && selfUpdateEnabled) onCheckUpdate()
+  }
+  LaunchedEffect(updateNoticeRequest, updateAvailable) {
+    if (updateNoticeRequest > 0 && updateAvailable && selfUpdateEnabled) {
+      mainList.animateScrollToItem((mainList.layoutInfo.totalItemsCount - 2).coerceAtLeast(0))
+    }
   }
   var showNodes by rememberSaveable { mutableStateOf(false) }
   var showRouting by rememberSaveable { mutableStateOf(false) }
   var showTechnicalLogs by rememberSaveable { mutableStateOf(false) }
   var showAbout by rememberSaveable { mutableStateOf(false) }
-  // After a manual check the update card stays up to show the result, even
-  // when there is nothing to install.
-  var updateCheckRequested by rememberSaveable { mutableStateOf(false) }
   var legalDocument by rememberSaveable { mutableStateOf<LegalDocument?>(null) }
   // Import text may contain a Core PSK. Never serialize it into SavedState/Bundle.
   var subscriptionUrl by remember { mutableStateOf("") }
   var importAttempted by rememberSaveable { mutableStateOf(false) }
   var importSubmitted by remember { mutableStateOf(false) }
   var observedImporting by remember { mutableStateOf(false) }
+  var addMenuExpanded by rememberSaveable { mutableStateOf(false) }
   val snackbarHostState = remember { SnackbarHostState() }
   val coroutineScope = rememberCoroutineScope()
   val subscriptionBotOpenFailed = stringResource(R.string.subscription_bot_open_failed)
@@ -432,7 +432,6 @@ fun MainScreen(
     val document = legalDocument
     if (document == null) {
       AboutScreen(
-        engineDescription = engineDescription,
         onBack = { showAbout = false },
         onOpenDocument = { legalDocument = it },
         onOpenSubscriptionAccount = openSubscriptionAccount,
@@ -446,6 +445,9 @@ fun MainScreen(
     }
     return
   }
+
+  // System and predictive back first collapse the add menu before leaving.
+  BackHandler(enabled = addMenuExpanded) { addMenuExpanded = false }
 
   if (showImport) {
     ImportDialog(
@@ -519,35 +521,6 @@ fun MainScreen(
     )
   }
 
-  val reconnectRequired = connectionState != ConnectionState.Disconnected &&
-    connectionState != ConnectionState.Failed
-  val effectiveDpiMode = if (coreBetaActive) ProfileSelection.DPI_OFF else dpiMode
-  // The routing switches on the main screen save through the same callback as
-  // the routing dialog, so both places always agree on the stored policy.
-  val setRussiaDirect: (Boolean) -> Unit = { enabled ->
-    val route = if (enabled) ProfileSelection.ROUTING_RU_DIRECT else ProfileSelection.ROUTING_ALL
-    if (onApplyRouting(route, directRoutes, vpnRoutes, applicationMode, effectiveDpiMode, selectedApplications)) {
-      coroutineScope.launch {
-        snackbarHostState.showSnackbar(
-          if (reconnectRequired) routingSavedReconnectMessage else routingSavedMessage,
-        )
-      }
-    }
-  }
-  val openRouting = {
-    onOpenRouting()
-    showRouting = true
-  }
-  val emblemAction = if (!stopAvailable && profileName == null &&
-    connectionState != ConnectionState.Connected && connectionState != ConnectionState.Connecting
-  ) {
-    openImport
-  } else {
-    onConnect
-  }
-  val currentNodeTag = if (selectedNodeTag == ProfileSelection.AUTOMATIC_TAG) automaticNodeTag else selectedNodeTag
-  val currentNodeName = connectionNodes.firstOrNull { it.tag == currentNodeTag }?.name
-
   Scaffold(
     modifier = modifier.fillMaxSize(),
     containerColor = MaterialTheme.colorScheme.background,
@@ -561,15 +534,15 @@ fun MainScreen(
           )
         },
         actions = {
-          MainOverflowMenu(
-            selfUpdateEnabled = selfUpdateEnabled,
-            updating = updating,
-            onOpenTechnicalLog = { showTechnicalLogs = true },
-            onOpenAbout = { showAbout = true },
-            onCheckUpdate = {
-              updateCheckRequested = true
-              onCheckUpdate()
-            },
+          CompactIconAction(
+            glyph = ActionGlyph.Journal,
+            description = stringResource(R.string.open_technical_log),
+            onClick = { showTechnicalLogs = true },
+          )
+          CompactIconAction(
+            glyph = ActionGlyph.Info,
+            description = stringResource(R.string.open_about),
+            onClick = { showAbout = true },
           )
         },
         colors = TopAppBarDefaults.topAppBarColors(
@@ -577,163 +550,182 @@ fun MainScreen(
         ),
       )
     },
+    floatingActionButton = {
+      AddProfileFabMenu(
+        expanded = addMenuExpanded,
+        enabled = !importing,
+        onExpandedChange = { addMenuExpanded = it },
+        onEnterLink = openImport,
+        onPaste = pasteAndReview,
+        onScanQr = scanAndImport,
+        onImportFile = onImportFile,
+      )
+    },
   ) { innerPadding ->
-    BoxWithConstraints(
+    LazyColumn(
+      state = mainList,
       modifier = Modifier
-        .fillMaxSize()
-        .padding(innerPadding),
+        .testTag("main_content_list")
+        .fillMaxHeight()
+        .fillMaxWidth()
+        .wrapContentWidth(Alignment.CenterHorizontally)
+        .widthIn(max = 720.dp),
+      // Scaffold's inner padding carries the system bar and display-cutout
+      // insets on every edge; the extra bottom space keeps the last card clear
+      // of the floating add button.
+      contentPadding = innerPadding.plusContent(horizontal = 16.dp, top = 12.dp, bottom = 96.dp),
+      verticalArrangement = Arrangement.spacedBy(20.dp),
     ) {
-      // One screen, no scrolling on a phone: state and the main action in the
-      // middle, the connection and protection controls under the thumb. Small
-      // windows and large font scales fall back to scrolling.
-      Column(
-        modifier = Modifier
-          .testTag("main_content_list")
-          .fillMaxSize()
-          .verticalScroll(rememberScrollState())
-          // Applied inside the scroll so the content fills the screen and the
-          // spacing below can push the controls to the bottom.
-          .heightIn(min = maxHeight)
-          .wrapContentWidth(Alignment.CenterHorizontally)
-          .widthIn(max = 560.dp)
-          .padding(horizontal = 16.dp)
-          .padding(bottom = 16.dp),
-        verticalArrangement = Arrangement.SpaceBetween,
-      ) {
-        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-          if (selfUpdateEnabled && (updateAvailable || updating || updateCheckRequested)) {
-            UpdateCard(
-              status = updateStatus,
-              notes = updateNotes,
-              available = updateAvailable,
-              updating = updating,
-              progress = updateProgress,
-              onCheck = onCheckUpdate,
-              onUpdate = onUpdate,
-              noticeRequest = updateNoticeRequest,
-              consumedNoticeRequest = consumedNoticeRequest,
-              onNoticeConsumed = { consumedNoticeRequest = it },
-            )
-          }
-          if (importError != null) {
-            ErrorCard(
-              title = stringResource(R.string.attention_title),
-              message = importError,
-              code = null,
-              diagnosticReportAvailable = false,
-              onCopyDiagnostic = onCopyDiagnostic,
-            )
-          }
-        }
-
-        ConnectionStatus(
+      item {
+        ConnectionCard(
           profileName = profileName,
           state = connectionState,
           stage = startupStage,
-          nodeName = currentNodeName,
-          latency = nodeLatencies[currentNodeTag],
+          latency = nodeLatencies[
+            if (selectedNodeTag == ProfileSelection.AUTOMATIC_TAG) {
+              automaticNodeTag
+            } else {
+              selectedNodeTag
+            }
+          ],
           importing = importing,
           authenticatedOnly = coreBetaActive,
           stopAvailable = stopAvailable,
-          connectionError = connectionError,
-          failureCode = failureCode,
-          diagnosticReportAvailable = diagnosticReportAvailable,
-          onEmblemClick = emblemAction,
-          onRetry = onConnect,
-          onCopyDiagnostic = onCopyDiagnostic,
-          onPaste = pasteAndReview,
-          onScanQr = scanAndImport,
-          onImportFile = onImportFile,
-          onEnterLink = openImport,
-          onOpenSubscriptionAccount = openSubscriptionAccount,
-          modifier = Modifier.padding(vertical = 24.dp),
+          onConnect = if (!stopAvailable && profileName == null && connectionState != ConnectionState.Connected &&
+            connectionState != ConnectionState.Connecting) openImport else onConnect,
         )
-
-        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-          // Shown as soon as any engine has a profile, so switching to it
-          // stays possible while the current engine has none.
-          if (profileName != null || activeSubscriptions.isNotEmpty() ||
-            singBoxAvailable || trustTunnelAvailable || coreBetaAvailable
-          ) {
-            ProfileCard(
-              profileName = profileName,
-              coreBetaActive = coreBetaActive,
-              trustTunnelActive = trustTunnelActive,
-              nodes = connectionNodes,
-              currentNodeName = currentNodeName,
-              subscriptions = activeSubscriptions,
-              selectedSubscriptionId = if (coreBetaActive) {
-                "core-beta"
-              } else if (trustTunnelActive) {
-                selectedTrustSubscriptionId
-              } else {
-                selectedSubscriptionId
-              },
-              selectedTag = selectedNodeTag,
-              subscriptionRefreshAvailable = subscriptionRefreshAvailable,
-              refreshingSubscription = refreshingSubscription,
-              expanded = showNodes,
-              latencies = nodeLatencies,
-              automaticAvailable = automaticNodeSelectionAvailable,
-              canRefreshLatency = !coreBetaActive && (trustTunnelActive ||
-                profileName != null),
-              latencyChecking = latencyChecking,
-              onRefreshSubscription = onRefreshSubscription,
-              onAddSubscription = openImport,
-              onPasteSubscription = pasteAndReview,
-              onScanSubscriptionQr = scanAndImport,
-              onDeleteSubscription = onDeleteSubscription,
-              onShareQr = onShareQr,
-              onOpenSubscriptionAccount = openSubscriptionAccount,
-              onOpenWebAccount = openWebAccount,
-              onRefreshLatency = onRefreshLatency,
-              onSelectNode = {
-                onSelectNode(it)
-                showNodes = false
-              },
-              onSelectSubscription = {
-                onSelectSubscription(it)
-              },
-              onToggleNodes = {
-                if (connectionNodes.isEmpty() && activeSubscriptions.isEmpty()) {
-                  openImport()
-                } else {
-                  showNodes = !showNodes
-                }
-              },
-              engineSelector = {
-                EngineSelectorCard(
-                  coreBetaActive = coreBetaActive,
-                  coreBetaAvailable = coreBetaAvailable,
-                  coreBetaRuntimeAvailable = coreBetaRuntimeAvailable,
-                  trustTunnelActive = trustTunnelActive,
-                  singBoxAvailable = singBoxAvailable,
-                  trustTunnelAvailable = trustTunnelAvailable,
-                  connectionState = connectionState,
-                  onSelectEngine = onSelectEngine,
-                  coreRouteChoice = coreRouteChoice,
-                  onSelectCoreRoute = onSelectCoreRoute,
-                )
-              },
-            )
-          }
-          ProtectionCard(
-            routingMode = routingMode,
-            applicationMode = applicationMode,
-            selectedApplicationCount = selectedApplications.size,
-            coreBetaActive = coreBetaActive,
-            killSwitchEnabled = killSwitchEnabled,
-            onRussiaDirectChange = setRussiaDirect,
-            onKillSwitchChange = onKillSwitchChange,
-            onOpenRouting = openRouting,
+      }
+      item {
+        EngineSelectorCard(
+          coreBetaActive = coreBetaActive,
+          coreBetaAvailable = coreBetaAvailable,
+          coreBetaRuntimeAvailable = coreBetaRuntimeAvailable,
+          trustTunnelActive = trustTunnelActive,
+          singBoxAvailable = singBoxAvailable,
+          trustTunnelAvailable = trustTunnelAvailable,
+          connectionState = connectionState,
+          onSelectEngine = onSelectEngine,
+          coreRouteChoice = coreRouteChoice,
+          onSelectCoreRoute = onSelectCoreRoute,
+        )
+      }
+      if (importError != null) {
+        item {
+          ErrorCard(
+            title = stringResource(R.string.attention_title),
+            message = importError,
+            code = null,
+            diagnosticReportAvailable = false,
+            onCopyDiagnostic = onCopyDiagnostic,
           )
-          if (killSwitchBlocking) {
-            RoutingNoticeCard(message = stringResource(R.string.kill_switch_blocking))
-          }
-          if (routingNotice != null) {
-            RoutingNoticeCard(message = routingNotice)
-          }
         }
+      } else if (connectionError != null) {
+        item {
+          ErrorCard(
+            title = stringResource(R.string.connection_failed_title),
+            message = connectionError,
+            code = failureCode,
+            diagnosticReportAvailable = diagnosticReportAvailable,
+            onCopyDiagnostic = onCopyDiagnostic,
+          )
+        }
+      }
+      if (killSwitchBlocking) {
+        item {
+          RoutingNoticeCard(message = stringResource(R.string.kill_switch_blocking))
+        }
+      }
+      if (routingNotice != null) {
+        item {
+          RoutingNoticeCard(message = routingNotice)
+        }
+      }
+      item {
+        ProfileCard(
+          profileName = profileName,
+          coreBetaActive = coreBetaActive,
+          trustTunnelActive = trustTunnelActive,
+          nodes = connectionNodes,
+          subscriptions = activeSubscriptions,
+          selectedSubscriptionId = if (coreBetaActive) {
+            "core-beta"
+          } else if (trustTunnelActive) {
+            selectedTrustSubscriptionId
+          } else {
+            selectedSubscriptionId
+          },
+          selectedTag = selectedNodeTag,
+          subscriptionRefreshAvailable = subscriptionRefreshAvailable,
+          refreshingSubscription = refreshingSubscription,
+          expanded = showNodes,
+          latencies = nodeLatencies,
+          automaticAvailable = automaticNodeSelectionAvailable,
+          canRefreshLatency = !coreBetaActive && (trustTunnelActive ||
+            profileName != null),
+          latencyChecking = latencyChecking,
+          onRefreshSubscription = onRefreshSubscription,
+          onAddSubscription = openImport,
+          onPasteSubscription = pasteAndReview,
+          onScanSubscriptionQr = scanAndImport,
+          onDeleteSubscription = onDeleteSubscription,
+          onShareQr = onShareQr,
+          onOpenSubscriptionAccount = openSubscriptionAccount,
+          onOpenWebAccount = openWebAccount,
+          onRefreshLatency = onRefreshLatency,
+          onSelectNode = {
+            onSelectNode(it)
+            showNodes = false
+          },
+          onSelectSubscription = {
+            onSelectSubscription(it)
+          },
+          onToggleNodes = {
+            if (connectionNodes.isEmpty() && activeSubscriptions.isEmpty()) {
+              openImport()
+            } else {
+              showNodes = !showNodes
+            }
+          },
+        )
+      }
+      item {
+        RoutingCard(
+          routingMode = routingMode,
+          applicationMode = applicationMode,
+          dpiMode = if (coreBetaActive) ProfileSelection.DPI_OFF else dpiMode,
+          selectedApplicationCount = selectedApplications.size,
+          coreBetaActive = coreBetaActive,
+          killSwitchEnabled = killSwitchEnabled,
+          onClick = {
+            onOpenRouting()
+            showRouting = true
+          },
+        )
+      }
+      if (selfUpdateEnabled) {
+        item {
+          UpdateCard(
+            status = updateStatus,
+            notes = updateNotes,
+            available = updateAvailable,
+            updating = updating,
+            progress = updateProgress,
+            onCheck = onCheckUpdate,
+            onUpdate = onUpdate,
+            noticeRequest = updateNoticeRequest,
+            consumedNoticeRequest = consumedNoticeRequest,
+            onNoticeConsumed = { consumedNoticeRequest = it },
+          )
+        }
+      }
+      item {
+        Text(
+          text = stringResource(R.string.core_footer, engineDescription),
+          modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
+          style = MaterialTheme.typography.bodySmall,
+          color = MaterialTheme.colorScheme.onSurfaceVariant,
+          textAlign = TextAlign.Center,
+        )
       }
     }
   }
@@ -752,6 +744,63 @@ private fun PaddingValues.plusContent(horizontal: Dp, top: Dp, bottom: Dp): Padd
     end = calculateEndPadding(direction) + horizontal,
     bottom = calculateBottomPadding() + bottom,
   )
+}
+
+/**
+ * Material 3 Expressive FAB menu for every way of adding a subscription or
+ * profile. It replaces the former icon-only "add" action in the top bar.
+ */
+@Composable
+private fun AddProfileFabMenu(
+  expanded: Boolean,
+  enabled: Boolean,
+  onExpandedChange: (Boolean) -> Unit,
+  onEnterLink: () -> Unit,
+  onPaste: () -> Unit,
+  onScanQr: () -> Unit,
+  onImportFile: () -> Unit,
+) {
+  val openDescription = stringResource(R.string.add_subscription_or_profile)
+  val closeDescription = stringResource(R.string.fab_menu_close)
+  val stateDescriptionText = stringResource(if (expanded) R.string.expanded else R.string.collapsed)
+  FloatingActionButtonMenu(
+    expanded = expanded,
+    button = {
+      ToggleFloatingActionButton(
+        checked = expanded,
+        onCheckedChange = { if (enabled || !it) onExpandedChange(it) },
+        modifier = Modifier.semantics {
+          contentDescription = if (expanded) closeDescription else openDescription
+          stateDescription = stateDescriptionText
+          role = Role.Button
+        },
+      ) {
+        val progress = { checkedProgress }
+        Icon(
+          imageVector = if (checkedProgress > 0.5f) Icons.Rounded.Close else Icons.Rounded.Add,
+          contentDescription = null,
+          modifier = Modifier.animateIcon(progress),
+        )
+      }
+    },
+  ) {
+    val entries = listOf(
+      Triple(Icons.Rounded.Link, R.string.action_enter_link, onEnterLink),
+      Triple(Icons.Rounded.ContentPaste, R.string.action_paste, onPaste),
+      Triple(Icons.Rounded.QrCodeScanner, R.string.action_scan_qr, onScanQr),
+      Triple(Icons.Rounded.Description, R.string.action_choose_file, onImportFile),
+    )
+    entries.forEach { (icon, label, action) ->
+      FloatingActionButtonMenuItem(
+        onClick = {
+          onExpandedChange(false)
+          action()
+        },
+        icon = { Icon(icon, contentDescription = null) },
+        text = { Text(stringResource(label)) },
+      )
+    }
+  }
 }
 
 // LinearWavyProgressIndicator is still library-group restricted in material3
@@ -924,350 +973,193 @@ private class MorphShape(
   override fun hashCode(): Int = 31 * System.identityHashCode(morph) + progress.hashCode()
 }
 
-/**
- * The centre of the main screen: the connection emblem, which is also the
- * connect / disconnect button, and the state under it. Failures, connection
- * progress and the first-run import choices all live here, next to the action
- * they belong to.
- */
 @Composable
-private fun ConnectionStatus(
+private fun ConnectionCard(
   profileName: String?,
   state: ConnectionState,
   stage: StartupStage,
-  nodeName: String?,
   latency: Int?,
   importing: Boolean,
   authenticatedOnly: Boolean,
-  stopAvailable: Boolean,
-  connectionError: String?,
-  failureCode: String?,
-  diagnosticReportAvailable: Boolean,
-  onEmblemClick: () -> Unit,
-  onRetry: () -> Unit,
-  onCopyDiagnostic: () -> Unit,
-  onPaste: () -> Unit,
-  onScanQr: () -> Unit,
-  onImportFile: () -> Unit,
-  onEnterLink: () -> Unit,
-  onOpenSubscriptionAccount: () -> Unit,
-  modifier: Modifier = Modifier,
+  stopAvailable: Boolean = false,
+  onConnect: () -> Unit,
 ) {
   val connected = state == ConnectionState.Connected
   val connecting = state == ConnectionState.Connecting
-  val failed = state == ConnectionState.Failed || (state == ConnectionState.Disconnected && connectionError != null)
+  val failed = state == ConnectionState.Failed
   val action = connectionCardAction(state, profileName != null, importing, stopAvailable)
   val motion = MaterialTheme.motionScheme
-  Column(
-    modifier = modifier.fillMaxWidth(),
-    horizontalAlignment = Alignment.CenterHorizontally,
-  ) {
-    ConnectionEmblem(
-      state = state,
-      failed = failed,
-      action = action,
-      onClick = onEmblemClick,
-    )
-    Spacer(Modifier.height(24.dp))
-    AnimatedContent(
-      targetState = when {
-        profileName == null && !connected && !connecting -> null
-        failed -> ConnectionState.Failed
-        else -> state
-      },
-      transitionSpec = {
-        (fadeIn(motion.defaultEffectsSpec()) + slideInVertically(motion.defaultSpatialSpec()) { it / 3 }) togetherWith
-          (fadeOut(motion.fastEffectsSpec()) + slideOutVertically(motion.fastSpatialSpec()) { -it / 3 })
-      },
-      // Announce every connection state change to accessibility services.
-      modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
-      label = "connection state",
-    ) { current ->
-      Text(
-        text = when (current) {
-          null -> stringResource(R.string.add_subscription)
-          ConnectionState.Disconnected -> stringResource(R.string.vpn_off)
-          ConnectionState.Connecting -> stringResource(R.string.connecting_title)
-          ConnectionState.Connected -> stringResource(if (authenticatedOnly) R.string.core_authenticated_title else R.string.vpn_protected)
-          ConnectionState.Failed -> stringResource(R.string.vpn_connect_failed)
-        },
-        style = MaterialTheme.typography.headlineMediumEmphasized,
-        textAlign = TextAlign.Center,
-      )
-    }
-    Spacer(Modifier.height(6.dp))
-    val subtitle = when {
-      profileName == null && !connected && !connecting -> stringResource(R.string.import_hint_short)
-      connecting -> stringResource(
-        R.string.connection_step,
-        stage.ordinal.coerceIn(1, StartupStageCount),
-        StartupStageCount,
-        stringResource(stage.titleRes),
-      )
-      failed -> connectionError ?: stringResource(R.string.vpn_connect_failed)
-      connected && authenticatedOnly -> stringResource(R.string.core_authenticated_hint)
-      connected -> listOfNotNull(
-        nodeName ?: profileName,
-        latency?.let { stringResource(R.string.latency_ms, it) },
-      ).joinToString(" · ")
-      importing -> stringResource(R.string.profile_checking)
-      else -> stringResource(R.string.tap_to_connect)
-    }
-    Text(
-      text = subtitle,
-      modifier = Modifier.widthIn(max = 340.dp),
-      style = MaterialTheme.typography.bodyLarge,
-      color = MaterialTheme.colorScheme.onSurfaceVariant,
-      textAlign = TextAlign.Center,
-    )
-    when {
-      connecting -> {
-        Spacer(Modifier.height(16.dp))
-        StageProgress(current = stage.ordinal.coerceIn(0, StartupStageCount))
-        Spacer(Modifier.height(4.dp))
-        TextButton(onClick = onEmblemClick, shapes = ButtonDefaults.shapes()) {
-          Text(stringResource(R.string.connection_cancel))
-        }
-      }
-      failed -> {
-        if (failureCode != null) {
-          Spacer(Modifier.height(4.dp))
-          Text(
-            text = stringResource(R.string.error_code, failureCode),
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-          )
-        }
-        Spacer(Modifier.height(16.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-          Button(onClick = onRetry, shapes = ButtonDefaults.shapes()) {
-            Text(stringResource(R.string.retry))
-          }
-          if (diagnosticReportAvailable) {
-            FilledTonalButton(onClick = onCopyDiagnostic, shapes = ButtonDefaults.shapes()) {
-              Text(stringResource(R.string.copy_diagnostics))
-            }
-          }
-        }
-      }
-      profileName == null && !connected -> {
-        Spacer(Modifier.height(20.dp))
-        FirstRunImportActions(
-          enabled = !importing,
-          onPaste = onPaste,
-          onScanQr = onScanQr,
-          onImportFile = onImportFile,
-          onEnterLink = onEnterLink,
-          onOpenSubscriptionAccount = onOpenSubscriptionAccount,
-        )
-      }
-    }
-  }
-}
-
-private val StartupStageCount = StartupStage.entries.size - 1
-
-/** Five short segments, one per startup stage; done stages are filled. */
-@Composable
-private fun StageProgress(current: Int) {
-  Row(
-    modifier = Modifier.clearAndSetSemantics {},
-    horizontalArrangement = Arrangement.spacedBy(4.dp),
-  ) {
-    repeat(StartupStageCount) { index ->
-      val color by animateColorAsState(
-        targetValue = if (index < current) {
-          MaterialTheme.colorScheme.onSurface
-        } else {
-          MaterialTheme.colorScheme.surfaceContainerHighest
-        },
-        animationSpec = MaterialTheme.motionScheme.defaultEffectsSpec(),
-        label = "startup stage segment",
-      )
-      Box(
-        Modifier
-          .size(width = 36.dp, height = 6.dp)
-          .background(color, CircleShape),
-      )
-    }
-  }
-}
-
-/**
- * The connection emblem doubles as the main button. It morphs from a soft
- * square (off) into a 12-sided seal (protected), turns slowly only while
- * connecting and shrinks a little under the finger. Nothing loops at rest.
- */
-@Composable
-private fun ConnectionEmblem(
-  state: ConnectionState,
-  failed: Boolean,
-  action: ConnectionCardAction,
-  onClick: () -> Unit,
-) {
-  val connected = state == ConnectionState.Connected
-  val connecting = state == ConnectionState.Connecting
-  val motion = MaterialTheme.motionScheme
-  val interaction = remember { MutableInteractionSource() }
-  val pressed by interaction.collectIsPressedAsState()
-  val scale by animateFloatAsState(
-    targetValue = if (pressed) 0.92f else 1f,
-    animationSpec = motion.fastSpatialSpec(),
-    label = "emblem press",
-  )
+  // The emblem morphs from a soft square into a 12-sided "seal" when the tunnel
+  // is up. The morph only animates on a state change; nothing loops at rest.
   val emblemMorph = remember { Morph(emblemPolygon(false), emblemPolygon(true)) }
   val morphProgress by animateFloatAsState(
-    targetValue = if (connected || connecting) 1f else 0f,
+    targetValue = if (connected) 1f else 0f,
     animationSpec = motion.slowSpatialSpec(),
     label = "connection emblem morph",
   )
-  val restRotation by animateFloatAsState(
+  val emblemRotation by animateFloatAsState(
     targetValue = if (connected) 45f else 0f,
     animationSpec = motion.slowSpatialSpec(),
     label = "connection emblem rotation",
   )
-  val spin = if (connecting) {
-    val transition = rememberInfiniteTransition(label = "connecting spin")
-    transition.animateFloat(
-      initialValue = 0f,
-      targetValue = 360f,
-      animationSpec = infiniteRepeatable(tween(durationMillis = 6_000, easing = LinearEasing)),
-      label = "connecting rotation",
-    ).value
-  } else {
-    0f
-  }
   val container by animateColorAsState(
     targetValue = when {
+      connected -> MaterialTheme.colorScheme.primaryContainer
       failed -> MaterialTheme.colorScheme.errorContainer
-      connecting -> MaterialTheme.colorScheme.surfaceContainerHighest
-      action == ConnectionCardAction.Add -> MaterialTheme.colorScheme.surfaceContainerHigh
-      else -> MaterialTheme.colorScheme.primary
+      else -> MaterialTheme.colorScheme.surfaceContainerHigh
+    },
+    animationSpec = motion.defaultEffectsSpec(),
+    label = "connection surface",
+  )
+  val corner by animateDpAsState(
+    targetValue = if (connected) 40.dp else 32.dp,
+    animationSpec = motion.defaultSpatialSpec(),
+    label = "connection shape",
+  )
+  val emblemColor by animateColorAsState(
+    targetValue = if (connected) {
+      MaterialTheme.colorScheme.primary
+    } else {
+      MaterialTheme.colorScheme.surfaceContainerLowest
     },
     animationSpec = motion.defaultEffectsSpec(),
     label = "connection emblem color",
   )
-  val content = when {
-    failed -> MaterialTheme.colorScheme.onErrorContainer
-    connecting || action == ConnectionCardAction.Add -> MaterialTheme.colorScheme.onSurface
-    else -> MaterialTheme.colorScheme.onPrimary
-  }
-  val description = when (action) {
-    ConnectionCardAction.Cancel -> stringResource(R.string.connection_cancel)
-    ConnectionCardAction.Disconnect -> stringResource(R.string.disconnect)
-    ConnectionCardAction.Checking -> stringResource(R.string.profile_checking)
-    ConnectionCardAction.Add -> stringResource(R.string.profile_add)
-    ConnectionCardAction.Connect -> stringResource(R.string.connect)
-  }
-  Box(
-    modifier = Modifier
-      .size(176.dp)
-      .graphicsLayer {
-        scaleX = scale
-        scaleY = scale
-      }
-      .clickable(
-        interactionSource = interaction,
-        indication = null,
-        enabled = action != ConnectionCardAction.Checking,
-        role = Role.Button,
-        onClickLabel = description,
-        onClick = onClick,
-      )
-      .semantics { contentDescription = description },
-    contentAlignment = Alignment.Center,
-  ) {
-    Box(
-      Modifier
-        .matchParentSize()
-        .graphicsLayer { rotationZ = restRotation + spin }
-        .clip(MorphShape(emblemMorph, morphProgress))
-        .background(container),
-    )
-    when {
-      action == ConnectionCardAction.Checking -> LoadingIndicator(
-        modifier = Modifier.size(72.dp),
-        color = content,
-      )
-      failed -> Icon(
-        Icons.Rounded.Refresh,
-        contentDescription = null,
-        tint = content,
-        modifier = Modifier.size(64.dp),
-      )
-      action == ConnectionCardAction.Add -> Icon(
-        Icons.Rounded.Add,
-        contentDescription = null,
-        tint = content,
-        modifier = Modifier.size(64.dp),
-      )
-      connected || connecting -> VeilarkMark(color = content, modifier = Modifier.size(76.dp))
-      else -> Icon(
-        Icons.Rounded.PowerSettingsNew,
-        contentDescription = null,
-        tint = content,
-        modifier = Modifier.size(64.dp),
-      )
-    }
-  }
-}
-
-/** First run: the three ways to add a subscription, without opening a dialog first. */
-@Composable
-private fun FirstRunImportActions(
-  enabled: Boolean,
-  onPaste: () -> Unit,
-  onScanQr: () -> Unit,
-  onImportFile: () -> Unit,
-  onEnterLink: () -> Unit,
-  onOpenSubscriptionAccount: () -> Unit,
-) {
-  val height = ButtonDefaults.MediumContainerHeight
-  Column(
+  Surface(
     modifier = Modifier.fillMaxWidth(),
-    horizontalAlignment = Alignment.CenterHorizontally,
-    verticalArrangement = Arrangement.spacedBy(8.dp),
+    shape = RoundedCornerShape(corner),
+    color = container,
+    contentColor = when {
+      connected -> MaterialTheme.colorScheme.onPrimaryContainer
+      failed -> MaterialTheme.colorScheme.onErrorContainer
+      else -> MaterialTheme.colorScheme.onSurface
+    },
   ) {
-    Button(
-      onClick = onPaste,
-      enabled = enabled,
-      shapes = ButtonDefaults.shapesFor(height),
-      modifier = Modifier.fillMaxWidth().heightIn(min = height),
+    Column(
+      modifier = Modifier.padding(24.dp),
+      horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-      Icon(Icons.Rounded.ContentPaste, contentDescription = null, modifier = Modifier.size(ButtonDefaults.iconSizeFor(height)))
-      Spacer(Modifier.size(ButtonDefaults.iconSpacingFor(height)))
-      Text(stringResource(R.string.action_paste), style = ButtonDefaults.textStyleFor(height))
-    }
-    Row(
-      modifier = Modifier.fillMaxWidth(),
-      horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-      FilledTonalButton(
-        onClick = onScanQr,
-        enabled = enabled,
-        shapes = ButtonDefaults.shapesFor(height),
-        modifier = Modifier.weight(1f).heightIn(min = height),
+      Box(
+        modifier = Modifier.size(96.dp),
+        contentAlignment = Alignment.Center,
       ) {
-        Icon(Icons.Rounded.QrCodeScanner, contentDescription = null, modifier = Modifier.size(ButtonDefaults.IconSize))
-        Spacer(Modifier.size(ButtonDefaults.IconSpacing))
-        Text(stringResource(R.string.action_scan_qr), maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Box(
+          Modifier
+            .matchParentSize()
+            .graphicsLayer { rotationZ = emblemRotation }
+            .clip(MorphShape(emblemMorph, morphProgress))
+            .background(emblemColor),
+        )
+        if (connecting) {
+          LoadingIndicator(
+            modifier = Modifier.size(64.dp),
+            color = MaterialTheme.colorScheme.primary,
+          )
+        } else {
+          VeilarkMark(
+            color = if (connected) {
+              MaterialTheme.colorScheme.onPrimary
+            } else {
+              MaterialTheme.colorScheme.primary
+            },
+            modifier = Modifier.size(50.dp),
+          )
+        }
       }
-      FilledTonalButton(
-        onClick = onImportFile,
-        enabled = enabled,
-        shapes = ButtonDefaults.shapesFor(height),
-        modifier = Modifier.weight(1f).heightIn(min = height),
+      Spacer(Modifier.height(20.dp))
+      AnimatedContent(
+        targetState = state,
+        transitionSpec = {
+          (fadeIn(motion.defaultEffectsSpec()) + slideInVertically(motion.defaultSpatialSpec()) { it / 3 }) togetherWith
+            (fadeOut(motion.fastEffectsSpec()) + slideOutVertically(motion.fastSpatialSpec()) { -it / 3 })
+        },
+        // Announce every connection state change to accessibility services.
+        modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
+        label = "connection state",
+      ) { current ->
+        Text(
+          text = when (current) {
+            ConnectionState.Disconnected -> stringResource(R.string.vpn_off)
+            ConnectionState.Connecting -> stringResource(stage.titleRes)
+            ConnectionState.Connected -> stringResource(if (authenticatedOnly) R.string.core_authenticated_title else R.string.vpn_protected)
+            ConnectionState.Failed -> stringResource(R.string.vpn_connect_failed)
+          },
+          style = MaterialTheme.typography.headlineMediumEmphasized,
+          textAlign = TextAlign.Center,
+        )
+      }
+      Spacer(Modifier.height(6.dp))
+      Text(
+        text = when {
+          profileName == null -> stringResource(R.string.vpn_add_profile_hint)
+          connecting -> stringResource(R.string.vpn_connecting_hint)
+          connected && authenticatedOnly -> stringResource(R.string.core_authenticated_hint)
+          connected -> profileName
+          else -> stringResource(R.string.vpn_ready_hint)
+        },
+        style = MaterialTheme.typography.bodyMedium,
+        color = if (failed) MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.onSurfaceVariant,
+        textAlign = TextAlign.Center,
+      )
+      if (connected && latency != null) {
+        Spacer(Modifier.height(8.dp))
+        Surface(
+          shape = MaterialTheme.shapes.small,
+          color = MaterialTheme.colorScheme.surface.copy(alpha = 0.55f),
+        ) {
+          Text(
+            text = stringResource(R.string.latency_ms, latency),
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+            style = MaterialTheme.typography.labelLargeEmphasized,
+            color = MaterialTheme.colorScheme.onSurface,
+          )
+        }
+      }
+      Spacer(Modifier.height(24.dp))
+      // Medium expressive button: round at rest, morphs to its pressed shape.
+      val buttonHeight = ButtonDefaults.MediumContainerHeight
+      Button(
+        onClick = onConnect,
+        shapes = ButtonDefaults.shapesFor(buttonHeight),
+        enabled = action != ConnectionCardAction.Checking,
+        modifier = Modifier.fillMaxWidth().heightIn(min = buttonHeight),
+        contentPadding = ButtonDefaults.contentPaddingFor(buttonHeight, hasStartIcon = true),
+        colors = if (connected || connecting || stopAvailable) {
+          ButtonDefaults.filledTonalButtonColors()
+        } else {
+          ButtonDefaults.buttonColors()
+        },
       ) {
-        Icon(Icons.Rounded.Description, contentDescription = null, modifier = Modifier.size(ButtonDefaults.IconSize))
-        Spacer(Modifier.size(ButtonDefaults.IconSpacing))
-        Text(stringResource(R.string.action_choose_file), maxLines = 1, overflow = TextOverflow.Ellipsis)
+        val iconSize = ButtonDefaults.iconSizeFor(buttonHeight)
+        if (action == ConnectionCardAction.Checking) {
+          // "Checking profile" is a progress state, not an add/power action.
+          LoadingIndicator(
+            modifier = Modifier.size(iconSize + 8.dp),
+            color = LocalContentColor.current,
+          )
+        } else {
+          Icon(
+            imageVector = when (action) {
+              ConnectionCardAction.Cancel -> Icons.Rounded.Close
+              ConnectionCardAction.Add -> Icons.Rounded.Add
+              else -> Icons.Rounded.PowerSettingsNew
+            },
+            contentDescription = null,
+            modifier = Modifier.size(iconSize),
+          )
+        }
+        Spacer(Modifier.size(ButtonDefaults.iconSpacingFor(buttonHeight)))
+        Text(
+          text = when (action) {
+            ConnectionCardAction.Cancel -> stringResource(R.string.connection_cancel)
+            ConnectionCardAction.Disconnect -> stringResource(R.string.disconnect)
+            ConnectionCardAction.Checking -> stringResource(R.string.profile_checking)
+            ConnectionCardAction.Add -> stringResource(R.string.profile_add)
+            else -> stringResource(R.string.connect)
+          },
+          style = ButtonDefaults.textStyleFor(buttonHeight),
+        )
       }
-    }
-    TextButton(onClick = onEnterLink, enabled = enabled, shapes = ButtonDefaults.shapes()) {
-      Text(stringResource(R.string.action_enter_link))
-    }
-    TextButton(onClick = onOpenSubscriptionAccount, shapes = ButtonDefaults.shapes()) {
-      Text(stringResource(R.string.no_subscription_get_one))
     }
   }
 }
@@ -1510,7 +1402,6 @@ private fun SecondaryScreen(
 
 @Composable
 private fun AboutScreen(
-  engineDescription: String,
   onBack: () -> Unit,
   onOpenDocument: (LegalDocument) -> Unit,
   onOpenSubscriptionAccount: () -> Unit,
@@ -1595,13 +1486,6 @@ private fun AboutScreen(
       item {
         Text(
           text = stringResource(R.string.independent_project_notice),
-          style = MaterialTheme.typography.bodySmall,
-          color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-      }
-      item {
-        Text(
-          text = stringResource(R.string.core_footer, engineDescription),
           style = MaterialTheme.typography.bodySmall,
           color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -1833,8 +1717,6 @@ private fun ProfileCard(
   onSelectNode: (String) -> Unit,
   onSelectSubscription: (String) -> Unit,
   onToggleNodes: () -> Unit,
-  currentNodeName: String?,
-  engineSelector: @Composable () -> Unit,
 ) {
   val selectedNode = nodes.firstOrNull { it.tag == selectedTag }
   var pendingDeletionId by remember { mutableStateOf<String?>(null) }
@@ -1877,99 +1759,82 @@ private fun ProfileCard(
     )
   }
   Column {
-    // The connection row: which server the next tap on the emblem uses, and
-    // the single entry point to subscriptions, servers and engines.
+    SectionHeading(
+      text = stringResource(
+        if (coreBetaActive) R.string.core_beta_title else if (trustTunnelActive) R.string.trust_profile else R.string.singbox_profile,
+      ),
+    )
     Surface(
       onClick = onToggleNodes,
       modifier = Modifier
         .fillMaxWidth()
-        .testTag("connection_row")
+        .animateContentSize(MaterialTheme.motionScheme.defaultSpatialSpec())
         .semantics {
           role = Role.Button
           stateDescription = expansionStateDescription
         },
-      shape = RoundedCornerShape(28.dp),
+      shape = MaterialTheme.shapes.large,
       color = MaterialTheme.colorScheme.surfaceContainer,
     ) {
-      Row(
-        modifier = Modifier.padding(start = 12.dp, end = 12.dp, top = 12.dp, bottom = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(14.dp),
-      ) {
-        Surface(
-          modifier = Modifier.size(48.dp),
-          shape = MaterialShapes.Cookie4Sided.toShape(),
-          color = MaterialTheme.colorScheme.secondaryContainer,
-        ) {
-          Box(contentAlignment = Alignment.Center) {
-            if (coreBetaActive) {
-              VeilarkMark(
-                color = MaterialTheme.colorScheme.onSecondaryContainer,
-                modifier = Modifier.size(24.dp),
-              )
-            } else {
-              EngineGlyph(
-                trust = trustTunnelActive,
-                color = MaterialTheme.colorScheme.onSecondaryContainer,
-                modifier = Modifier.size(25.dp),
-              )
+      Column {
+        ListItem(
+          headlineContent = {
+            Text(
+              profileName ?: stringResource(R.string.profile_missing),
+              style = MaterialTheme.typography.bodyLargeEmphasized,
+            )
+          },
+          supportingContent = {
+            Text(
+              when {
+                profileName == null -> stringResource(R.string.import_subscription)
+                coreBetaActive -> stringResource(R.string.core_beta_title)
+                selectedNode != null && !trustTunnelActive ->
+                  "${selectedNode.name} · ${selectedNode.protocol}"
+                selectedNode != null -> selectedNode.protocol
+            nodes.isNotEmpty() -> pluralStringResource(
+              R.plurals.automatic_node_summary,
+              nodes.size,
+              nodes.size,
+            )
+            else -> stringResource(R.string.imported_configuration)
+              },
+            )
+          },
+          leadingContent = {
+            Surface(
+              modifier = Modifier.size(44.dp),
+              shape = MaterialShapes.Cookie4Sided.toShape(),
+              color = MaterialTheme.colorScheme.secondaryContainer,
+            ) {
+              Box(contentAlignment = Alignment.Center) {
+                val motion = MaterialTheme.motionScheme
+                if (coreBetaActive) {
+                  Text("V", style = MaterialTheme.typography.titleLarge)
+                } else AnimatedContent(
+                  targetState = trustTunnelActive,
+                  transitionSpec = {
+                    fadeIn(motion.defaultEffectsSpec()) togetherWith fadeOut(motion.fastEffectsSpec())
+                  },
+                  label = "profile engine mark",
+                ) { trust ->
+                  EngineGlyph(
+                    trust = trust,
+                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                    modifier = Modifier.size(25.dp),
+                  )
+                }
+              }
             }
-          }
-        }
-        Column(
-          modifier = Modifier.weight(1f),
-          verticalArrangement = Arrangement.spacedBy(2.dp),
-        ) {
-          Text(
-            text = when {
-              profileName == null -> stringResource(R.string.profile_missing)
-              coreBetaActive -> stringResource(R.string.core_beta_title)
-              selectedTag == ProfileSelection.AUTOMATIC_TAG && currentNodeName != null ->
-                stringResource(R.string.automatic_node_current, currentNodeName)
-              selectedNode != null -> selectedNode.name
-              nodes.isNotEmpty() -> pluralStringResource(
-                R.plurals.automatic_node_summary,
-                nodes.size,
-                nodes.size,
-              )
-              else -> stringResource(R.string.imported_configuration)
-            },
-            style = MaterialTheme.typography.titleMediumEmphasized,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-          )
-          Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text(
-              text = profileName ?: stringResource(R.string.import_subscription),
-              modifier = Modifier.weight(1f, fill = false),
-              style = MaterialTheme.typography.bodyMedium,
-              color = MaterialTheme.colorScheme.onSurfaceVariant,
-              maxLines = 1,
-              overflow = TextOverflow.Ellipsis,
+          },
+          trailingContent = {
+            DropdownChevron(
+              expanded = expanded,
+              color = MaterialTheme.colorScheme.primary,
             )
-            Text(
-              text = "· " + stringResource(
-                if (coreBetaActive) R.string.engine_label_core
-                else if (trustTunnelActive) R.string.engine_label_trust
-                else R.string.engine_label_singbox,
-              ),
-              style = MaterialTheme.typography.bodyMedium,
-              color = MaterialTheme.colorScheme.onSurfaceVariant,
-              maxLines = 1,
-            )
-          }
-        }
-        Surface(
-          shape = CircleShape,
-          color = MaterialTheme.colorScheme.secondaryContainer,
-        ) {
-          Text(
-            text = stringResource(R.string.connection_change),
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
-            style = MaterialTheme.typography.labelLarge,
-            color = MaterialTheme.colorScheme.onSecondaryContainer,
-          )
-        }
+          },
+          colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+        )
       }
     }
 
@@ -1998,7 +1863,6 @@ private fun ProfileCard(
         onShareQr = onShareQr,
         onOpenSubscriptionAccount = onOpenSubscriptionAccount,
         onOpenWebAccount = onOpenWebAccount,
-        engineSelector = engineSelector,
       )
     }
   }
@@ -2029,7 +1893,6 @@ private fun ConnectionPickerSheet(
   onShareQr: (String, String) -> Unit,
   onOpenSubscriptionAccount: () -> Unit,
   onOpenWebAccount: () -> Unit,
-  engineSelector: @Composable () -> Unit,
 ) {
   val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
@@ -2149,9 +2012,6 @@ private fun ConnectionPickerSheet(
         contentPadding = PaddingValues(start = 16.dp, top = 16.dp, end = 16.dp, bottom = 32.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
       ) {
-        // The engine is part of "what am I connecting through", so it is
-        // chosen here instead of taking a whole card on the main screen.
-        item(key = "engine") { engineSelector() }
         if (subscriptions.isNotEmpty()) {
           item(key = "subscriptions-label") {
             PickerSectionLabel(stringResource(R.string.subscriptions))
@@ -2379,6 +2239,34 @@ private fun EngineGlyph(
 }
 
 @Composable
+private fun DropdownChevron(
+  expanded: Boolean,
+  color: Color,
+) {
+  val rotation by animateFloatAsState(
+    targetValue = if (expanded) 180f else 0f,
+    animationSpec = MaterialTheme.motionScheme.fastSpatialSpec(),
+    label = "node dropdown chevron",
+  )
+  Canvas(
+    Modifier
+      .size(24.dp)
+      .graphicsLayer { rotationZ = rotation },
+  ) {
+    val path = Path().apply {
+      moveTo(size.width * 0.25f, size.height * 0.40f)
+      lineTo(size.width * 0.50f, size.height * 0.65f)
+      lineTo(size.width * 0.75f, size.height * 0.40f)
+    }
+    drawPath(
+      path,
+      color,
+      style = Stroke(width = size.minDimension * 0.09f, cap = StrokeCap.Round),
+    )
+  }
+}
+
+@Composable
 private fun SectionHeading(text: String) {
   Text(
     text = text,
@@ -2389,181 +2277,72 @@ private fun SectionHeading(text: String) {
 }
 
 @Composable
-private fun MainOverflowMenu(
-  selfUpdateEnabled: Boolean,
-  updating: Boolean,
-  onOpenTechnicalLog: () -> Unit,
-  onOpenAbout: () -> Unit,
-  onCheckUpdate: () -> Unit,
-) {
-  var expanded by remember { mutableStateOf(false) }
-  Box {
-    IconButton(onClick = { expanded = true }) {
-      Icon(Icons.Rounded.MoreVert, contentDescription = stringResource(R.string.more_options))
-    }
-    DropdownMenu(
-      expanded = expanded,
-      onDismissRequest = { expanded = false },
-      shape = RoundedCornerShape(20.dp),
-      containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-    ) {
-      if (selfUpdateEnabled) {
-        DropdownMenuItem(
-          text = { Text(stringResource(R.string.check_updates)) },
-          leadingIcon = { Icon(Icons.Rounded.Download, contentDescription = null) },
-          enabled = !updating,
-          onClick = {
-            expanded = false
-            onCheckUpdate()
-          },
-        )
-      }
-      DropdownMenuItem(
-        text = { Text(stringResource(R.string.menu_technical_log)) },
-        leadingIcon = { Icon(Icons.AutoMirrored.Rounded.Article, contentDescription = null) },
-        onClick = {
-          expanded = false
-          onOpenTechnicalLog()
-        },
-      )
-      DropdownMenuItem(
-        text = { Text(stringResource(R.string.menu_about)) },
-        leadingIcon = { Icon(Icons.Rounded.Info, contentDescription = null) },
-        onClick = {
-          expanded = false
-          onOpenAbout()
-        },
-      )
-    }
-  }
-}
-
-private enum class GroupPosition { First, Middle, Last }
-
-private fun GroupPosition.shape() = when (this) {
-  GroupPosition.First -> RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp, bottomStart = 8.dp, bottomEnd = 8.dp)
-  GroupPosition.Middle -> RoundedCornerShape(8.dp)
-  GroupPosition.Last -> RoundedCornerShape(topStart = 8.dp, topEnd = 8.dp, bottomStart = 28.dp, bottomEnd = 28.dp)
-}
-
-/**
- * The two switches people actually flip (Russia direct, kill switch) live on
- * the main screen; everything rarer is one tap away in routing settings.
- */
-@Composable
-private fun ProtectionCard(
+private fun RoutingCard(
   routingMode: String,
   applicationMode: String,
+  dpiMode: String,
   selectedApplicationCount: Int,
   coreBetaActive: Boolean,
   killSwitchEnabled: Boolean,
-  onRussiaDirectChange: (Boolean) -> Unit,
-  onKillSwitchChange: (Boolean) -> Unit,
-  onOpenRouting: () -> Unit,
+  onClick: () -> Unit,
 ) {
-  val simpleRouting = routingMode == ProfileSelection.ROUTING_ALL ||
-    routingMode == ProfileSelection.ROUTING_RU_DIRECT
-  Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-    if (simpleRouting) {
-      SwitchRow(
-        title = stringResource(R.string.russia_direct),
-        description = stringResource(R.string.russia_direct_row_description),
-        checked = routingMode == ProfileSelection.ROUTING_RU_DIRECT,
-        onCheckedChange = onRussiaDirectChange,
-        position = GroupPosition.First,
-        modifier = Modifier.testTag("russia_direct_switch"),
-      )
-    }
-    SwitchRow(
-      title = stringResource(R.string.kill_switch),
-      description = stringResource(R.string.kill_switch_row_description),
-      checked = killSwitchEnabled,
-      onCheckedChange = onKillSwitchChange,
-      position = if (simpleRouting) GroupPosition.Middle else GroupPosition.First,
-    )
-    val summary = buildList {
-      if (!simpleRouting) add(stringResource(R.string.custom_rules))
-      add(
-        when (applicationMode) {
-          ProfileSelection.APPS_ONLY -> pluralStringResource(
-            R.plurals.only_selected_count,
-            selectedApplicationCount,
-            selectedApplicationCount,
-          )
-          ProfileSelection.APPS_BYPASS -> pluralStringResource(
-            R.plurals.bypass_selected_count,
-            selectedApplicationCount,
-            selectedApplicationCount,
-          )
-          else -> stringResource(R.string.all_apps)
-        },
-      )
-      if (coreBetaActive && routingMode == ProfileSelection.ROUTING_ALL) {
-        add(stringResource(R.string.core_ipv4_mode))
-      }
-    }.joinToString(" · ")
+  Column {
+    SectionHeading(stringResource(R.string.routing))
     Surface(
-      onClick = onOpenRouting,
-      modifier = Modifier.fillMaxWidth().testTag("routing_card"),
-      shape = GroupPosition.Last.shape(),
+      onClick = onClick,
+      modifier = Modifier.fillMaxWidth().testTag("routing_card").semantics { role = Role.Button },
+      shape = MaterialTheme.shapes.large,
       color = MaterialTheme.colorScheme.surfaceContainer,
     ) {
-      Row(
-        modifier = Modifier.heightIn(min = 64.dp).padding(start = 20.dp, end = 12.dp, top = 10.dp, bottom = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-      ) {
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-          Text(
-            stringResource(R.string.routing_and_apps),
-            style = MaterialTheme.typography.bodyLargeEmphasized,
+      Column {
+        InfoRow(
+          stringResource(R.string.traffic),
+          if (coreBetaActive && routingMode == ProfileSelection.ROUTING_ALL) stringResource(R.string.core_ipv4_mode) else when (routingMode) {
+            ProfileSelection.ROUTING_RU_DIRECT -> stringResource(R.string.russia_direct)
+            ProfileSelection.ROUTING_MANUAL -> stringResource(R.string.custom_rules)
+            else -> stringResource(R.string.all_traffic_vpn)
+          },
+        )
+        HorizontalDivider(modifier = Modifier.padding(horizontal = 20.dp))
+        InfoRow(
+          stringResource(R.string.applications),
+          when (applicationMode) {
+            ProfileSelection.APPS_ONLY -> pluralStringResource(
+              R.plurals.only_selected_count,
+              selectedApplicationCount,
+              selectedApplicationCount,
+            )
+            ProfileSelection.APPS_BYPASS -> pluralStringResource(
+              R.plurals.bypass_selected_count,
+              selectedApplicationCount,
+              selectedApplicationCount,
+            )
+            else -> stringResource(R.string.all_apps)
+          },
+        )
+        HorizontalDivider(modifier = Modifier.padding(horizontal = 20.dp))
+        if (!coreBetaActive) {
+          InfoRow(
+            stringResource(R.string.dpi_protection),
+            if (dpiMode == ProfileSelection.DPI_TLS_FRAGMENT) {
+              stringResource(R.string.tls_fragmentation)
+            } else {
+              stringResource(R.string.standard)
+            },
           )
-          Text(
-            summary,
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-          )
+          HorizontalDivider(modifier = Modifier.padding(horizontal = 20.dp))
         }
-        Icon(
-          Icons.AutoMirrored.Rounded.KeyboardArrowRight,
-          contentDescription = null,
-          tint = MaterialTheme.colorScheme.onSurfaceVariant,
+        InfoRow(stringResource(R.string.dns), stringResource(if (coreBetaActive) R.string.core_profile_dns else R.string.protected_value))
+        HorizontalDivider(modifier = Modifier.padding(horizontal = 20.dp))
+        if (coreBetaActive) {
+          InfoRow(stringResource(R.string.core_ipv6_blocked), stringResource(R.string.enabled_value))
+          HorizontalDivider(modifier = Modifier.padding(horizontal = 20.dp))
+        }
+        InfoRow(
+          stringResource(R.string.kill_switch),
+          stringResource(if (killSwitchEnabled) R.string.enabled_value else R.string.disabled_value),
         )
       }
-    }
-  }
-}
-
-@Composable
-private fun SwitchRow(
-  title: String,
-  description: String,
-  checked: Boolean,
-  onCheckedChange: (Boolean) -> Unit,
-  position: GroupPosition,
-  modifier: Modifier = Modifier,
-) {
-  // The whole row toggles, so the target is the row and not the 52 dp switch.
-  Surface(
-    modifier = modifier
-      .fillMaxWidth()
-      .toggleable(value = checked, role = Role.Switch, onValueChange = onCheckedChange),
-    shape = position.shape(),
-    color = MaterialTheme.colorScheme.surfaceContainer,
-  ) {
-    Row(
-      modifier = Modifier.heightIn(min = 64.dp).padding(start = 20.dp, end = 16.dp, top = 10.dp, bottom = 10.dp),
-      verticalAlignment = Alignment.CenterVertically,
-      horizontalArrangement = Arrangement.spacedBy(16.dp),
-    ) {
-      Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-        Text(title, style = MaterialTheme.typography.bodyLargeEmphasized)
-        Text(
-          description,
-          style = MaterialTheme.typography.bodyMedium,
-          color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-      }
-      Switch(checked = checked, onCheckedChange = null)
     }
   }
 }
@@ -3359,6 +3138,28 @@ private fun SelectionIndicator(selected: Boolean) {
 }
 
 @Composable
+private fun InfoRow(label: String, value: String) {
+  Row(
+    modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 17.dp),
+    horizontalArrangement = Arrangement.SpaceBetween,
+    verticalAlignment = Alignment.CenterVertically,
+  ) {
+    Text(
+      label,
+      modifier = Modifier.weight(1f),
+      style = MaterialTheme.typography.bodyLarge,
+    )
+    Text(
+      value,
+      modifier = Modifier.weight(1f),
+      style = MaterialTheme.typography.bodyMedium,
+      color = MaterialTheme.colorScheme.primary,
+      textAlign = TextAlign.End,
+    )
+  }
+}
+
+@Composable
 private fun ErrorCard(
   title: String,
   message: String,
@@ -3674,6 +3475,6 @@ private fun TechnicalLogPreview() {
 @Composable
 private fun AboutScreenPreview() {
   VeilarkTheme(dynamicColor = false) {
-    AboutScreen(engineDescription = "sing-box 1.13.21", onBack = {}, onOpenDocument = {}, onOpenSubscriptionAccount = {}, onOpenWebAccount = {})
+    AboutScreen(onBack = {}, onOpenDocument = {}, onOpenSubscriptionAccount = {}, onOpenWebAccount = {})
   }
 }
