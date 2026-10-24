@@ -5,9 +5,11 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.os.SystemClock
-import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import androidx.test.runner.lifecycle.ActivityLifecycleCallback
+import androidx.test.runner.lifecycle.ActivityLifecycleMonitorRegistry
+import androidx.test.runner.lifecycle.Stage
 import com.example.veilark.MainActivity
 import com.example.veilark.core.runtime.CoreBetaManager
 import com.example.veilark.protocol.ProfileEngine
@@ -16,6 +18,9 @@ import java.io.ByteArrayInputStream
 import java.io.DataInputStream
 import java.io.File
 import java.security.MessageDigest
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.*
 import org.junit.Test
@@ -52,7 +57,23 @@ class EnrollmentV2HttpsInstrumentedTest {
     check(preferences.edit().putString("profile_engine", ProfileEngine.SING_BOX).commit())
 
     val intent = Intent(Intent.ACTION_VIEW, Uri.parse(link)).setClass(context, MainActivity::class.java)
-    ActivityScenario.launch<MainActivity>(intent).use {
+    // ActivityScenario identifies each lifecycle event by the Activity's original
+    // action/data. Production intentionally consumes and clears bearer intents;
+    // that matcher therefore stops observing at PRE_ON_CREATE. Observe the actual
+    // Activity lifecycle directly, without retaining or restoring a secret Intent.
+    val activity = AtomicReference<MainActivity>()
+    val resumed = CountDownLatch(1)
+    val lifecycle = ActivityLifecycleMonitorRegistry.getInstance()
+    val observer = ActivityLifecycleCallback { value, stage ->
+      if (value is MainActivity && stage == Stage.RESUMED) {
+        activity.set(value)
+        resumed.countDown()
+      }
+    }
+    instrumentation.runOnMainSync { lifecycle.addLifecycleCallback(observer) }
+    try {
+      context.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK))
+      assertTrue("Import Activity did not resume", resumed.await(30, TimeUnit.SECONDS))
       // One VIEW intent, one fetch. Poll only local metadata, never retry the import.
       val deadline = SystemClock.elapsedRealtime() + 20_000
       var imported = false
@@ -65,6 +86,11 @@ class EnrollmentV2HttpsInstrumentedTest {
       assertSelected(context)
       assertEquals(ProfileEngine.SING_BOX, preferences.getString("profile_engine", null))
       assertStopped()
+    } finally {
+      instrumentation.runOnMainSync {
+        activity.get()?.finish()
+        lifecycle.removeLifecycleCallback(observer)
+      }
     }
 
     val identity = checkNotNull(CoreProfileStore.enrollmentIdentity(preferences.all))

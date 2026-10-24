@@ -63,16 +63,20 @@ pinned-host SSH and remains root-only on the existing delivery host; it was not
 exported into the repository, APK, or local reports. Rotation requires a new
 authenticated application release. This pin is not present in published OTA83.
 
-A synthetic, non-connectable RFC5737 profile has been issued into private staging.
-Actual HTTPS publication and VIEW/import/delete/restore instrumentation remain
-pending explicit authorization for that test object and its emulator recipient.
-The candidate/test APKs compile and are installed only on an owned API35 emulator.
-No live HTTPS/UI acceptance, customer profile issuance, or release approval is
-claimed. Published OTA83 and existing subscriptions remain unchanged.
+A synthetic, non-connectable RFC5737 profile completed actual HTTPS delivery and
+VIEW/import/delete/floor/restore acceptance on the owned API35 emulator after
+explicit user authorization. The exact ciphertext matched across publication,
+host HTTPS and Android verification. Engine selection and stopped VPN state were
+preserved; deletion retained the revision floor and prevented raw-profile fallback.
+This is candidate runtime acceptance, not customer issuance, phone forwarding,
+signed ARM64 release acceptance or OTA approval. Published OTA83 is unchanged.
+See `ENROLLMENT_HTTPS_ACCEPTANCE_20261024.md` for artifact and failure provenance.
 
 The delivery host now applies a narrow Nginx rule for exact 64-lowercase-hex JWE
 paths: file-only lookup and access events with a constant redacted URI, without
 raw locator or Referer. Other downloads retain their existing behavior. Nginx
-configuration validation and graceful worker reload passed; actual HTTP log
-redaction remains to be verified during the authorized transport test. An exact
-root-only configuration backup is retained on the host.
+configuration validation and graceful worker reload passed. The post-test audit
+found six redacted access events and no test locator/key in the checked access
+and error log tails. The exact synthetic public object was removed by matching
+SHA256; other objects, signing custody and issuer journal were preserved. An
+exact root-only configuration backup remains on the host.
