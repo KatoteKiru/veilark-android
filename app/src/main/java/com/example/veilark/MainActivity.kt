@@ -953,22 +953,27 @@ class MainActivity : ComponentActivity() {
                     return@runCatching null
                   }
                   val compiled = compiledAttempt.getOrThrow()
-                  var config = ProfileSelection.applyRouting(
-                    compiled.json,
-                    routingMode,
-                    directRoutes,
-                    vpnRoutes,
-                    geoRuleSets(routingMode),
-                    categoryRuleSets(routingMode, directRoutes, vpnRoutes),
-                  )
-                  config = ProfileSelection.applyApplications(
-                    config,
-                    applicationMode,
-                    selectedApplications,
-                    packageName,
-                  )
-                  config = ProfileSelection.applyDpiProtection(config, dpiMode)
-                  LibboxRuntime.checkConfig(config)
+                  // Geo assets are copied to files and the whole config is compiled by libbox;
+                  // neither belongs on the main thread.
+                  val config = withContext(Dispatchers.IO) {
+                    var draft = ProfileSelection.applyRouting(
+                      compiled.json,
+                      routingMode,
+                      directRoutes,
+                      vpnRoutes,
+                      geoRuleSets(routingMode),
+                      categoryRuleSets(routingMode, directRoutes, vpnRoutes),
+                    )
+                    draft = ProfileSelection.applyApplications(
+                      draft,
+                      applicationMode,
+                      selectedApplications,
+                      packageName,
+                    )
+                    draft = ProfileSelection.applyDpiProtection(draft, dpiMode)
+                    LibboxRuntime.checkConfig(draft)
+                    draft
+                  }
                   // Validate mixed TrustTunnel links before committing the sing-box profile.
                   val compiledTrustProfiles = withContext(Dispatchers.Default) {
                     compiled.trustTunnelLinks.map(TrustTunnelProfile::compile)
@@ -1137,27 +1142,31 @@ class MainActivity : ComponentActivity() {
                     selected == ProfileSelection.AUTOMATIC_TAG ||
                       compiled.nodes.any { it.tag == selected }
                   } ?: ProfileSelection.AUTOMATIC_TAG
-                  var config = ProfileSelection.select(
-                    compiled.json,
-                    effectiveTag,
-                    compiled.nodes,
-                  )
-                  config = ProfileSelection.applyRouting(
-                    config,
-                    refreshRoutingMode,
-                    refreshDirectRoutes,
-                    refreshVpnRoutes,
-                    geoRuleSets(refreshRoutingMode),
-                    categoryRuleSets(refreshRoutingMode, refreshDirectRoutes, refreshVpnRoutes),
-                  )
-                  config = ProfileSelection.applyApplications(
-                    config,
-                    refreshApplicationMode,
-                    refreshApplications,
-                    packageName,
-                  )
-                  config = ProfileSelection.applyDpiProtection(config, refreshDpiMode)
-                  LibboxRuntime.checkConfig(config)
+                  // Same off-main compile as the import path.
+                  val config = withContext(Dispatchers.IO) {
+                    var draft = ProfileSelection.select(
+                      compiled.json,
+                      effectiveTag,
+                      compiled.nodes,
+                    )
+                    draft = ProfileSelection.applyRouting(
+                      draft,
+                      refreshRoutingMode,
+                      refreshDirectRoutes,
+                      refreshVpnRoutes,
+                      geoRuleSets(refreshRoutingMode),
+                      categoryRuleSets(refreshRoutingMode, refreshDirectRoutes, refreshVpnRoutes),
+                    )
+                    draft = ProfileSelection.applyApplications(
+                      draft,
+                      refreshApplicationMode,
+                      refreshApplications,
+                      packageName,
+                    )
+                    draft = ProfileSelection.applyDpiProtection(draft, refreshDpiMode)
+                    LibboxRuntime.checkConfig(draft)
+                    draft
+                  }
                   val refreshedTrustProfiles = withContext(Dispatchers.Default) {
                     compiled.trustTunnelLinks.map(TrustTunnelProfile::compile)
                   }
