@@ -31,6 +31,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.veilark.theme.VeilarkTheme
 import com.example.veilark.diagnostics.TechnicalLogStore
 import com.example.veilark.diagnostics.TunnelDiagnostics
+import com.example.veilark.ui.main.CoreRouteChoice
 import com.example.veilark.ui.main.MainScreen
 import com.example.veilark.ui.main.SubscriptionUiItem
 import com.example.veilark.vpn.ConnectionState
@@ -65,6 +66,7 @@ import com.example.veilark.profile.CoreProfileKind
 import com.example.veilark.core.runtime.CoreBetaManager
 import com.example.veilark.core.runtime.CoreL3DnsPolicy
 import com.example.veilark.core.runtime.CoreRoutingPlan
+import com.example.veilark.core.runtime.VeilarkArgonNative
 import com.example.veilark.core.runtime.VeilarkCoreRuntimeNative
 import com.example.veilark.protocol.ProfileEngine
 import com.example.veilark.protocol.TrustTunnelManager
@@ -129,6 +131,12 @@ class MainActivity : ComponentActivity() {
         )
       }
       var coreProfileName by remember { mutableStateOf(runCatching { CoreProfileStore.displayName(this) }.getOrNull()) }
+      // Fairway and Passage are offered as a choice only when both profiles are stored.
+      fun loadCoreRoutes(): CoreRouteChoice? = runCatching {
+        if (!CoreProfileStore.hasRelayProfile(this) || !CoreProfileStore.hasDirectProfile(this)) null
+        else CoreRouteChoice(CoreProfileStore.relayRouteSelected(this), VeilarkArgonNative.isRelayAbiAvailable(), true)
+      }.getOrNull()
+      var coreRoutes by remember { mutableStateOf(loadCoreRoutes()) }
       val coreRuntimeAvailable = remember { VeilarkCoreRuntimeNative.loadCandidate() }
       var trustProfiles by remember {
         mutableStateOf(TrustTunnelCatalog.load(this))
@@ -602,6 +610,7 @@ class MainActivity : ComponentActivity() {
           coreProfileName = withContext(Dispatchers.IO) {
             runCatching { CoreProfileStore.displayName(this@MainActivity) }.getOrNull()
           }
+          coreRoutes = withContext(Dispatchers.IO) { loadCoreRoutes() }
           if (profileEngine == ProfileEngine.CORE_BETA) profileName = coreProfileName
         }
         // Import is intentionally separate from selecting or starting the engine.
@@ -621,6 +630,7 @@ class MainActivity : ComponentActivity() {
           coreProfileName = withContext(Dispatchers.IO) {
             runCatching { CoreProfileStore.displayName(this@MainActivity) }.getOrNull()
           }
+          coreRoutes = withContext(Dispatchers.IO) { loadCoreRoutes() }
           if (profileEngine == ProfileEngine.CORE_BETA) profileName = coreProfileName
         }
         // Preserve the current engine choice, exactly as for an explicit raw Core import.
@@ -730,8 +740,27 @@ class MainActivity : ComponentActivity() {
         pendingQrConsumer = null
       }
       VeilarkTheme {
+        val killSwitchBlocking by KillSwitchVpnService.blocking.collectAsStateWithLifecycle()
         MainScreen(
           profileName = profileName,
+          killSwitchBlocking = killSwitchBlocking,
+          coreRouteChoice = coreRoutes?.copy(coreStopped =
+            coreConnectionState == ConnectionState.Disconnected || coreConnectionState == ConnectionState.Failed),
+          onSelectCoreRoute = { relay ->
+            coroutineScope.launch {
+              runCatching {
+                check(coreConnectionState == ConnectionState.Disconnected || coreConnectionState == ConnectionState.Failed) {
+                  getString(R.string.engine_switch_disconnect_first)
+                }
+                CoreBetaManager.selectRouteWhenStopped(this@MainActivity, relay)
+              }.onFailure { importError = it.userMessage(R.string.engine_switch_disconnect_first) }
+              coreProfileName = withContext(Dispatchers.IO) {
+                runCatching { CoreProfileStore.displayName(this@MainActivity) }.getOrNull()
+              }
+              coreRoutes = withContext(Dispatchers.IO) { loadCoreRoutes() }
+              if (profileEngine == ProfileEngine.CORE_BETA) profileName = coreProfileName
+            }
+          },
           connectionState = connectionState,
           stopAvailable = coreStopAvailable,
           startupStage = startupStage,

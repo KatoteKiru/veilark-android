@@ -76,6 +76,16 @@ object CoreBetaManager {
     finally { startCommands.resume() }
   }
 
+  /** Switches between the stored Fairway and Passage profiles; never while Core runs. */
+  suspend fun selectRouteWhenStopped(context: Context, relay: Boolean) = withContext(Dispatchers.IO) {
+    startCommands.pauseWhen { mutableStopped.value }
+    try {
+      mutableState.value = ConnectionState.Disconnected
+      mutableFailure.value = null
+      CoreProfileStore.selectRoute(context, relay)
+    } finally { startCommands.resume() }
+  }
+
   suspend fun importEnrollmentWhenStopped(context: Context, link: String) = withContext(Dispatchers.IO) {
     startCommands.pauseWhen { mutableStopped.value }
     try {

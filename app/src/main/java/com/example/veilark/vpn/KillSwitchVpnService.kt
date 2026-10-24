@@ -29,6 +29,9 @@ import com.example.veilark.profile.ProfileSelection
 import com.example.veilark.protocol.ProfileEngine
 import java.net.Inet4Address
 import java.net.InetAddress
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 
 /**
  * Kill-switch interface and Always-on VPN entry point.
@@ -103,6 +106,7 @@ class KillSwitchVpnService : VpnService() {
     descriptor = replacement
     heldGeneration = generation
     heldResolvers = resolvers
+    blockingState.value = true
     // The earlier interface is closed only after its replacement owns the routes.
     runCatching { previous?.close() }
     if (previous == null) {
@@ -201,6 +205,7 @@ class KillSwitchVpnService : VpnService() {
     stopWatchingResolvers()
     val held = descriptor ?: return
     descriptor = null
+    blockingState.value = false
     runCatching { held.close() }
     TechnicalLogStore.info("KILL-SWITCH", "Blocking interface released")
   }
@@ -284,6 +289,10 @@ class KillSwitchVpnService : VpnService() {
     private const val BLOCK_ADDRESS_V6 = "fdfd:ffff::1"
 
     private val fence = TunnelBlockFence()
+    private val blockingState = MutableStateFlow(false)
+
+    /** True while the blocking interface holds the routes, for the main screen to say so. */
+    val blocking: StateFlow<Boolean> = blockingState.asStateFlow()
     @Volatile
     private var running = false
 
