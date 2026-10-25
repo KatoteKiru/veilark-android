@@ -7,11 +7,12 @@ published active-feedback artifact remains default. Local signed candidate:
 C:/AI-Agent/reports/fairway-passage-device-20261025/veilark-fairway-passage-pilot.apk
 SHA dd714dd58245c74466f7b6ffe650714c3997aef5ff5a872ca93f1f8cf32c8314,
 33028464B, historical signer4c6e3e83...15d3/v2+v3/alignment verified. Same local
-version83/beta13; not a new published OTA. Owner requests install. ADB only sees
-unrelated emulator5554; no physical phone, asked connectUSB. DO NOT install this
-ARM64 APK to that unrelated x86 emulator. Need physical serial/version/signature
-check then adb install-r (never uninstall/clear/downgrade to force compatibility).
-No device or relay traffic acceptance yet; no deployment or new profile issued.
+version83/beta13; not a new published OTA.25Oct Pixel8Pro reconnected, existing
+version83/arm64 verified; adb install-r SUCCESS preserving data. Installedbase.apk
+SHA exactlydd714dd...8314, MainActivity launched/PID8566. Unrelatedemulator5554
+untouched. Installation/start evidence only, no traffic acceptance for new build.
+Existing Fairway subscription remains usable; new Passage needs separate relay
+profile and matched server3/1. No new Passage profile/server deployment performed.
 
 Owner clarification: redesign is NOT approved. Preserve its source on local
 branch local/design-unapproved-20261024 at93b4acf; next candidate uses pre-redesign
