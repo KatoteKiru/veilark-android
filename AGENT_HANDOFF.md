@@ -1,5 +1,14 @@
 # Atlas Android continuation — 24 October 2026
 
+25Oct AFTER84 priority: Fairway silentstall investigation11–12MSK. See root
+reports/fairway-stall-20261025/INCIDENT.md andANDROID_REPAIR_CONTRACT.md. Server
+unchanged; notprovenper-clientcause. VectorisolatedpendingCore repairtypedoutcomes
+32/33 (30reservedRelay); Atlasappallowlist recognizesONLYLegacy AFTERJoin+successfulRelease and
+keepsboundedretry. NoJavawatchdog/UI/timer/ABIchange. Two targetedJVMtestclasses
+PASS againafter32/33renumber:29cases0fail/error/skip38s, noAPK/OTA. Sourceonly;
+currentpublished84 intact. Nativecandidate/pairedserverpendingVector. Independent
+WIPreviewfoundfullSessionParameterscomparisonblocker; Vectorfixedstableleaseonly.
+
 25Oct LATEST: owner explicitly requested OTA with batch checks. Beta14/code84
 PUBLISHED, SHA59b50bef258cc4b955be9cd5f38aa525436be546ccb320e68e468ccc01b4919b,
 58202905B, established signer, bothlegacyABIs retained. Exact84 installed onPixel;

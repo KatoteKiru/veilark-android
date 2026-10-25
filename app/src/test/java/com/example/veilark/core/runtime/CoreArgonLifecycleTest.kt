@@ -90,6 +90,25 @@ class CoreArgonLifecycleTest {
     }
   }
 
+  @Test fun legacyRepairOutcomesRequireLegacyAndCompletedDisposal() = runBlocking {
+    for (profile in CoreArgonHandshakeProfile.entries) for (code in listOf(32, 33)) {
+      var joined = false
+      val fake = object : Fake() {
+        override fun join(handle: Long): Int { joined = true; return 0 }
+        override fun terminalOutcome(handle: Long): Int { assertTrue(joined); return code }
+      }
+      val owner = CoreArgonLifecycle(fake)
+      val ticket = owner.startBorrowedWithProfile(profile, { 7L }, {})
+      fake.releaseCode = -1
+      assertFalse(owner.stopAndRelease(ticket))
+      assertNull(ticket.releasedTerminalOutcome)
+      fake.releaseCode = 0
+      assertTrue(owner.stopAndRelease(ticket))
+      assertEquals(if (profile == CoreArgonHandshakeProfile.LEGACY) code else null,
+        ticket.releasedTerminalOutcome)
+    }
+  }
+
   @Test fun terminalOutcomeIsReadAfterJoinAndExposedOnlyAfterDisposal() = runBlocking {
     val calls = mutableListOf<String>()
     lateinit var ticket: CoreArgonHandleTicket
@@ -127,7 +146,7 @@ class CoreArgonLifecycleTest {
   }
 
   @Test fun missingOrUnknownOutcomeNeverPreventsCleanupAndRemainsConservative() = runBlocking {
-    for (code in listOf(null, 0, -3, 99)) {
+    for (code in listOf(null, 0, -3, 30, 31, 99)) {
       val fake = object : Fake() { override fun terminalOutcome(handle: Long) = code }
       val owner = CoreArgonLifecycle(fake)
       val ticket = owner.startBorrowed({ 7L }, {})

@@ -243,8 +243,11 @@ internal class CoreArgonLifecycle(private val api: CoreArgonHandleApi) {
         if (api.join(admitted.ticket.handle) != 0) return@withContext false
         // This is optional provenance, never ownership authority. Missing or
         // failed reads keep recovery conservative but must not prevent disposal.
+        // Legacy repair outcomes: 32 renewal failed; 33 renewed proof failed.
+        // Both remain genuine failures for bounded retry, never planned rotation.
         val outcome = runCatching { api.terminalOutcome(admitted.ticket.handle) }.getOrNull()
           ?.takeIf { it == 2 || it == 3 || it == 24 || it == 26 ||
+            admitted.ticket.handshakeProfile == CoreArgonHandshakeProfile.LEGACY && (it == 32 || it == 33) ||
             admitted.ticket.handshakeProfile.feedbackVersion == 1 && (it == 28 || it == 29) }
         // Status reads are short but may not race disposal.
         ownershipMutex.withLock {

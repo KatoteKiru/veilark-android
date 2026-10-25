@@ -6,7 +6,7 @@ import org.junit.Test
 class CoreArgonReconnectPolicyTest {
   @Test fun onlyExactRunningOwnedCancellationMayBePlanned() {
     assertTrue(CoreArgonReconnectPolicy.isPlannedNetworkRotation(true, true, false, 4, 2))
-    for (outcome in listOf(null, 0, 3, 24, 26, 28, 29, -3, 99)) {
+    for (outcome in listOf(null, 0, 3, 24, 26, 28, 29, 30, 31, 32, 33, -3, 99)) {
       assertFalse(CoreArgonReconnectPolicy.isPlannedNetworkRotation(true, true, false, 4, outcome))
     }
     assertFalse(CoreArgonReconnectPolicy.isPlannedNetworkRotation(false, true, false, 4, 2))
