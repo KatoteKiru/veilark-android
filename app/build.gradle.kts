@@ -173,14 +173,28 @@ val stageFairwayLabRuntime = if (fairwayLabRequested) {
     outputs.upToDateWhen { false }
   }
 } else null
-val fairwayRepairStage = layout.buildDirectory.dir("fairway-repair-runtime")
+// Explicit local pilot selection; the published beta13 input stays the default.
+val fairwayRepairNative = providers.gradleProperty("veilarkFairwayRepairNative")
+  .orElse("active-feedback").get()
+require(fairwayRepairRequested || fairwayRepairNative == "active-feedback") {
+  "Alternate repair artifacts require the private repair variant"
+}
+val repairArtifact = when (fairwayRepairNative) {
+  "active-feedback" -> Triple(
+    "core-profile2-feedback-20261021/08ba3b5dfbe478de42f2319fa840b955249befc728ffc9aefa23dd9993c4df75",
+    "08ba3b5dfbe478de42f2319fa840b955249befc728ffc9aefa23dd9993c4df75", 5_016_112L)
+  "passage-integration" -> Triple("fairway-passage-integration-20261024",
+    "af45728304f94abaede6cf88d777ca5109e286fd69442649977c6b0c7b4c72a1", 2_908_232L)
+  else -> error("Unknown reviewed Fairway repair native candidate")
+}
+val fairwayRepairStage = layout.buildDirectory.dir("fairway-repair-runtime-$fairwayRepairNative")
 val stageFairwayRepairRuntime = if (fairwayRepairRequested) {
   tasks.register<StageReviewedCoreRuntime>("stageFairwayRepairRuntime") {
     sourceRuntime.set(rootProject.layout.projectDirectory.file(
-      "../reports/core-profile2-feedback-20261021/08ba3b5dfbe478de42f2319fa840b955249befc728ffc9aefa23dd9993c4df75/libveilark_core_runtime.so"))
+      "../reports/${repairArtifact.first}/libveilark_core_runtime.so"))
     stagingDirectory.set(fairwayRepairStage)
-    expectedSha256.set("08ba3b5dfbe478de42f2319fa840b955249befc728ffc9aefa23dd9993c4df75")
-    expectedBytes.set(5_016_112L)
+    expectedSha256.set(repairArtifact.second)
+    expectedBytes.set(repairArtifact.third)
     outputs.upToDateWhen { false }
   }
 } else null
