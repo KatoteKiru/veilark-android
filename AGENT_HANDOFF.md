@@ -9,8 +9,11 @@ AND reviewed shared-firewall ownership coexistence/migration required. No remote
 writes, credentials or new subscription. Android issuer source now validates
 explicit3/1 coturn-rest schema separately from unchanged direct-v1;6purechecksPASS,
 6Linuxroot filesystem casesSKIP. Only issuer two source files changed here.
-Corefdf6e70 Linuxdaemon build inreports/passage-server-target-20261025; initial
-ZigdoubleCRT link failed; correctedRustLLD/selfcontainedbuild pending. Do not
+Corefdf6e70 Linuxdaemon now built inreports/passage-server-target-20261025:
+SHA9fde5a9971654c0774de5db9b3a40d6b9dfad38f7b746ae1c2586fe4f7a6997a,
+1966272B. InitialZigdoubleCRT and genericLLD attempts failed; installedgcc-ld/
+ld.lld.exe+stablelinker-flavor=ld succeeds4.65s finalbin; ELF64x86/staticPIE,
+noINTERP/NEEDED, RELRO/NX. Builtnotexecuted/notdeployed. Do not
 reuse frozen5469 (oldsource) or publish before actual isolatedroute works.
 Vector chat send failed: Cannot steer withoutactive turnid. Local read-only
 worker supplied currentremote evidence; no claim Vector received new request.
