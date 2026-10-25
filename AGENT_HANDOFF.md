@@ -1,5 +1,15 @@
 # Atlas Android continuation — 24 October 2026
 
+25Oct CRITICAL Fairway outage RECOVERED with explicitownerapproval. Rootcause:
+stale publicmanifest snapshot after Kowalskiaddition blockedpublicrollback at
+step1/DNATclosed; Beta cleanup drift leftorphanNFT/missinganonymousnetns.
+Reviewed exactcrossownerrecovery completed usingoriginalbinary/key/config;
+publicjournalphaseactive/currentmanifest, CorePID309877, BetaPID309779. Read
+C:/AI-Agent/reports/fairway-incident-20261025/RECOVERED.md beforeanyserveraction.
+Pixel connected viaexistingprofile; HTTPSexitcheck expectedNLaddressPASS, VPNon.
+Do not rerun ONE-SHOTrecovery script; oldPID273384 is stale. No Passage deploy.
+Futureconfigpublication needs auditedjournalsnapshot synchronization toavoidrepeat.
+
 25Oct Passage request: owner asks separate subscription+necessary test setup IF
 ready. Live readonly HELcoturn active; NLc959 legacy/noPassage3/1 backend. Do not
 issue a nonworking link or add account to old daemon. Read readiness report under
