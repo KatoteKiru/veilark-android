@@ -109,22 +109,78 @@ def ipv4(value):
     require(all(part <= 255 for part in octets) and 1 <= octets[0] <= 223 and octets[0] != 127)
 
 
+def validate_turn_uri(value):
+    """The installed UDP-only CoreTurnEndpoint subset; no URI credentials."""
+    require(type(value) is str and len(value) <= 320)
+    match = re.fullmatch(r"(?i:turn):([A-Za-z0-9.-]+)(?::([0-9]{1,5}))?(?:\?transport=udp)?", value)
+    require(match is not None)
+    host = match[1].lower().removesuffix(".")
+    require(0 < len(host) <= 253)
+    labels = host.split(".")
+    if all(char in ".0123456789" for char in host):
+        require(len(labels) == 4 and all(re.fullmatch(r"0|[1-9][0-9]{0,2}", part) for part in labels))
+        octets = [int(part) for part in labels]
+        require(all(part <= 255 for part in octets) and 1 <= octets[0] <= 223)
+    else:
+        require(len(labels) >= 2 and all(re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?", part) for part in labels))
+    if match[2] is not None:
+        port = int(match[2])
+        require(1 <= port <= 65535 and str(port) == match[2])
+
+
+def validate_passage(root):
+    """Issue only Passage through owned coturn, never lab static/service secrets."""
+    fields(root, ("schema", "engine", "beta", "name", "exits", "relays", "identity", "network", "wire_profile"))
+    wire = fields(root["wire_profile"], ("id", "feedback_version"))
+    integer(wire["id"], 3, 3); integer(wire["feedback_version"], 1, 1)
+    exits = root["exits"]
+    require(type(exits) is list and 1 <= len(exits) <= 4)
+    endpoints = []
+    for entry in exits:
+        endpoint = fields(entry, ("ipv4", "port"))
+        ipv4(endpoint["ipv4"]); integer(endpoint["port"], 1, 65535)
+        endpoints.append((endpoint["ipv4"], endpoint["port"]))
+    require(len(set(endpoints)) == len(endpoints))
+    relays = root["relays"]
+    require(type(relays) is list and 1 <= len(relays) <= 8)
+    for entry in relays:
+        relay = fields(entry, ("uri", "credential"))
+        validate_turn_uri(relay["uri"])
+        credential = fields(relay["credential"], ("source", "service", "parameters"))
+        require(credential["source"] == "service" and credential["service"] == "coturn-rest")
+        parameters = fields(credential["parameters"], ("username", "password"))
+        username, password = parameters["username"], parameters["password"]
+        require(type(username) is str and 1 <= len(username) <= 512 and all(33 <= ord(char) <= 126 for char in username))
+        require(re.fullmatch(r"[1-9][0-9]{0,11}", username.partition(":")[0]) is not None and ":" in username)
+        # Minted REST passwords are base64(HMAC-SHA1), not the relay root secret.
+        require(type(password) is str and re.fullmatch(r"[A-Za-z0-9+/]{27}=", password))
+        decoded = base64.b64decode(password, validate=True)
+        require(len(decoded) == 20 and base64.b64encode(decoded).decode("ascii") == password)
+
+
 def validate_profile(data):
-    root = fields(strict_json(data, 16_384), ("schema", "engine", "beta", "name", "endpoint", "identity", "network"))
-    require(root["schema"] == "veilark-argon-profile-v1" and root["engine"] == "argon-v1" and root["beta"] is True)
+    root = strict_json(data, 16_384)
+    require(type(root) is dict)
+    passage = root.get("schema") == "veilark-argon-relay-profile-v1"
+    if passage:
+        validate_passage(root)
+    else:
+        fields(root, ("schema", "engine", "beta", "name", "endpoint", "identity", "network"))
+        require(root["schema"] == "veilark-argon-profile-v1")
+        endpoint = fields(root["endpoint"], ("ipv4", "port"))
+        ipv4(endpoint["ipv4"]); integer(endpoint["port"], 1, 65535)
+    require(root["engine"] == "argon-v1" and root["beta"] is True)
     name = root["name"]
     require(type(name) is str and 1 <= len(name) <= 80)
     name.encode("utf-8", "strict")
     require(all(unicodedata.category(char) not in ("Cc", "Cf", "Cn", "Zl", "Zp") for char in name))
-    endpoint = fields(root["endpoint"], ("ipv4", "port"))
-    ipv4(endpoint["ipv4"]); integer(endpoint["port"], 1, 65535)
     identity = fields(root["identity"], ("client_static_private_base64", "server_static_public_base64"))
     for value in identity.values():
         require(type(value) is str and re.fullmatch(r"[A-Za-z0-9+/]{43}=", value))
         key = base64.b64decode(value, validate=True)
         require(len(key) == 32 and any(key) and base64.b64encode(key).decode("ascii") == value)
     network = fields(root["network"], ("mtu", "dns_ipv4"))
-    integer(network["mtu"], 1280, 1360)
+    integer(network["mtu"], 1280, 1357 if passage else 1360)
     dns = network["dns_ipv4"]
     require(type(dns) is list and 1 <= len(dns) <= 3)
     for address in dns:

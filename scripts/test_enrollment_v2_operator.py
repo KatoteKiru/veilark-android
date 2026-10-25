@@ -36,6 +36,17 @@ def profile_bytes(name="PUBLIC SYNTHETIC TEST - NEVER CONNECT"):
         "network": {"mtu": 1280, "dns_ipv4": ["1.1.1.1"]}})
 
 
+def passage_value():
+    value = json.loads(profile_bytes())
+    value["schema"] = "veilark-argon-relay-profile-v1"
+    value["exits"] = [value.pop("endpoint")]
+    value["wire_profile"] = {"id": 3, "feedback_version": 1}
+    value["relays"] = [{"uri": "turn:relay.example.test:3478?transport=udp", "credential": {
+        "source": "service", "service": "coturn-rest", "parameters": {
+            "username": "4102444800:synthetic", "password": base64.b64encode(bytes([3]) * 20).decode()}}}]
+    return value
+
+
 def unb64(value):
     return base64.urlsafe_b64decode(value + "=" * (-len(value) % 4))
 
@@ -82,6 +93,61 @@ class CodecTests(unittest.TestCase):
         for data in bad:
             with self.subTest(length=len(data)), self.assertRaises((operator.IssueError, ValueError, UnicodeError)):
                 operator.validate_profile(data)
+
+    def test_passage_owned_coturn_profile_and_mtu_bounds(self):
+        value = passage_value()
+        for mtu in (1280, 1357):
+            value["network"]["mtu"] = mtu
+            operator.validate_profile(operator.compact(value))
+        value["exits"] = [{"ipv4": "192.0.2.1", "port": port} for port in range(443, 447)]
+        value["relays"] *= 8
+        operator.validate_profile(operator.compact(value))
+        # The existing direct schema retains its distinct 1360-byte MTU bound.
+        direct = json.loads(profile_bytes()); direct["network"]["mtu"] = 1360
+        operator.validate_profile(operator.compact(direct))
+
+    def test_passage_rejects_wrong_wire_credentials_and_schema_fields(self):
+        mutations = {
+            "missing-wire": lambda p: p.pop("wire_profile"),
+            "carrier2": lambda p: p["wire_profile"].update(id=2),
+            "boolean-wire": lambda p: p["wire_profile"].update(feedback_version=True),
+            "wrong-feedback": lambda p: p["wire_profile"].update(feedback_version=2),
+            "mtu-too-large": lambda p: p["network"].update(mtu=1358),
+            "mtu-too-small": lambda p: p["network"].update(mtu=1279),
+            "static": lambda p: p["relays"][0].update(credential={"source": "static", "username": "test", "password": "test"}),
+            "foreign-service": lambda p: p["relays"][0]["credential"].update(service="other-service"),
+            "root-secret": lambda p: p["relays"][0]["credential"]["parameters"].update(shared_secret="SYNTHETIC_ROOT_SECRET"),
+            "raw-password": lambda p: p["relays"][0]["credential"]["parameters"].update(password="SYNTHETIC_ROOT_SECRET"),
+            "missing-parameters": lambda p: p["relays"][0]["credential"].pop("parameters"),
+            "invalid-expiry": lambda p: p["relays"][0]["credential"]["parameters"].update(username="0:synthetic"),
+            "non-ascii-user": lambda p: p["relays"][0]["credential"]["parameters"].update(username="4102444800:\u00e9"),
+            "user-too-large": lambda p: p["relays"][0]["credential"]["parameters"].update(username="4102444800:" + "x" * 502),
+            "extra-endpoint": lambda p: p.update(endpoint={"ipv4": "192.0.2.1", "port": 443}),
+            "duplicate-exit": lambda p: p["exits"].append(copy.deepcopy(p["exits"][0])),
+            "no-exits": lambda p: p.update(exits=[]),
+            "too-many-exits": lambda p: p.update(exits=[{"ipv4": "192.0.2.1", "port": n} for n in range(1, 6)]),
+            "no-relays": lambda p: p.update(relays=[]),
+            "too-many-relays": lambda p: p.update(relays=p["relays"] * 9),
+        }
+        for name, mutate in mutations.items():
+            value = passage_value(); mutate(value)
+            with self.subTest(case=name), self.assertRaises(operator.IssueError):
+                operator.validate_profile(operator.compact(value))
+
+    def test_passage_turn_endpoint_matches_installed_udp_subset(self):
+        accepted = ("TURN:Relay.Example.Test.", "turn:192.0.2.1:65535", "turn:relay.example.test?transport=udp")
+        rejected = ("turns:relay.example.test", "turn:relay.example.test?transport=tcp", "turn:localhost",
+                    "turn:relay.example.test:03478", "turn:relay.example.test:0", "turn:relay.example.test:65536",
+                    "turn:user@relay.example.test", "turn:relay.example.test/", "turn:01.2.3.4", "turn:224.0.0.1",
+                    "turn:[2001:db8::1]", "turn:-bad.example.test", "turn:" + "x" * 64 + ".test")
+        for uri in accepted:
+            value = passage_value(); value["relays"][0]["uri"] = uri
+            with self.subTest(uri=uri):
+                operator.validate_profile(operator.compact(value))
+        for uri in rejected:
+            value = passage_value(); value["relays"][0]["uri"] = uri
+            with self.subTest(uri=uri), self.assertRaises(operator.IssueError):
+                operator.validate_profile(operator.compact(value))
 
     def test_cli_root_authorization_has_no_test_override_or_secret_error(self):
         args = []

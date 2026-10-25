@@ -1,5 +1,20 @@
 # Atlas Android continuation — 24 October 2026
 
+25Oct Passage request: owner asks separate subscription+necessary test setup IF
+ready. Live readonly HELcoturn active; NLc959 legacy/noPassage3/1 backend. Do not
+issue a nonworking link or add account to old daemon. Read readiness report under
+reports/fairway-passage-device-20261025/PASSAGE_SERVER_READINESS.md. Existing
+namespace+hostforward owner hashes forbid naive newrules: independentnamespace
+AND reviewed shared-firewall ownership coexistence/migration required. No remote
+writes, credentials or new subscription. Android issuer source now validates
+explicit3/1 coturn-rest schema separately from unchanged direct-v1;6purechecksPASS,
+6Linuxroot filesystem casesSKIP. Only issuer two source files changed here.
+Corefdf6e70 Linuxdaemon build inreports/passage-server-target-20261025; initial
+ZigdoubleCRT link failed; correctedRustLLD/selfcontainedbuild pending. Do not
+reuse frozen5469 (oldsource) or publish before actual isolatedroute works.
+Vector chat send failed: Cannot steer withoutactive turnid. Local read-only
+worker supplied currentremote evidence; no claim Vector received new request.
+
 25Oct resume: private APK BUILD PASS6m3s, exact combinedCorefdf6e70/af457283
 native verified inside unsigned APK. New pinned selector
 veilarkFairwayRepairNative=passage-integration requires repair/private variant;
