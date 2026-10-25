@@ -1,5 +1,18 @@
 # Atlas Android continuation — 24 October 2026
 
+25Oct LATEST: owner explicitly requested OTA with batch checks. Beta14/code84
+PUBLISHED, SHA59b50bef258cc4b955be9cd5f38aa525436be546ccb320e68e468ccc01b4919b,
+58202905B, established signer, bothlegacyABIs retained. Exact84 installed onPixel;
+baseAPK hashmatched, existingprofile/data retained, realHTTPS NLexit before/after
+disconnect+reconnect PASS. Phoneleftconnected. Fullunit502/0fail/0error/3conditional
+skips; releaseassembly/R8/lint and exactAPK/native/Geo/export checksPASS. Signed
+liveOTA+fullpublicAPK verified; Androidcatalogupdated atomically/no service restart.
+See C:/AI-Agent/reports/fairway-beta14-20261025/RELEASE.md and actual receipts.
+OldUI preserved; noPassage deploy/newsubscription/camouflage or battery acceptance.
+Corefdf6e70/nativeaf457 bundled; serverc959/configad5 unchanged/Kowalskipreserved.
+PriorOTA/catalog rollback retained. Do not rerun completedpublisher or recovery.
+Below is historical context; next workisolated Passage and clientjournal publication.
+
 25Oct CRITICAL Fairway outage RECOVERED with explicitownerapproval. Rootcause:
 stale publicmanifest snapshot after Kowalskiaddition blockedpublicrollback at
 step1/DNATclosed; Beta cleanup drift leftorphanNFT/missinganonymousnetns.

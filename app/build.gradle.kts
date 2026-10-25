@@ -271,8 +271,16 @@ android {
     defaultConfig {
         minSdk = 29
         targetSdk = 36
-        versionCode = if (fairwayRepairRequested) 83 else 82
-        versionName = if (fairwayRepairRequested) "0.9.0-beta13" else "0.9.0-beta12"
+        versionCode = when {
+          fairwayRepairRequested && fairwayRepairNative == "passage-integration" -> 84
+          fairwayRepairRequested -> 83
+          else -> 82
+        }
+        versionName = when {
+          fairwayRepairRequested && fairwayRepairNative == "passage-integration" -> "0.9.0-beta14"
+          fairwayRepairRequested -> "0.9.0-beta13"
+          else -> "0.9.0-beta12"
+        }
         buildConfigField("boolean", "VEILARK_CORE_ENABLED", "false")
         buildConfigField("boolean", "CORE_BETA_RUNTIME_BUNDLED", "false")
         buildConfigField("boolean", "FAIRWAY_LAB_ENABLED", "false")
