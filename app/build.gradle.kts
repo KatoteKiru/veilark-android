@@ -185,6 +185,8 @@ val repairArtifact = when (fairwayRepairNative) {
     "08ba3b5dfbe478de42f2319fa840b955249befc728ffc9aefa23dd9993c4df75", 5_016_112L)
   "passage-integration" -> Triple("fairway-passage-integration-20261024",
     "af45728304f94abaede6cf88d777ca5109e286fd69442649977c6b0c7b4c72a1", 2_908_232L)
+  "legacy-recovery" -> Triple("fairway-stall-20261025/arm64",
+    "476b709950c9c92921fdeddd32b54abaf8809652394ad9cc981aed067d9f706e", 2_946_080L)
   else -> error("Unknown reviewed Fairway repair native candidate")
 }
 val fairwayRepairStage = layout.buildDirectory.dir("fairway-repair-runtime-$fairwayRepairNative")
@@ -272,11 +274,13 @@ android {
         minSdk = 29
         targetSdk = 36
         versionCode = when {
+          fairwayRepairRequested && fairwayRepairNative == "legacy-recovery" -> 85
           fairwayRepairRequested && fairwayRepairNative == "passage-integration" -> 84
           fairwayRepairRequested -> 83
           else -> 82
         }
         versionName = when {
+          fairwayRepairRequested && fairwayRepairNative == "legacy-recovery" -> "0.9.0-beta15"
           fairwayRepairRequested && fairwayRepairNative == "passage-integration" -> "0.9.0-beta14"
           fairwayRepairRequested -> "0.9.0-beta13"
           else -> "0.9.0-beta12"

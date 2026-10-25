@@ -1,5 +1,14 @@
 # Atlas Android continuation — 24 October 2026
 
+25Oct CANDIDATE: Beta15/code85 built+signed LOCAL ONLY. See rootreports/
+fairway-stall-20261025/CANDIDATE.md. Core1193f81 cleanpinnedARM64 built,59exports
+retained/ELF16KiB; APK5aba7c3bfc988edb939f06967f98f4f6d5dbe4e2cadc07cfab4aa1b352df9c48,
+58219289B establishedsigner/v2/v3/ZIP16KiB. Newlegacy-recovery selectorpreserves84.
+BothpriorABIs+allother.so unchanged. No phone(noADBphysical), no install/OTA/server
+cutover. Existing84/c959/ad5b protected. Needpairedcompatibility+physicalacceptance
+andexacttransactionalservercutover/rollback beforepublication. Latest appmessage
+toVector failedapprovalreviewquota; noalternatebypassmessageattempt.
+
 25Oct AFTER84 priority: Fairway silentstall investigation11–12MSK. See root
 reports/fairway-stall-20261025/INCIDENT.md andANDROID_REPAIR_CONTRACT.md. Server
 unchanged; notprovenper-clientcause. VectorisolatedpendingCore repairtypedoutcomes
