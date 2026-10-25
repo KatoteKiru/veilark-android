@@ -1,5 +1,15 @@
 # Atlas Android continuation — 24 October 2026
 
+25Oct RELEASED: Beta15/code85 OTA+Androidcatalog PUBLISHED afterexplicitowner
+waiverofphonecheck. Sourceapp477e28f/Core1193f81; APK5aba7c3bfc988edb939f06967f98f4f6d5dbe4e2cadc07cfab4aa1b352df9c48/
+58219289B, nativesha476b7099/2946080B/59exports/16KiB. Full503/0fail/0error/3skip
++privateReleaseLintPASS. LiveEd25519/fullpublicAPK+catalogverified; established
+signer+bothlegacyABIs/assets retained. Pairedserver135a86d1/configf6accommittedby
+Vector, proofenabled/6records/keysprofilespreserved; rootfreshgatePASS. No phone
+test, onefreshconnectafterinstallneeded. See rootreports/fairway-stall-20261025/
+RELEASE.md receipts/backups; doNOTrerunpublish/updater. Earliercandidate/holdnotes
+below historical. Windowsworkmayresume fromapp6d06/Corefc77 underexistingcontract.
+
 25Oct CANDIDATE: Beta15/code85 built+signed LOCAL ONLY. See rootreports/
 fairway-stall-20261025/CANDIDATE.md. Core1193f81 cleanpinnedARM64 built,59exports
 retained/ELF16KiB; APK5aba7c3bfc988edb939f06967f98f4f6d5dbe4e2cadc07cfab4aa1b352df9c48,
