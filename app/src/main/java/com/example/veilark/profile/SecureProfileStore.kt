@@ -124,7 +124,7 @@ object SecureProfileStore {
   }
 
   private fun encryptedFile(context: Context, id: String): File =
-    profileFile(if (id == CORE_ARGON || id == CORE_ARGON_RELAY || isEnrollmentRecord(id) || isDeviceKeyRecord(id)) context.noBackupFilesDir else context.filesDir, id)
+    profileFile(if (id == CORE_ARGON || id == CORE_ARGON_RELAY || isManagedFairwayRecord(id) || isEnrollmentRecord(id) || isDeviceKeyRecord(id)) context.noBackupFilesDir else context.filesDir, id)
 
   internal fun profileFile(filesDir: File, id: String): File {
     require(
@@ -133,7 +133,7 @@ object SecureProfileStore {
         id == TRUST_TUNNEL_CATALOG ||
         id == SING_BOX_CATALOG ||
         id == CORE_BETA ||
-        id == CORE_ARGON || id == CORE_ARGON_RELAY || isEnrollmentRecord(id) || isDeviceKeyRecord(id),
+        id == CORE_ARGON || id == CORE_ARGON_RELAY || isManagedFairwayRecord(id) || isEnrollmentRecord(id) || isDeviceKeyRecord(id),
     ) {
       "Неизвестный тип профиля"
     }
@@ -146,8 +146,11 @@ object SecureProfileStore {
   private fun isDeviceKeyRecord(id: String): Boolean =
     id.matches(Regex("veilark-device-key-v1-[0-9a-f]{64}"))
 
+  private fun isManagedFairwayRecord(id: String): Boolean =
+    id.matches(Regex("veilark-managed-fairway-[0-9a-f]{64}"))
+
   private fun requireLegacyId(id: String) {
-    require(id in setOf(SING_BOX, TRUST_TUNNEL, SING_BOX_CATALOG, TRUST_TUNNEL_CATALOG, CORE_BETA, CORE_ARGON, CORE_ARGON_RELAY)) {
+    require(id in setOf(SING_BOX, TRUST_TUNNEL, SING_BOX_CATALOG, TRUST_TUNNEL_CATALOG, CORE_BETA, CORE_ARGON, CORE_ARGON_RELAY) || isManagedFairwayRecord(id)) {
       "Неизвестный тип профиля"
     }
   }

@@ -24,6 +24,7 @@ object CoreProfileStore {
   private const val KIND_KEY = "core_profile_kind"
   private const val ENROLLMENT_ISSUER = "core_enrollment_issuer"
   private const val ENROLLMENT_PROFILE = "core_enrollment_profile"
+  private const val MANAGED_SELECTED = "core_managed_fairway_selected"
   private const val ROUTE_KEY = "core_route"
   private const val ROUTE_RELAY = "relay"
   private const val LOAD_ERROR = "Unable to load selected Veilark Core profile."
@@ -33,6 +34,7 @@ object CoreProfileStore {
   @Synchronized fun selectedKind(context: Context): CoreProfileKind? {
     // A deleted relay profile stays selected as a tombstone, never falling back to the direct route.
     if (relaySelected(context)) return CoreProfileKind.ARGON_RELAY_V1.takeIf { CoreArgonRelayProfileStore.exists(context) }
+    managedSelected(context)?.let { id -> return CoreProfileKind.ARGON_V1.takeIf { FairwayManagedProfileStore.exists(context, id) } }
     val identity = selectedEnrollment(context)
     if (identity != null) {
       return EnrollmentV2Store.loadBlocking(context, identity.first, identity.second)?.use { CoreProfileKind.ARGON_V1 }
@@ -51,6 +53,7 @@ object CoreProfileStore {
   @Synchronized fun relayRouteSelected(context: Context): Boolean = relaySelected(context)
 
   private fun directKind(context: Context): CoreProfileKind? {
+    managedSelected(context)?.let { id -> return CoreProfileKind.ARGON_V1.takeIf { FairwayManagedProfileStore.exists(context, id) } }
     val identity = selectedEnrollment(context)
     if (identity != null) return CoreProfileKind.ARGON_V1.takeIf { EnrollmentV2Store.hasLocalRecord(context, identity.first, identity.second) }
     return CoreProfileKind.resolve(
@@ -93,6 +96,32 @@ object CoreProfileStore {
     return enrollmentIdentity(context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE).all)
   }
 
+  private fun managedSelected(context: Context): String? = managedSelection(
+    context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE).all)
+
+  internal fun managedSelection(saved: Map<String, *>): String? {
+    if (!saved.containsKey(MANAGED_SELECTED)) return null
+    val id = saved[MANAGED_SELECTED] as? String ?: error(LOAD_ERROR)
+    check(id.matches(Regex("veilark-managed-fairway-[0-9a-f]{64}")) && saved[KIND_KEY] == CoreProfileKind.ARGON_V1.preferenceValue &&
+      !saved.containsKey(ENROLLMENT_ISSUER) && !saved.containsKey(ENROLLMENT_PROFILE)) { LOAD_ERROR }
+    return id
+  }
+
+  @Synchronized fun hasSelectedManagedProfile(context: Context): Boolean =
+    !relaySelected(context) && managedSelected(context)?.let { FairwayManagedProfileStore.exists(context, it) } == true
+
+  @Synchronized fun managedSource(context: Context): String? =
+    if (hasSelectedManagedProfile(context)) FairwayManagedProfileStore.source(context, checkNotNull(managedSelected(context))) else null
+
+  /** Only an explicit import/refresh selects this slot; retained raw identities are never overwritten. */
+  @Synchronized internal fun importManaged(context: Context, source: String, payload: ByteArray): CoreProfileMetadata {
+    val metadata = FairwayManagedProfileStore.import(context, source, payload)
+    check(context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE).edit()
+      .putString(KIND_KEY, CoreProfileKind.ARGON_V1.preferenceValue).putString(MANAGED_SELECTED, FairwayManagedProfileStore.identity(source))
+      .remove(ENROLLMENT_ISSUER).remove(ENROLLMENT_PROFILE).remove(ROUTE_KEY).commit()) { SELECTION_ERROR }
+    return metadata
+  }
+
   internal fun enrollmentIdentity(saved: Map<String, *>): Pair<String, String>? {
     if (!saved.containsKey(ENROLLMENT_ISSUER) && !saved.containsKey(ENROLLMENT_PROFILE)) return null
     val issuer = saved[ENROLLMENT_ISSUER] as? String ?: error(LOAD_ERROR)
@@ -114,13 +143,14 @@ object CoreProfileStore {
     check(context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE).edit()
       .putString(KIND_KEY, CoreProfileKind.ARGON_V1.preferenceValue)
       .putString(ENROLLMENT_ISSUER, issuer).putString(ENROLLMENT_PROFILE, profileId)
-      .remove(ROUTE_KEY).commit()) { SELECTION_ERROR }
+      .remove(MANAGED_SELECTED).remove(ROUTE_KEY).commit()) { SELECTION_ERROR }
     return metadata
   }
 
   /** One selected-source resolver used by metadata and the real Core service. */
   @Synchronized fun loadSelectedArgon(context: Context): CoreArgonProfile {
     check(!relaySelected(context)) { LOAD_ERROR }
+    managedSelected(context)?.let { return FairwayManagedProfileStore.load(context, it) }
     val identity = selectedEnrollment(context) ?: return CoreArgonProfileStore.load(context)
     val value = EnrollmentV2Store.loadBlocking(context, identity.first, identity.second) ?: error(LOAD_ERROR)
     return value.use {
@@ -150,6 +180,10 @@ object CoreProfileStore {
     if (relaySelected(context)) {
       if (CoreArgonRelayProfileStore.exists(context)) check(CoreArgonRelayProfileStore.delete(context)) { "Unable to delete selected Veilark Core profile." }
       return
+    }
+    managedSelected(context)?.let { id ->
+      if (FairwayManagedProfileStore.exists(context, id)) check(FairwayManagedProfileStore.delete(context, id)) { "Unable to delete selected Veilark Core profile." }
+      return // Keep the selection tombstone, never silently restore the static identity.
     }
     val identity = selectedEnrollment(context)
     if (identity != null) {
@@ -214,7 +248,7 @@ object CoreProfileStore {
     }
     check(context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE).edit()
       .putString(KIND_KEY, kind.preferenceValue)
-      .remove(ENROLLMENT_ISSUER).remove(ENROLLMENT_PROFILE).remove(ROUTE_KEY).commit()) { SELECTION_ERROR }
+      .remove(ENROLLMENT_ISSUER).remove(ENROLLMENT_PROFILE).remove(MANAGED_SELECTED).remove(ROUTE_KEY).commit()) { SELECTION_ERROR }
     return metadata
   }
 }

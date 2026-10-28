@@ -1,5 +1,28 @@
 # Atlas Android continuation — 24 October 2026
 
+28Oct NEW managed Fairway source repair (not an Android release): explicit import
+of the controlled managed/trust URL while Core is selected now requests a per-install
+profile; the existing Refresh action repeats that enrollment using the same persisted
+device key. Ordinary TrustTunnel/sing imports retain their old behavior. Import commits
+only when Core has stopped and the expected engine/source still match. Managed records
+and bearer source live encrypted in noBackupFilesDir, separate from retained static Core,
+Passage and signed-enrollment records. Each source has a distinct record plus an explicit
+selection pointer, so saving a new account cannot overwrite an old account's record.
+Delete leaves a tombstone; never silently restores a shared static identity.
+OssDebug compile +15 focused tests PASS,0skip (selection/key/idempotency/legacy isolation).
+Temporary backend DB check: SAME synthetic managed bearer accepted Android and Windows
+install scopes with distinct keys/bindings; retry kept exactly two bindings. This is not
+live enrollment or simultaneous tunnel evidence. No production, credentials, APK or OTA
+changed. Beta15/code85 still lacks this new managed import path. Need independent source
+review, private flavor build/package validation and paired deployed API/device enrollment
+before claiming one account link is accepted simultaneously by released Android+Windows.
+Old veilark://import?t= static profiles still carry one shared identity and can evict
+themselves if copied; use the account managed URL for independent device enrollment.
+One account requires at least two eligible device slots (existing matching installations
+reuse their slots); protected-account grants remain mandatory and are not bypassed.
+Root independently reviewed the bounded source diff and found no blockers. Receipt:
+C:/AI-Agent/reports/windows-stop-20261028/ANDROID_TWO_DEVICE_SOURCE.md.
+
 28Oct managed Fairway source candidate (branch local/android-managed-fairway-20261027):
 Opt-in from a selected controlled managed/trust subscription requests an account claim,
 stores a per-install X25519 identity encrypted with Android Keystore, and requests a

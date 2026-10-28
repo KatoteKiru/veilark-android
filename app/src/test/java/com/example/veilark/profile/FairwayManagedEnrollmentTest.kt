@@ -16,6 +16,31 @@ class FairwayManagedEnrollmentTest {
   private fun profile(publicHex: String, usedScope: String = scope): String =
     """{"schema":"veilark-core-device-profile-v1","binding_scope":"$usedScope","client_public_key_hex":"$publicHex","profile":{"schema":"veilark-argon-profile-v1","engine":"argon-v1","beta":true,"name":"Fairway","endpoint":{"ipv4":"192.0.2.1","port":443},"identity":{"server_static_public_base64":"$server"},"network":{"mtu":1360,"dns_ipv4":["1.1.1.1"]}}}"""
 
+  @Test fun twoInstallationsUseIndependentKeysAndStableRetryRequests() {
+    val requests = mutableListOf<String>()
+    val identities = listOf(secret.copyOf(), ByteArray(32) { (it + 41).toByte() })
+    try {
+      identities.forEachIndexed { index, deviceSecret ->
+        repeat(2) {
+          val result = FairwayManagedEnrollment.enroll((if (index == 0) "A" else "W").repeat(24),
+            { deviceSecret.copyOf() }) { body ->
+            if (body == null) FairwayManagedEnrollment.Reply(200, true, claim.toByteArray()) else {
+              val request = body.toString(Charsets.UTF_8); requests += request
+              val public = JSONObject(request).getString("client_public_key_hex")
+              FairwayManagedEnrollment.Reply(200, true, profile(public).toByteArray())
+            }
+          }
+          try { CoreArgonProfile.parse(result).use { assertArrayEquals(deviceSecret, it.clientStaticPrivateCopy()) } }
+          finally { result.fill(0) }
+        }
+      }
+      assertEquals(requests[0], requests[1])
+      assertEquals(requests[2], requests[3])
+      assertNotEquals(JSONObject(requests[0]).getString("client_public_key_hex"), JSONObject(requests[2]).getString("client_public_key_hex"))
+      assertNotEquals(JSONObject(requests[0]).getString("request_id"), JSONObject(requests[2]).getString("request_id"))
+    } finally { identities.forEach { it.fill(0) } }
+  }
+
   @Test fun retryUsesSamePublicIdentityAndNeverSendsPrivateKey() {
     val bodies = mutableListOf<String>()
     repeat(2) {

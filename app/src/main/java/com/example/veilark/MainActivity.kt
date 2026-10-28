@@ -200,7 +200,7 @@ class MainActivity : ComponentActivity() {
       var subscriptionRefreshAvailable by remember {
         mutableStateOf(
           if (profileEngine == ProfileEngine.CORE_BETA) {
-            false
+            CoreProfileStore.hasSelectedManagedProfile(this@MainActivity)
           } else if (profileEngine == ProfileEngine.TRUST_TUNNEL) {
             trustProfiles.firstOrNull { it.id == selectedTrustId }?.sourceUrl != null
           } else {
@@ -613,7 +613,10 @@ class MainActivity : ComponentActivity() {
             runCatching { CoreProfileStore.displayName(this@MainActivity) }.getOrNull()
           }
           coreRoutes = withContext(Dispatchers.IO) { loadCoreRoutes() }
-          if (profileEngine == ProfileEngine.CORE_BETA) profileName = coreProfileName
+          if (profileEngine == ProfileEngine.CORE_BETA) {
+            profileName = coreProfileName
+            subscriptionRefreshAvailable = CoreProfileStore.hasSelectedManagedProfile(this@MainActivity)
+          }
         }
         // Import is intentionally separate from selecting or starting the engine.
         importError = null
@@ -633,9 +636,38 @@ class MainActivity : ComponentActivity() {
             runCatching { CoreProfileStore.displayName(this@MainActivity) }.getOrNull()
           }
           coreRoutes = withContext(Dispatchers.IO) { loadCoreRoutes() }
-          if (profileEngine == ProfileEngine.CORE_BETA) profileName = coreProfileName
+          if (profileEngine == ProfileEngine.CORE_BETA) {
+            profileName = coreProfileName
+            subscriptionRefreshAvailable = CoreProfileStore.hasSelectedManagedProfile(this@MainActivity)
+          }
         }
         // Preserve the current engine choice, exactly as for an explicit raw Core import.
+        importError = null
+      }
+
+      suspend fun importManagedFairway(source: String, expectedSource: String? = null) {
+        check(coreConnectionState == ConnectionState.Disconnected || coreConnectionState == ConnectionState.Failed) {
+          getString(R.string.engine_switch_disconnect_first)
+        }
+        check(CoreBetaManager.stopped.value) { getString(R.string.core_beta_cleanup_failed) }
+        val payload = FairwayManagedEnrollment.fetch(this@MainActivity, source)
+        try {
+          check(profileEngine == ProfileEngine.CORE_BETA &&
+            (expectedSource == null || withContext(Dispatchers.IO) {
+              CoreProfileStore.managedSource(this@MainActivity) == expectedSource
+            })) { getString(R.string.subscription_refresh_failed) }
+          CoreBetaManager.importManagedProfileWhenStopped(this@MainActivity, source, payload)
+        } finally {
+          payload.fill(0)
+          coreProfileName = withContext(Dispatchers.IO) {
+            runCatching { CoreProfileStore.displayName(this@MainActivity) }.getOrNull()
+          }
+          coreRoutes = withContext(Dispatchers.IO) { loadCoreRoutes() }
+          if (profileEngine == ProfileEngine.CORE_BETA) {
+            profileName = coreProfileName
+            subscriptionRefreshAvailable = CoreProfileStore.hasSelectedManagedProfile(this@MainActivity)
+          }
+        }
         importError = null
       }
 
@@ -760,7 +792,10 @@ class MainActivity : ComponentActivity() {
                 runCatching { CoreProfileStore.displayName(this@MainActivity) }.getOrNull()
               }
               coreRoutes = withContext(Dispatchers.IO) { loadCoreRoutes() }
-              if (profileEngine == ProfileEngine.CORE_BETA) profileName = coreProfileName
+              if (profileEngine == ProfileEngine.CORE_BETA) {
+                profileName = coreProfileName
+                subscriptionRefreshAvailable = CoreProfileStore.hasSelectedManagedProfile(this@MainActivity)
+              }
             }
           },
           connectionState = connectionState,
@@ -929,6 +964,11 @@ class MainActivity : ComponentActivity() {
                 }
               } else {
                 runCatching {
+                  if (profileEngine == ProfileEngine.CORE_BETA &&
+                    SubscriptionClientObservation.isControlled(importUrl, BuildConfig.SUBSCRIPTION_HOST, BuildConfig.SUBSCRIPTION_PORT)) {
+                    importManagedFairway(importUrl)
+                    return@runCatching null
+                  }
                   require(!importUrl.startsWith("http://", ignoreCase = true)) {
                     getString(R.string.http_subscription_insecure)
                   }
@@ -1088,7 +1128,22 @@ class MainActivity : ComponentActivity() {
               } finally { importing = false }
             }
           },
-          onRefreshSubscription = {
+          onRefreshSubscription = refreshSubscription@{
+            if (profileEngine == ProfileEngine.CORE_BETA) {
+              if (importing || refreshingSubscription || !CoreProfileStore.hasSelectedManagedProfile(this@MainActivity)) return@refreshSubscription
+              refreshingSubscription = true
+              importError = null
+              coroutineScope.launch {
+                try {
+                  val source = withContext(Dispatchers.IO) { CoreProfileStore.managedSource(this@MainActivity) }
+                    ?: error(getString(R.string.subscription_refresh_failed))
+                  importManagedFairway(source, expectedSource = source)
+                } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+                catch (failure: Exception) { importError = failure.userMessage(R.string.subscription_refresh_failed) }
+                finally { refreshingSubscription = false }
+              }
+              return@refreshSubscription
+            }
             val refreshEngine = profileEngine
             val trustSnapshot = if (refreshEngine == ProfileEngine.TRUST_TUNNEL) {
               trustProfiles.firstOrNull { it.id == selectedTrustId }
@@ -1300,7 +1355,9 @@ class MainActivity : ComponentActivity() {
                         !SecureProfileStore.exists(this@MainActivity, SecureProfileStore.CORE_BETA) &&
                         !SecureProfileStore.exists(this@MainActivity, SecureProfileStore.CORE_ARGON_RELAY) &&
                         (connectionState == ConnectionState.Disconnected || connectionState == ConnectionState.Failed))
-                      check(importCorePayload(payload))
+                      CoreBetaManager.importManagedProfileWhenStopped(this@MainActivity, source, payload)
+                      coreProfileName = withContext(Dispatchers.IO) { CoreProfileStore.displayName(this@MainActivity) }
+                      coreRoutes = withContext(Dispatchers.IO) { loadCoreRoutes() }
                       stopTunnelsAfterProfileCommit()
                       profileEngine = target
                       profileName = coreProfileName
@@ -1309,7 +1366,7 @@ class MainActivity : ComponentActivity() {
                       routingMode = storedRoutingModeFor(target, ProfileSelection.ROUTING_ALL)
                       directRoutes = profilePreferences.getString("core_direct_routes", "").orEmpty()
                       vpnRoutes = profilePreferences.getString("core_vpn_routes", "").orEmpty()
-                      subscriptionRefreshAvailable = false
+                      subscriptionRefreshAvailable = true
                       profilePreferences.edit().putString("profile_engine", target).apply()
                       importError = null
                     } finally { payload.fill(0) }
@@ -1328,7 +1385,7 @@ class MainActivity : ComponentActivity() {
               routingMode = storedRoutingModeFor(target, ProfileSelection.ROUTING_ALL)
               directRoutes = profilePreferences.getString("core_direct_routes", "").orEmpty()
               vpnRoutes = profilePreferences.getString("core_vpn_routes", "").orEmpty()
-              subscriptionRefreshAvailable = false
+              subscriptionRefreshAvailable = CoreProfileStore.hasSelectedManagedProfile(this@MainActivity)
               profilePreferences.edit().putString("profile_engine", target).apply()
               importError = null
               return@selectEngine
