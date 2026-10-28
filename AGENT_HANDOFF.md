@@ -1,5 +1,17 @@
 # Atlas Android continuation — 24 October 2026
 
+28Oct managed Fairway source candidate (branch local/android-managed-fairway-20261027):
+Opt-in from a selected controlled managed/trust subscription requests an account claim,
+stores a per-install X25519 identity encrypted with Android Keystore, and requests a
+public profile without sending the private key. Existing static Core profiles retain
+priority and are not replaced. Existing routing and UI design are unchanged. A pending
+or unavailable enrollment fails closed and a retry keeps the same identity.
+OssDebug compilation and FairwayManagedEnrollmentTest: 4 passed, 0 skipped (28Oct).
+This is source-only: private release, real Keystore on a device, the deployed account
+service, and end-to-end tunnel compatibility have not been verified. No OTA published.
+The server's deployed legacy_session_proof compatibility is being integrated separately;
+do not assume this candidate can connect until the paired contract is verified.
+
 25Oct RELEASED: Beta15/code85 OTA+Androidcatalog PUBLISHED afterexplicitowner
 waiverofphonecheck. Sourceapp477e28f/Core1193f81; APK5aba7c3bfc988edb939f06967f98f4f6d5dbe4e2cadc07cfab4aa1b352df9c48/
 58219289B, nativesha476b7099/2946080B/59exports/16KiB. Full503/0fail/0error/3skip

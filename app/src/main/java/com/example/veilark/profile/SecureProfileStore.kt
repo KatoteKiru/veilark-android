@@ -42,6 +42,21 @@ object SecureProfileStore {
     return decryptBytes(context, id)
   }
 
+  internal fun deviceKeyExists(context: Context, id: String): Boolean {
+    require(isDeviceKeyRecord(id))
+    return encryptedFile(context, id).isFile
+  }
+
+  internal fun saveDeviceKey(context: Context, id: String, plaintext: ByteArray) {
+    require(isDeviceKeyRecord(id))
+    encryptBytes(context, id, plaintext)
+  }
+
+  internal fun loadDeviceKey(context: Context, id: String): ByteArray {
+    require(isDeviceKeyRecord(id))
+    return decryptBytes(context, id)
+  }
+
   /** Borrowed input; caller retains ownership. Existing encrypted format/AAD unchanged. */
   private fun encryptBytes(context: Context, id: String, plaintext: ByteArray) {
     val destination = encryptedFile(context, id) // Validate identity before touching the key.
@@ -109,7 +124,7 @@ object SecureProfileStore {
   }
 
   private fun encryptedFile(context: Context, id: String): File =
-    profileFile(if (id == CORE_ARGON || id == CORE_ARGON_RELAY || isEnrollmentRecord(id)) context.noBackupFilesDir else context.filesDir, id)
+    profileFile(if (id == CORE_ARGON || id == CORE_ARGON_RELAY || isEnrollmentRecord(id) || isDeviceKeyRecord(id)) context.noBackupFilesDir else context.filesDir, id)
 
   internal fun profileFile(filesDir: File, id: String): File {
     require(
@@ -118,7 +133,7 @@ object SecureProfileStore {
         id == TRUST_TUNNEL_CATALOG ||
         id == SING_BOX_CATALOG ||
         id == CORE_BETA ||
-        id == CORE_ARGON || id == CORE_ARGON_RELAY || isEnrollmentRecord(id),
+        id == CORE_ARGON || id == CORE_ARGON_RELAY || isEnrollmentRecord(id) || isDeviceKeyRecord(id),
     ) {
       "Неизвестный тип профиля"
     }
@@ -127,6 +142,9 @@ object SecureProfileStore {
 
   private fun isEnrollmentRecord(id: String): Boolean =
     id.matches(Regex("veilark-enrollment-v2-[0-9a-f]{64}"))
+
+  private fun isDeviceKeyRecord(id: String): Boolean =
+    id.matches(Regex("veilark-device-key-v1-[0-9a-f]{64}"))
 
   private fun requireLegacyId(id: String) {
     require(id in setOf(SING_BOX, TRUST_TUNNEL, SING_BOX_CATALOG, TRUST_TUNNEL_CATALOG, CORE_BETA, CORE_ARGON, CORE_ARGON_RELAY)) {
@@ -161,7 +179,8 @@ object SecureProfileStore {
   }
 
   private fun keyAlias(id: String): String =
-    if (isEnrollmentRecord(id)) "veilark_enrollment_v2" else KEY_ALIAS
+    if (isDeviceKeyRecord(id)) "veilark_device_key_v1"
+    else if (isEnrollmentRecord(id)) "veilark_enrollment_v2" else KEY_ALIAS
 
   private const val KEY_ALIAS = "veilark_profile_v1"
   private const val TRANSFORMATION = "AES/GCM/NoPadding"

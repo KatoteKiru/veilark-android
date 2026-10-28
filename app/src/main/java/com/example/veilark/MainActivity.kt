@@ -38,6 +38,8 @@ import com.example.veilark.vpn.ConnectionState
 import com.example.veilark.vpn.KillSwitchVpnService
 import com.example.veilark.vpn.VeilarkVpnService
 import com.example.veilark.profile.SubscriptionFetcher
+import com.example.veilark.profile.SubscriptionClientObservation
+import com.example.veilark.profile.FairwayManagedEnrollment
 import com.example.veilark.profile.SubscriptionParser
 import com.example.veilark.profile.ImportDeepLink
 import com.example.veilark.profile.EnrollmentV2Store
@@ -819,7 +821,11 @@ class MainActivity : ComponentActivity() {
           geoUpdateMessage = geoUpdateMessage,
           geoStatusDescription = geoStatusDescription(geoStatus, geoUpdating),
           coreBetaActive = profileEngine == ProfileEngine.CORE_BETA,
-          coreBetaAvailable = coreProfileName != null && coreRuntimeAvailable,
+          coreBetaAvailable = coreRuntimeAvailable && (coreProfileName != null ||
+            (if (profileEngine == ProfileEngine.TRUST_TUNNEL)
+              trustProfiles.firstOrNull { it.id == selectedTrustId }?.sourceUrl
+            else singBoxProfiles.firstOrNull { it.id == selectedSingBoxId }?.sourceUrl
+            )?.let { SubscriptionClientObservation.isControlled(it, BuildConfig.SUBSCRIPTION_HOST, BuildConfig.SUBSCRIPTION_PORT) } == true),
           coreBetaProfileName = coreProfileName,
           coreBetaRuntimeAvailable = coreRuntimeAvailable,
           trustTunnelActive = profileEngine == ProfileEngine.TRUST_TUNNEL,
@@ -1253,14 +1259,67 @@ class MainActivity : ComponentActivity() {
             }
           },
           onSelectEngine = selectEngine@{ target ->
-            if (connectionState != ConnectionState.Disconnected && connectionState != ConnectionState.Failed) return@selectEngine
+            if (connectionState != ConnectionState.Disconnected && connectionState != ConnectionState.Failed) {
+              if (target == ProfileEngine.CORE_BETA) importError = getString(R.string.engine_switch_disconnect_first)
+              return@selectEngine
+            }
             if (target == profileEngine) return@selectEngine
             pendingConfigPath = null
             pendingTrustConfig = null
             pendingCoreConnection = false
             pendingPermissionEngine = null
             if (target == ProfileEngine.CORE_BETA) {
-              if (!coreRuntimeAvailable || coreProfileName == null) return@selectEngine
+              if (!coreRuntimeAvailable) return@selectEngine
+              if (coreProfileName == null) {
+                if (!CoreBetaManager.stopped.value) {
+                  importError = getString(R.string.engine_switch_disconnect_first)
+                  return@selectEngine
+                }
+                if (importing || SecureProfileStore.exists(this@MainActivity, SecureProfileStore.CORE_ARGON) ||
+                  SecureProfileStore.exists(this@MainActivity, SecureProfileStore.CORE_BETA) ||
+                  SecureProfileStore.exists(this@MainActivity, SecureProfileStore.CORE_ARGON_RELAY)) return@selectEngine
+                val originEngine = profileEngine
+                val source = (if (originEngine == ProfileEngine.TRUST_TUNNEL)
+                  trustProfiles.firstOrNull { it.id == selectedTrustId }?.sourceUrl
+                else singBoxProfiles.firstOrNull { it.id == selectedSingBoxId }?.sourceUrl)
+                  ?.takeIf { SubscriptionClientObservation.isControlled(it, BuildConfig.SUBSCRIPTION_HOST, BuildConfig.SUBSCRIPTION_PORT) }
+                  ?: return@selectEngine
+                importing = true
+                coroutineScope.launch {
+                  try {
+                    val payload = FairwayManagedEnrollment.fetch(this@MainActivity, source)
+                    try {
+                      val selectedSource = if (originEngine == ProfileEngine.TRUST_TUNNEL)
+                        trustProfiles.firstOrNull { it.id == selectedTrustId }?.sourceUrl
+                      else singBoxProfiles.firstOrNull { it.id == selectedSingBoxId }?.sourceUrl
+                      check(profileEngine == originEngine && selectedSource == source && coreProfileName == null &&
+                        !CoreProfileStore.exists(this@MainActivity) &&
+                        !CoreProfileStore.hasDirectProfile(this@MainActivity) &&
+                        !CoreProfileStore.hasRelayProfile(this@MainActivity) &&
+                        !SecureProfileStore.exists(this@MainActivity, SecureProfileStore.CORE_ARGON) &&
+                        !SecureProfileStore.exists(this@MainActivity, SecureProfileStore.CORE_BETA) &&
+                        !SecureProfileStore.exists(this@MainActivity, SecureProfileStore.CORE_ARGON_RELAY) &&
+                        (connectionState == ConnectionState.Disconnected || connectionState == ConnectionState.Failed))
+                      check(importCorePayload(payload))
+                      stopTunnelsAfterProfileCommit()
+                      profileEngine = target
+                      profileName = coreProfileName
+                      connectionNodes = emptyList()
+                      selectedNodeTag = ""
+                      routingMode = storedRoutingModeFor(target, ProfileSelection.ROUTING_ALL)
+                      directRoutes = profilePreferences.getString("core_direct_routes", "").orEmpty()
+                      vpnRoutes = profilePreferences.getString("core_vpn_routes", "").orEmpty()
+                      subscriptionRefreshAvailable = false
+                      profilePreferences.edit().putString("profile_engine", target).apply()
+                      importError = null
+                    } finally { payload.fill(0) }
+                  } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+                  catch (failure: Exception) {
+                    importError = failure.userMessage(R.string.subscription_import_failed)
+                  } finally { importing = false }
+                }
+                return@selectEngine
+              }
               stopTunnelsAfterProfileCommit()
               profileEngine = target
               profileName = coreProfileName
